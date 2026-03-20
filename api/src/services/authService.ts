@@ -24,6 +24,10 @@ import {
   GoogleIdentityError,
   verifyGoogleIdToken,
 } from "./googleIdentityService";
+import {
+  FacebookIdentityError,
+  verifyFacebookAccessToken,
+} from "./facebookIdentityService";
 import { prisma } from "../utils/prisma";
 
 export type LoginSuccessResponse = {
@@ -394,6 +398,29 @@ async function resolveVerifiedExternalInput(
       };
     } catch (error) {
       if (error instanceof GoogleIdentityError) {
+        throw new AuthError(error.status, error.message, error.code);
+      }
+      throw error;
+    }
+  }
+
+  if (definition.key === "facebook") {
+    try {
+      const facebookIdentity = await verifyFacebookAccessToken(
+        String(input.accessToken || "")
+      );
+      return {
+        ...input,
+        providerUserId: facebookIdentity.providerUserId,
+        email: facebookIdentity.email,
+        fullName: facebookIdentity.fullName,
+        avatarUrl: facebookIdentity.avatarUrl,
+        emailVerified: facebookIdentity.emailVerified,
+        phoneVerified: false,
+        rawProfile: facebookIdentity.rawProfile as Prisma.InputJsonValue,
+      };
+    } catch (error) {
+      if (error instanceof FacebookIdentityError) {
         throw new AuthError(error.status, error.message, error.code);
       }
       throw error;
@@ -842,6 +869,7 @@ export type CompleteExternalAuthInput = {
   phoneVerified?: boolean;
   code?: string;
   idToken?: string;
+  accessToken?: string;
   rawProfile?: Prisma.InputJsonValue;
 };
 
@@ -871,6 +899,7 @@ export async function completeExternalAuth(
     sessionId,
     hasCode: Boolean(cleanNullable(verifiedInput.code)),
     hasIdToken: Boolean(cleanNullable(verifiedInput.idToken)),
+    hasAccessToken: Boolean(cleanNullable(verifiedInput.accessToken)),
   });
 
   return toLoginSuccessResponse(user, { accessToken, refreshToken });

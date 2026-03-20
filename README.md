@@ -59,14 +59,26 @@ Provider nao hien tren login page se do backend tra ve qua `/api/auth/providers`
 Nguon cau hinh tot nhat la `api/.env`, khong nen hardcode trong frontend.
 
 ```env
-AUTH_ENABLED_LOGIN_PROVIDERS="password,google"
-AUTH_ENABLED_LINK_PROVIDERS="google"
+AUTH_ENABLED_LOGIN_PROVIDERS="password,google,facebook"
+AUTH_ENABLED_LINK_PROVIDERS="google,facebook"
 GOOGLE_CLIENT_ID="your-google-web-client-id.apps.googleusercontent.com"
 GOOGLE_ALLOWED_HOSTED_DOMAIN=""
+FACEBOOK_APP_ID="your-meta-app-id"
+FACEBOOK_APP_SECRET="your-meta-app-secret"
+FACEBOOK_GRAPH_VERSION="v22.0"
+FACEBOOK_LOGIN_SCOPE="public_profile,email"
 ```
 
 Google login hien tai dung Google Identity Services button + backend verify ID token.
 Neu chay tren web client moi, nho them dung origin vao Google Cloud Console, vi du:
+
+- `http://localhost:5174`
+- `http://127.0.0.1:5174`
+- `http://192.168.1.27:5174`
+
+Facebook login hien tai dung Meta JavaScript SDK tren frontend de lay `accessToken`,
+backend verify lai qua Graph API roi moi tao session. Nho bat Facebook Login for Web
+trong Meta for Developers va them origin web:
 
 - `http://localhost:5174`
 - `http://127.0.0.1:5174`
