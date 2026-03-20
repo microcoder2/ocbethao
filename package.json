@@ -1,0 +1,21 @@
+{
+  "name": "ocbethao",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "api",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,frontend -c cyan,magenta \"npm run dev --workspace ocbethao-api\" \"npm run dev --workspace ocbethao-frontend\"",
+    "dev:api": "npm run dev --workspace ocbethao-api",
+    "dev:frontend": "npm run dev --workspace ocbethao-frontend",
+    "build": "npm run build --workspace ocbethao-api && npm run build --workspace ocbethao-frontend",
+    "db:push": "npm exec --workspace ocbethao-api prisma db push",
+    "seed": "npm run prisma:seed --workspace ocbethao-api",
+    "postinstall": "npm run prisma:generate --workspace ocbethao-api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
