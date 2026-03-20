@@ -225,6 +225,10 @@ async function renderGoogleButton() {
 
   try {
     const google = await loadGoogleIdentityScript();
+    const hostWidth = Math.floor(host.getBoundingClientRect().width || host.clientWidth || 0);
+    const viewportWidth = Math.max(280, Math.floor(window.innerWidth - 40));
+    const buttonWidth = Math.max(220, Math.min(hostWidth || viewportWidth, 360));
+
     if (initializedGoogleClientId !== clientId) {
       google.accounts.id.initialize({
         client_id: clientId,
@@ -244,7 +248,7 @@ async function renderGoogleButton() {
       size: "large",
       text: "signin_with",
       shape: "pill",
-      width: 360,
+      width: buttonWidth,
       logo_alignment: "left",
     });
   } catch (caught: any) {
@@ -280,12 +284,21 @@ onMounted(async () => {
 
 <style scoped>
 .obt-login-min {
+  box-sizing: border-box;
   position: relative;
-  min-height: 100vh;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--app-height, 100svh);
+  height: var(--app-height, 100svh);
   display: grid;
   place-items: center;
-  padding: 28px 16px;
-  overflow: hidden;
+  padding:
+    max(18px, env(safe-area-inset-top))
+    clamp(10px, 4vw, 16px)
+    max(18px, env(safe-area-inset-bottom));
+  overflow: clip;
+  overscroll-behavior: none;
   background:
     radial-gradient(circle at top left, rgba(255, 197, 125, 0.22), transparent 24%),
     radial-gradient(circle at bottom right, rgba(201, 87, 43, 0.16), transparent 28%),
@@ -316,36 +329,41 @@ onMounted(async () => {
 }
 
 .obt-login-min__card {
+  box-sizing: border-box;
   position: relative;
   z-index: 1;
   width: min(100%, 420px);
-  padding: 34px 24px 24px;
-  border-radius: 30px;
+  max-width: calc(var(--app-width, 100vw) - 20px);
+  max-height: calc(var(--app-height, 100svh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 36px);
+  padding: clamp(20px, 3.2dvh, 34px) clamp(14px, 4vw, 24px) clamp(16px, 2.6dvh, 24px);
+  border-radius: clamp(22px, 4vw, 30px);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 249, 241, 0.92));
   border: 1px solid rgba(230, 209, 192, 0.9);
   box-shadow:
     0 30px 60px rgba(88, 38, 17, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  overflow: hidden;
 }
 
 .obt-login-min__logo {
   display: block;
-  width: min(220px, 62%);
-  margin: 0 auto 28px;
+  width: min(220px, 64%);
+  max-width: 100%;
+  margin: 0 auto clamp(18px, 2.5dvh, 28px);
 }
 
 .obt-login-min__form {
   display: grid;
-  gap: 14px;
+  gap: clamp(10px, 1.5dvh, 14px);
 }
 
 .obt-login-min__field {
   display: flex;
   align-items: center;
-  min-height: 58px;
-  padding: 0 16px;
-  border-radius: 20px;
+  min-height: clamp(52px, 6.2dvh, 58px);
+  padding: 0 clamp(12px, 3.5vw, 16px);
+  border-radius: clamp(16px, 3vw, 20px);
   border: 1px solid rgba(219, 191, 171, 0.95);
   background: rgba(255, 255, 255, 0.82);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
@@ -360,10 +378,10 @@ onMounted(async () => {
 .obt-login-min__input {
   border: 0;
   padding: 0;
-  min-height: 56px;
+  min-height: clamp(50px, 6vh, 56px);
   background: transparent;
   box-shadow: none;
-  font-size: 0.98rem;
+  font-size: 1rem;
 }
 
 .obt-login-min__input:focus {
@@ -371,16 +389,16 @@ onMounted(async () => {
 }
 
 .obt-login-min__submit {
-  min-height: 56px;
-  margin-top: 6px;
-  border-radius: 18px;
-  font-size: 0.98rem;
+  min-height: clamp(52px, 6vh, 56px);
+  margin-top: 4px;
+  border-radius: clamp(16px, 3vw, 18px);
+  font-size: 1rem;
   font-weight: 800;
 }
 
 .obt-login-min__divider {
   position: relative;
-  margin: 18px 0 16px;
+  margin: clamp(14px, 2dvh, 18px) 0 clamp(12px, 1.6dvh, 16px);
   text-align: center;
   color: #9a7d6a;
   font-size: 0.85rem;
@@ -402,13 +420,16 @@ onMounted(async () => {
 .obt-login-min__provider-slot,
 .obt-login-min__providers {
   display: grid;
-  gap: 10px;
+  gap: clamp(8px, 1.2dvh, 10px);
 }
 
 .obt-login-min__google-host {
-  min-height: 44px;
+  width: 100%;
+  max-width: 100%;
+  min-height: 42px;
   display: grid;
   place-items: center;
+  overflow: hidden;
 }
 
 .obt-login-min__provider {
@@ -416,8 +437,10 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 50px;
-  border-radius: 18px;
+  width: 100%;
+  max-width: 100%;
+  min-height: clamp(46px, 5.3dvh, 50px);
+  border-radius: clamp(16px, 3vw, 18px);
   border: 1px solid rgba(216, 191, 172, 0.9);
   background: rgba(255, 255, 255, 0.8);
   color: #543322;
@@ -429,7 +452,7 @@ onMounted(async () => {
 }
 
 .obt-login-min__hint {
-  margin-top: 12px;
+  margin-top: clamp(10px, 1.4dvh, 12px);
   color: #8c6d59;
   font-size: 0.82rem;
   text-align: center;
@@ -437,17 +460,57 @@ onMounted(async () => {
 
 @media (max-width: 576px) {
   .obt-login-min {
-    padding: 18px 12px;
+    padding:
+      max(14px, env(safe-area-inset-top))
+      10px
+      max(14px, env(safe-area-inset-bottom));
   }
 
   .obt-login-min__card {
-    padding: 26px 16px 16px;
-    border-radius: 24px;
+    max-width: calc(var(--app-width, 100vw) - 16px);
+    max-height: calc(var(--app-height, 100svh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 20px);
+    padding: 18px 14px 14px;
+    border-radius: 22px;
   }
 
   .obt-login-min__logo {
-    width: min(210px, 72%);
-    margin-bottom: 22px;
+    width: min(196px, 68%);
+    margin-bottom: 16px;
+  }
+
+  .obt-login-min__ambient {
+    opacity: 0.45;
+    filter: blur(18px);
+  }
+
+  .obt-login-min__ambient--left {
+    left: -150px;
+    width: 220px;
+    height: 220px;
+  }
+
+  .obt-login-min__ambient--right {
+    right: -160px;
+    width: 260px;
+    height: 260px;
+  }
+}
+
+@media (max-height: 760px) {
+  .obt-login-min {
+    padding:
+      max(10px, env(safe-area-inset-top))
+      10px
+      max(10px, env(safe-area-inset-bottom));
+  }
+
+  .obt-login-min__card {
+    padding: 16px 14px 12px;
+  }
+
+  .obt-login-min__logo {
+    width: min(176px, 58%);
+    margin-bottom: 12px;
   }
 }
 </style>
