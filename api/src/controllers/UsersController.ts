@@ -14,7 +14,6 @@ import bcrypt from "bcryptjs";
 import { CustomerType, Prisma, Role } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { serializeUser } from "../utils/mappers";
-import { syncLocalAuthIdentities } from "../services/accountIdentityService";
 import { syncUserAuthSetup } from "../services/authService";
 
 class AuthIdentityBody {
@@ -111,7 +110,6 @@ export class UsersController extends Controller {
       },
     });
 
-    await syncLocalAuthIdentities(user);
     const updated = await syncUserAuthSetup(user.id, {
       preferredAuthProvider: body.preferredAuthProvider,
       authIdentities: body.authIdentities,

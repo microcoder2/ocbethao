@@ -5,20 +5,25 @@ import type { Prisma } from "@prisma/client";
 import { CustomerType, Role, type User } from "@prisma/client";
 import type { Request } from "express";
 import {
+  deleteLocalAuthIdentitiesForUser,
   deleteAuthIdentityForUser,
   findUserByVerifiedContact,
   type AuthIdentityInput,
   IdentityError,
   normalizeProviderUserId,
   replaceExternalAuthIdentities,
-  syncLocalAuthIdentities,
   upsertAuthIdentityForUser,
 } from "./accountIdentityService";
 import {
   getAuthProvider,
   getAuthProviders,
+  type AuthProviderDefinition,
   normalizeProvider,
 } from "./authProviders";
+import {
+  GoogleIdentityError,
+  verifyGoogleIdToken,
+} from "./googleIdentityService";
 import { prisma } from "../utils/prisma";
 
 export type LoginSuccessResponse = {
@@ -50,16 +55,7 @@ export type ExternalAuthStartResponse = {
 };
 
 export type AuthProviderCatalogResponse = {
-  providers: Array<{
-    key: string;
-    label: string;
-    kind: string;
-    supportsLogin: boolean;
-    supportsLink: boolean;
-    isEnabled: boolean;
-    isReady: boolean;
-    notes?: string;
-  }>;
+  providers: AuthProviderDefinition[];
 };
 
 type TokenPayload = {
@@ -344,11 +340,19 @@ async function validateChallenge(provider: string, state?: string | null) {
   return challenge;
 }
 
-function ensureProvider(provider: string, options?: { allowPassword?: boolean }) {
+function ensureProvider(
+  provider: string,
+  options?: {
+    allowPassword?: boolean;
+    requireLoginEnabled?: boolean;
+    requireLinkEnabled?: boolean;
+    requireReady?: boolean;
+  }
+) {
   const normalized = normalizeProvider(provider);
   const definition = getAuthProvider(normalized);
 
-  if (!definition || !definition.isEnabled) {
+  if (!definition) {
     throw new AuthError(400, "Unsupported auth provider", "UNSUPPORTED_PROVIDER");
   }
 
@@ -356,7 +360,47 @@ function ensureProvider(provider: string, options?: { allowPassword?: boolean })
     throw new AuthError(400, "Use /auth/login for password login", "PASSWORD_PROVIDER_ONLY");
   }
 
+  if (options?.requireLoginEnabled && !definition.isEnabled) {
+    throw new AuthError(403, "Auth provider is disabled", "PROVIDER_DISABLED");
+  }
+
+  if (options?.requireLinkEnabled && !definition.isLinkEnabled) {
+    throw new AuthError(403, "Auth provider linking is disabled", "PROVIDER_LINK_DISABLED");
+  }
+
+  if (options?.requireReady && !definition.isReady) {
+    throw new AuthError(503, "Auth provider is not configured", "PROVIDER_NOT_READY");
+  }
+
   return definition;
+}
+
+async function resolveVerifiedExternalInput(
+  definition: AuthProviderDefinition,
+  input: CompleteExternalAuthInput
+): Promise<CompleteExternalAuthInput> {
+  if (definition.key === "google") {
+    try {
+      const googleIdentity = await verifyGoogleIdToken(String(input.idToken || ""));
+      return {
+        ...input,
+        providerUserId: googleIdentity.providerUserId,
+        email: googleIdentity.email,
+        fullName: googleIdentity.fullName,
+        avatarUrl: googleIdentity.avatarUrl,
+        emailVerified: googleIdentity.emailVerified,
+        phoneVerified: false,
+        rawProfile: googleIdentity.rawProfile as Prisma.InputJsonValue,
+      };
+    } catch (error) {
+      if (error instanceof GoogleIdentityError) {
+        throw new AuthError(error.status, error.message, error.code);
+      }
+      throw error;
+    }
+  }
+
+  return input;
 }
 
 function buildIdentityCandidate(
@@ -406,7 +450,6 @@ async function createCustomerFromExternalIdentity(
     },
   });
 
-  await syncLocalAuthIdentities(user);
   const loaded = await loadUserWithAuth(user.id);
   return loaded;
 }
@@ -511,30 +554,6 @@ export async function authenticateUser(
         { username: normalizedIdentifier },
         { phone: normalizedIdentifier.replace(/\s+/g, "") },
         { email: emailCandidate },
-        {
-          authIdentities: {
-            some: {
-              provider: "username",
-              providerUserId: normalizedIdentifier,
-            },
-          },
-        },
-        {
-          authIdentities: {
-            some: {
-              provider: "phone",
-              providerUserId: normalizedIdentifier.replace(/\s+/g, ""),
-            },
-          },
-        },
-        {
-          authIdentities: {
-            some: {
-              provider: "email",
-              providerUserId: emailCandidate,
-            },
-          },
-        },
       ],
     },
     include: {
@@ -651,8 +670,6 @@ export async function registerCustomer(
     },
   });
 
-  await syncLocalAuthIdentities(user);
-
   if (!["password", "username", "phone", "email"].includes(provider)) {
     await upsertAuthIdentityForUser(user.id, {
       provider,
@@ -761,8 +778,11 @@ export async function startExternalAuth(
   req?: Request,
   userId?: number
 ): Promise<ExternalAuthStartResponse> {
-  const definition = ensureProvider(provider);
   const intent = normalizeProvider(input.intent || "login") || "login";
+  const definition = ensureProvider(provider, {
+    requireLoginEnabled: intent === "login",
+    requireLinkEnabled: intent === "link",
+  });
 
   if (intent === "link" && !userId) {
     throw new AuthError(401, "Authentication required to link provider");
@@ -830,9 +850,13 @@ export async function completeExternalAuth(
   input: CompleteExternalAuthInput,
   req?: Request
 ): Promise<LoginSuccessResponse> {
-  const definition = ensureProvider(provider);
-  const challenge = await validateChallenge(definition.key, input.state);
-  const identityInput = buildIdentityCandidate(definition.key, input);
+  const definition = ensureProvider(provider, {
+    requireLoginEnabled: true,
+    requireReady: true,
+  });
+  const verifiedInput = await resolveVerifiedExternalInput(definition, input);
+  const challenge = await validateChallenge(definition.key, verifiedInput.state);
+  const identityInput = buildIdentityCandidate(definition.key, verifiedInput);
   const resolved = await resolveExternalUser(definition.key, identityInput);
   const user = await loadUserWithAuth(resolved.user.id);
   const { accessToken, refreshToken, sessionId } = await issueTokens(user, req, {
@@ -845,8 +869,8 @@ export async function completeExternalAuth(
     provider: definition.key,
     authIdentityId: resolved.authIdentityId,
     sessionId,
-    hasCode: Boolean(cleanNullable(input.code)),
-    hasIdToken: Boolean(cleanNullable(input.idToken)),
+    hasCode: Boolean(cleanNullable(verifiedInput.code)),
+    hasIdToken: Boolean(cleanNullable(verifiedInput.idToken)),
   });
 
   return toLoginSuccessResponse(user, { accessToken, refreshToken });
@@ -881,14 +905,18 @@ export async function linkExternalAuthIdentity(
   input: CompleteExternalAuthInput,
   req?: Request
 ) {
-  const definition = ensureProvider(provider);
-  const challenge = await validateChallenge(definition.key, input.state);
+  const definition = ensureProvider(provider, {
+    requireLinkEnabled: true,
+    requireReady: true,
+  });
+  const verifiedInput = await resolveVerifiedExternalInput(definition, input);
+  const challenge = await validateChallenge(definition.key, verifiedInput.state);
 
   if (challenge?.intent === "link" && challenge.userId && challenge.userId !== userId) {
     throw new AuthError(403, "Auth challenge belongs to another user");
   }
 
-  const identityInput = buildIdentityCandidate(definition.key, input);
+  const identityInput = buildIdentityCandidate(definition.key, verifiedInput);
   let authIdentityId: number;
 
   try {
@@ -908,7 +936,7 @@ export async function linkExternalAuthIdentity(
     where: { id: userId },
     data: {
       preferredAuthProvider: definition.key,
-      avatarUrl: cleanNullable(input.avatarUrl) || undefined,
+      avatarUrl: cleanNullable(verifiedInput.avatarUrl) || undefined,
     },
     include: {
       authIdentities: true,
@@ -968,7 +996,7 @@ export async function syncUserAuthSetup(
   }
 ) {
   const user = await loadUserWithAuth(userId);
-  await syncLocalAuthIdentities(user);
+  await deleteLocalAuthIdentitiesForUser(userId);
 
   if (Array.isArray(input.authIdentities)) {
     try {

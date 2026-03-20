@@ -6,7 +6,7 @@
     <section class="obt-login-min__card">
       <img :src="logoUrl" alt="Oc Be Thao" class="obt-login-min__logo" />
 
-      <form class="obt-login-min__form" @submit.prevent="submitLogin">
+      <form v-if="showPasswordForm" class="obt-login-min__form" @submit.prevent="submitPasswordLogin">
         <div class="obt-login-min__field">
           <span class="obt-login-min__icon">
             <i class="bi bi-person-circle"></i>
@@ -14,7 +14,7 @@
           <input
             v-model="loginForm.identifier"
             class="form-control obt-login-min__input"
-            placeholder="Email / so dien thoai / username"
+            placeholder="Email / số điện thoại / username"
             autocomplete="username"
           />
         </div>
@@ -27,37 +27,120 @@
             v-model="loginForm.password"
             type="password"
             class="form-control obt-login-min__input"
-            placeholder="Password"
+            placeholder="Mật khẩu"
             autocomplete="current-password"
           />
         </div>
 
-        <button class="btn btn-ember obt-login-min__submit" :disabled="pending">
-          <span v-if="pending">Dang dang nhap...</span>
-          <span v-else>Dang nhap</span>
+        <button class="btn btn-ember obt-login-min__submit" :disabled="Boolean(pendingProvider)">
+          <span v-if="pendingProvider === 'password'">Đang đăng nhập...</span>
+          <span v-else>Đăng nhập</span>
         </button>
       </form>
 
+      <div v-if="externalProviders.length" class="obt-login-min__divider">
+        <span>Hoặc tiếp tục với</span>
+      </div>
+
+      <div v-if="googleProvider" class="obt-login-min__provider-slot">
+        <div
+          v-if="googleProvider.isReady"
+          ref="googleButtonHost"
+          class="obt-login-min__google-host"
+        ></div>
+        <button
+          v-else
+          class="btn obt-login-min__provider obt-login-min__provider--disabled"
+          disabled
+        >
+          <i class="bi bi-google"></i>
+          <span>{{ googleProvider.label }}</span>
+        </button>
+      </div>
+
+      <div v-if="placeholderProviders.length" class="obt-login-min__providers">
+        <button
+          v-for="provider in placeholderProviders"
+          :key="provider.key"
+          class="btn obt-login-min__provider"
+          :class="{ 'obt-login-min__provider--disabled': !provider.isReady }"
+          :disabled="true"
+        >
+          <i :class="providerIconClass(provider.key)"></i>
+          <span>{{ provider.label }}</span>
+        </button>
+      </div>
+
+      <div v-if="providerHint" class="obt-login-min__hint">{{ providerHint }}</div>
       <div v-if="error" class="alert alert-danger mt-3 mb-0">{{ error }}</div>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../api";
 import { saveAuth } from "../utils/auth";
+import { loadGoogleIdentityScript } from "../utils/googleIdentity";
 import logoUrl from "../assets/oc-be-thao-logo.svg";
 
-const router = useRouter();
-const pending = ref(false);
-const error = ref("");
+type AuthProviderItem = {
+  key: string;
+  label: string;
+  kind: string;
+  supportsLogin: boolean;
+  supportsLink: boolean;
+  isEnabled: boolean;
+  isLinkEnabled?: boolean;
+  isReady: boolean;
+  notes?: string;
+  publicConfig?: Record<string, string | boolean | number | null>;
+};
 
-const loginForm = reactive({
+const router = useRouter();
+const error = ref("");
+const pendingProvider = ref("");
+const providersLoaded = ref(false);
+const providers = ref<AuthProviderItem[]>([]);
+const googleButtonHost = ref<HTMLElement | null>(null);
+let initializedGoogleClientId = "";
+
+const loginForm = ref({
   identifier: "admin",
   password: "123456",
 });
+
+const passwordProvider = computed(
+  () => providers.value.find((provider) => provider.key === "password") || null
+);
+const showPasswordForm = computed(
+  () => !providersLoaded.value || passwordProvider.value?.isEnabled !== false
+);
+const externalProviders = computed(() =>
+  providers.value.filter(
+    (provider) => provider.supportsLogin && provider.key !== "password" && provider.isEnabled
+  )
+);
+const googleProvider = computed(
+  () => externalProviders.value.find((provider) => provider.key === "google") || null
+);
+const placeholderProviders = computed(() =>
+  externalProviders.value.filter((provider) => provider.key !== "google")
+);
+const providerHint = computed(() => {
+  const firstPendingProvider = externalProviders.value.find((provider) => !provider.isReady && provider.notes);
+  return firstPendingProvider?.notes || "";
+});
+
+function providerIconClass(providerKey: string): string {
+  if (providerKey === "google") return "bi bi-google";
+  if (providerKey === "facebook") return "bi bi-facebook";
+  if (providerKey === "apple") return "bi bi-apple";
+  if (providerKey === "zalo") return "bi bi-chat-dots-fill";
+  if (providerKey === "vneid") return "bi bi-shield-check";
+  return "bi bi-box-arrow-in-right";
+}
 
 function getHomePath(role?: string): string {
   const normalized = String(role || "").toUpperCase();
@@ -67,32 +150,132 @@ function getHomePath(role?: string): string {
   return "/";
 }
 
-async function submitLogin() {
-  pending.value = true;
+async function finishLogin(data: any) {
+  saveAuth(data);
+  try {
+    await router.replace(getHomePath(data?.user?.role));
+  } catch {
+    window.location.hash = `#${getHomePath(data?.user?.role)}`;
+  }
+}
+
+async function submitPasswordLogin() {
+  pendingProvider.value = "password";
   error.value = "";
   try {
     const { data } = await api.post("/auth/login", {
-      username: loginForm.identifier,
-      password: loginForm.password,
+      username: loginForm.value.identifier,
+      password: loginForm.value.password,
     });
-    saveAuth(data);
-    try {
-      await router.replace(getHomePath(data?.user?.role));
-    } catch {
-      window.location.hash = `#${getHomePath(data?.user?.role)}`;
-    }
+    await finishLogin(data);
   } catch (caught: any) {
     if (caught?.response?.data?.message) {
       error.value = caught.response.data.message;
     } else if (caught?.message) {
       error.value = caught.message;
     } else {
-      error.value = "Dang nhap that bai";
+      error.value = "Đăng nhập thất bại";
     }
   } finally {
-    pending.value = false;
+    pendingProvider.value = "";
   }
 }
+
+async function handleGoogleCredential(response: GoogleCredentialResponse) {
+  if (!response?.credential || pendingProvider.value) {
+    return;
+  }
+
+  pendingProvider.value = "google";
+  error.value = "";
+  try {
+    const { data } = await api.post("/auth/external/google/complete", {
+      idToken: response.credential,
+    });
+    await finishLogin(data);
+  } catch (caught: any) {
+    if (caught?.response?.data?.message) {
+      error.value = caught.response.data.message;
+    } else if (caught?.message) {
+      error.value = caught.message;
+    } else {
+      error.value = "Đăng nhập Google thất bại";
+    }
+  } finally {
+    pendingProvider.value = "";
+  }
+}
+
+async function renderGoogleButton() {
+  const provider = googleProvider.value;
+  const host = googleButtonHost.value;
+
+  if (!provider || !provider.isReady || !host) {
+    if (host) {
+      host.innerHTML = "";
+    }
+    return;
+  }
+
+  const clientId = String(provider.publicConfig?.clientId || "").trim();
+  if (!clientId) {
+    host.innerHTML = "";
+    return;
+  }
+
+  try {
+    const google = await loadGoogleIdentityScript();
+    if (initializedGoogleClientId !== clientId) {
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: handleGoogleCredential,
+        ux_mode: "popup",
+        auto_select: false,
+        cancel_on_tap_outside: true,
+        context: "signin",
+      });
+      initializedGoogleClientId = clientId;
+    }
+
+    host.innerHTML = "";
+    google.accounts.id.renderButton(host, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: "signin_with",
+      shape: "pill",
+      width: 360,
+      logo_alignment: "left",
+    });
+  } catch (caught: any) {
+    error.value = caught?.message || "Không tải được Google Sign-In";
+  }
+}
+
+async function loadProviders() {
+  try {
+    const { data } = await api.get("/auth/providers");
+    providers.value = Array.isArray(data?.providers) ? data.providers : [];
+  } catch {
+    providers.value = [];
+  } finally {
+    providersLoaded.value = true;
+    await nextTick();
+    await renderGoogleButton();
+  }
+}
+
+watch(
+  () => [googleProvider.value?.key, googleProvider.value?.isReady, googleProvider.value?.publicConfig?.clientId, googleButtonHost.value] as const,
+  async () => {
+    await nextTick();
+    await renderGoogleButton();
+  }
+);
+
+onMounted(async () => {
+  await loadProviders();
+});
 </script>
 
 <style scoped>
@@ -193,6 +376,63 @@ async function submitLogin() {
   border-radius: 18px;
   font-size: 0.98rem;
   font-weight: 800;
+}
+
+.obt-login-min__divider {
+  position: relative;
+  margin: 18px 0 16px;
+  text-align: center;
+  color: #9a7d6a;
+  font-size: 0.85rem;
+}
+
+.obt-login-min__divider::before {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  border-top: 1px solid rgba(216, 191, 172, 0.75);
+}
+
+.obt-login-min__divider span {
+  position: relative;
+  padding: 0 12px;
+  background: rgba(255, 251, 247, 0.92);
+}
+
+.obt-login-min__provider-slot,
+.obt-login-min__providers {
+  display: grid;
+  gap: 10px;
+}
+
+.obt-login-min__google-host {
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+}
+
+.obt-login-min__provider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 50px;
+  border-radius: 18px;
+  border: 1px solid rgba(216, 191, 172, 0.9);
+  background: rgba(255, 255, 255, 0.8);
+  color: #543322;
+  font-weight: 700;
+}
+
+.obt-login-min__provider--disabled {
+  opacity: 0.65;
+}
+
+.obt-login-min__hint {
+  margin-top: 12px;
+  color: #8c6d59;
+  font-size: 0.82rem;
+  text-align: center;
 }
 
 @media (max-width: 576px) {

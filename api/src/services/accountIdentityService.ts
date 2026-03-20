@@ -25,13 +25,6 @@ export type AuthIdentityInput = {
   rawProfile?: Prisma.InputJsonValue;
 };
 
-type LocalIdentityUser = {
-  id: number;
-  username?: string | null;
-  phone?: string | null;
-  email?: string | null;
-};
-
 function cleanNullable(value: string | null | undefined): string | null {
   const normalized = String(value || "").trim();
   return normalized ? normalized : null;
@@ -62,6 +55,14 @@ function buildIdentityData(input: AuthIdentityInput) {
 
   if (!provider || !providerUserId) {
     throw new IdentityError(400, "provider and providerUserId are required");
+  }
+
+  if (isLocalIdentityProvider(provider)) {
+    throw new IdentityError(
+      400,
+      "Local identifiers belong on the User record, not UserAuthIdentity",
+      "LOCAL_IDENTITY_NOT_SUPPORTED"
+    );
   }
 
   return {
@@ -114,61 +115,25 @@ export async function upsertAuthIdentityForUser(
   });
 }
 
-export async function syncLocalAuthIdentities(user: LocalIdentityUser): Promise<void> {
-  const desired = [
-    user.username
-      ? {
-          provider: "username",
-          providerUserId: user.username,
-          providerUsername: user.username,
-        }
-      : null,
-    user.phone
-      ? {
-          provider: "phone",
-          providerUserId: user.phone,
-          providerPhone: user.phone,
-          phoneVerified: false,
-        }
-      : null,
-    user.email
-      ? {
-          provider: "email",
-          providerUserId: user.email,
-          providerEmail: user.email,
-          emailVerified: false,
-        }
-      : null,
-  ].filter(Boolean) as AuthIdentityInput[];
-
-  const current = await prisma.userAuthIdentity.findMany({
+export async function deleteLocalAuthIdentitiesForUser(userId: number): Promise<void> {
+  await prisma.userAuthIdentity.deleteMany({
     where: {
-      userId: user.id,
+      userId,
+      provider: {
+        in: ["username", "phone", "email"],
+      },
     },
   });
+}
 
-  for (const identity of desired) {
-    await upsertAuthIdentityForUser(user.id, identity);
-  }
-
-  const desiredKeys = new Set(
-    desired.map((identity) => `${normalizeProvider(identity.provider)}:${normalizeProviderUserId(identity.provider, identity.providerUserId)}`)
-  );
-
-  const staleLocalIds = current
-    .filter((identity) => isLocalIdentityProvider(identity.provider))
-    .filter(
-      (identity) => !desiredKeys.has(`${identity.provider}:${identity.providerUserId}`)
-    )
-    .map((identity) => identity.id);
-
-  if (staleLocalIds.length > 0) {
-    await prisma.userAuthIdentity.deleteMany({
-      where: {
-        id: { in: staleLocalIds },
+export async function deleteAllLocalAuthIdentities(): Promise<void> {
+  await prisma.userAuthIdentity.deleteMany({
+    where: {
+      provider: {
+        in: ["username", "phone", "email"],
       },
-    });
-  }
+    },
+  });
 }
 
 export async function replaceExternalAuthIdentities(
@@ -221,10 +186,6 @@ export async function deleteAuthIdentityForUser(
 
   if (!identity) {
     throw new IdentityError(404, "Auth identity not found", "IDENTITY_NOT_FOUND");
-  }
-
-  if (isLocalIdentityProvider(identity.provider)) {
-    throw new IdentityError(400, "Local identities cannot be unlinked", "IDENTITY_PROTECTED");
   }
 
   await prisma.userAuthIdentity.delete({

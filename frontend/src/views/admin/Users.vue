@@ -3,9 +3,9 @@
     <section class="row g-4">
       <div class="col-12 col-xl-5">
         <div class="page-panel">
-          <div class="panel-title">{{ form.id ? "Cap nhat user" : "Them user" }}</div>
+          <div class="panel-title">{{ form.id ? "Cập nhật user" : "Thêm user" }}</div>
           <form class="form-grid" @submit.prevent="saveUser">
-            <input v-model="form.fullName" class="form-control" placeholder="Ho ten" />
+            <input v-model="form.fullName" class="form-control" placeholder="Họ tên" />
             <input v-model="form.username" class="form-control" placeholder="Username" />
             <select v-model="form.role" class="form-select">
               <option value="ADMIN">ADMIN</option>
@@ -13,24 +13,24 @@
               <option value="CUSTOMER">CUSTOMER</option>
             </select>
             <div class="row g-3">
-              <div class="col-6"><input v-model="form.phone" class="form-control" placeholder="So dien thoai" /></div>
+              <div class="col-6"><input v-model="form.phone" class="form-control" placeholder="Số điện thoại" /></div>
               <div class="col-6"><input v-model="form.email" class="form-control" placeholder="Email" /></div>
             </div>
             <div class="row g-3">
               <div class="col-6">
                 <select v-model="form.preferredAuthProvider" class="form-select">
-                  <option value="">Provider mac dinh</option>
-                  <option value="password">password</option>
-                  <option value="google">google</option>
-                  <option value="facebook">facebook</option>
-                  <option value="apple">apple</option>
-                  <option value="zalo">zalo</option>
-                  <option value="vneid">vneid</option>
+                  <option value="">Provider mặc định</option>
+                  <option value="password">Password</option>
+                  <option value="google">Google</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="apple">Apple</option>
+                  <option value="zalo">Zalo</option>
+                  <option value="vneid">VNeID</option>
                 </select>
               </div>
               <div class="col-6">
                 <select v-model="form.customerType" class="form-select">
-                  <option value="">Loai khach</option>
+                  <option value="">Loại khách</option>
                   <option value="REGULAR">REGULAR</option>
                   <option value="VIP">VIP</option>
                   <option value="OFFICE">OFFICE</option>
@@ -39,28 +39,28 @@
                 </select>
               </div>
             </div>
-            <input v-model="form.password" type="password" class="form-control" placeholder="Mat khau" />
-            <textarea v-model="form.notes" rows="2" class="form-control" placeholder="Ghi chu noi bo"></textarea>
-            <button class="btn btn-ember">Luu user</button>
+            <input v-model="form.password" type="password" class="form-control" placeholder="Mật khẩu" />
+            <textarea v-model="form.notes" rows="2" class="form-control" placeholder="Ghi chú nội bộ"></textarea>
+            <button class="btn btn-ember">Lưu user</button>
           </form>
           <div v-if="form.authIdentityLabels.length" class="mt-3 small text-muted">
-            Linked providers: {{ form.authIdentityLabels.join(", ") }}
+            Provider đã liên kết: {{ form.authIdentityLabels.join(", ") }}
           </div>
         </div>
       </div>
 
       <div class="col-12 col-xl-7">
         <div class="page-panel">
-          <div class="panel-title">Danh sach user</div>
+          <div class="panel-title">Danh sách user</div>
           <div class="table-responsive">
             <table class="table align-middle mb-0">
               <thead>
                 <tr>
-                  <th>Ho ten</th>
+                  <th>Họ tên</th>
                   <th>Username</th>
                   <th>Role</th>
-                  <th>Dinh danh</th>
-                  <th>Provider</th>
+                  <th>Định danh</th>
+                  <th>Đăng nhập qua</th>
                   <th></th>
                 </tr>
               </thead>
@@ -70,9 +70,21 @@
                   <td>{{ user.username || "--" }}</td>
                   <td>{{ user.role }}</td>
                   <td>{{ [user.phone, user.email].filter(Boolean).join(" / ") || "--" }}</td>
-                  <td>{{ user.linkedAuthProviders?.join(", ") || (user.hasPassword ? "password" : "--") }}</td>
+                  <td>
+                    <div v-if="getLoginProviders(user).length" class="d-flex flex-wrap gap-1">
+                      <span
+                        v-for="provider in getLoginProviders(user)"
+                        :key="provider"
+                        class="badge"
+                        :class="provider === getPrimaryProvider(user) ? 'text-bg-dark' : 'text-bg-light border'"
+                      >
+                        {{ formatProviderLabel(provider) }}
+                      </span>
+                    </div>
+                    <span v-else>--</span>
+                  </td>
                   <td class="text-end">
-                    <button class="btn btn-sm btn-outline-dark" @click="editUser(user)">Sua</button>
+                    <button class="btn btn-sm btn-outline-dark" @click="editUser(user)">Sửa</button>
                   </td>
                 </tr>
               </tbody>
@@ -123,6 +135,33 @@ function resetForm() {
 async function loadUsers() {
   const { data } = await api.get("/users");
   users.value = data;
+}
+
+function getLoginProviders(user: any): string[] {
+  const providers = Array.isArray(user.linkedAuthProviders) ? [...user.linkedAuthProviders] : [];
+  if (user.hasPassword && !providers.includes("password")) {
+    providers.unshift("password");
+  }
+  return providers;
+}
+
+function getPrimaryProvider(user: any): string {
+  const preferred = String(user.preferredAuthProvider || "").trim().toLowerCase();
+  if (preferred) {
+    return preferred;
+  }
+  return getLoginProviders(user)[0] || "";
+}
+
+function formatProviderLabel(provider: string): string {
+  const normalized = String(provider || "").trim().toLowerCase();
+  if (normalized === "password") return "Password";
+  if (normalized === "google") return "Google";
+  if (normalized === "facebook") return "Facebook";
+  if (normalized === "apple") return "Apple";
+  if (normalized === "zalo") return "Zalo";
+  if (normalized === "vneid") return "VNeID";
+  return normalized || "--";
 }
 
 function editUser(user: any) {

@@ -11,7 +11,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../src/utils/prisma";
 import {
-  syncLocalAuthIdentities,
+  deleteAllLocalAuthIdentities,
   upsertAuthIdentityForUser,
 } from "../src/services/accountIdentityService";
 
@@ -26,6 +26,8 @@ function money(value: number): Prisma.Decimal {
 
 async function seedUsers() {
   const password = await bcrypt.hash("123456", 10);
+
+  await deleteAllLocalAuthIdentities();
 
   await prisma.user.upsert({
     where: { email: "admin@ocbethao.local" },
@@ -92,10 +94,6 @@ async function seedUsers() {
       ],
     },
   });
-
-  for (const user of users) {
-    await syncLocalAuthIdentities(user);
-  }
 
   const customer = users.find((user) => user.phone === "0909000003");
   if (customer) {

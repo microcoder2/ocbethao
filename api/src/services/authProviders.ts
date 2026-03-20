@@ -1,4 +1,5 @@
 export type AuthProviderKind = "password" | "oauth" | "oidc" | "national_id";
+export type AuthProviderPublicConfig = Record<string, string | boolean | number | null>;
 
 export type AuthProviderDefinition = {
   key: string;
@@ -7,19 +8,25 @@ export type AuthProviderDefinition = {
   supportsLogin: boolean;
   supportsLink: boolean;
   isEnabled: boolean;
+  isLinkEnabled?: boolean;
   isReady: boolean;
   notes?: string;
+  publicConfig?: AuthProviderPublicConfig;
 };
 
-const AUTH_PROVIDER_DEFINITIONS: AuthProviderDefinition[] = [
+type AuthProviderTemplate = Omit<
+  AuthProviderDefinition,
+  "isEnabled" | "isReady" | "supportsLink"
+> & {
+  supportsLink?: boolean;
+};
+
+const AUTH_PROVIDER_DEFINITIONS: AuthProviderTemplate[] = [
   {
     key: "password",
     label: "Password",
     kind: "password",
     supportsLogin: true,
-    supportsLink: false,
-    isEnabled: true,
-    isReady: true,
     notes: "Username, phone, or email with password.",
   },
   {
@@ -28,8 +35,7 @@ const AUTH_PROVIDER_DEFINITIONS: AuthProviderDefinition[] = [
     kind: "oidc",
     supportsLogin: true,
     supportsLink: true,
-    isEnabled: true,
-    isReady: false,
+    notes: "Requires GOOGLE_CLIENT_ID.",
   },
   {
     key: "facebook",
@@ -37,8 +43,6 @@ const AUTH_PROVIDER_DEFINITIONS: AuthProviderDefinition[] = [
     kind: "oauth",
     supportsLogin: true,
     supportsLink: true,
-    isEnabled: true,
-    isReady: false,
   },
   {
     key: "apple",
@@ -46,8 +50,6 @@ const AUTH_PROVIDER_DEFINITIONS: AuthProviderDefinition[] = [
     kind: "oidc",
     supportsLogin: true,
     supportsLink: true,
-    isEnabled: true,
-    isReady: false,
   },
   {
     key: "zalo",
@@ -55,8 +57,6 @@ const AUTH_PROVIDER_DEFINITIONS: AuthProviderDefinition[] = [
     kind: "oauth",
     supportsLogin: true,
     supportsLink: true,
-    isEnabled: true,
-    isReady: false,
   },
   {
     key: "vneid",
@@ -64,24 +64,84 @@ const AUTH_PROVIDER_DEFINITIONS: AuthProviderDefinition[] = [
     kind: "national_id",
     supportsLogin: true,
     supportsLink: true,
-    isEnabled: true,
-    isReady: false,
   },
 ];
 
-const PROVIDER_MAP = new Map(
-  AUTH_PROVIDER_DEFINITIONS.map((provider) => [provider.key, provider])
-);
-
 const LOCAL_IDENTITY_PROVIDERS = new Set(["username", "phone", "email"]);
 
+function parseProviderList(value: string | undefined, fallback: string[]): Set<string> {
+  const rawValues = String(value || "")
+    .split(",")
+    .map((item) => normalizeProvider(item))
+    .filter(Boolean);
+
+  return new Set(rawValues.length > 0 ? rawValues : fallback);
+}
+
+function getGoogleClientId(): string {
+  return String(process.env.GOOGLE_CLIENT_ID || "").trim();
+}
+
+function buildRuntimeProvider(provider: AuthProviderTemplate): AuthProviderDefinition {
+  const loginEnabledProviders = parseProviderList(
+    process.env.AUTH_ENABLED_LOGIN_PROVIDERS,
+    ["password"]
+  );
+  const linkEnabledProviders = parseProviderList(
+    process.env.AUTH_ENABLED_LINK_PROVIDERS,
+    ["google"]
+  );
+
+  const isEnabled = loginEnabledProviders.has(provider.key);
+  const isLinkEnabled = Boolean(provider.supportsLink) && linkEnabledProviders.has(provider.key);
+
+  if (provider.key === "password") {
+    return {
+      ...provider,
+      supportsLink: false,
+      isEnabled,
+      isLinkEnabled: false,
+      isReady: true,
+    };
+  }
+
+  if (provider.key === "google") {
+    const clientId = getGoogleClientId();
+    return {
+      ...provider,
+      supportsLink: Boolean(provider.supportsLink),
+      isEnabled,
+      isLinkEnabled,
+      isReady: Boolean(clientId),
+      notes: clientId ? provider.notes : "Set GOOGLE_CLIENT_ID to enable Google sign-in.",
+      publicConfig: clientId
+        ? {
+            clientId,
+            uxMode: "popup",
+          }
+        : undefined,
+    };
+  }
+
+  return {
+    ...provider,
+    supportsLink: Boolean(provider.supportsLink),
+    isEnabled,
+    isLinkEnabled,
+    isReady: false,
+  };
+}
+
 export function getAuthProviders(): AuthProviderDefinition[] {
-  return AUTH_PROVIDER_DEFINITIONS.map((provider) => ({ ...provider }));
+  return AUTH_PROVIDER_DEFINITIONS.map(buildRuntimeProvider);
 }
 
 export function getAuthProvider(provider: string): AuthProviderDefinition | null {
   const normalized = normalizeProvider(provider);
-  return normalized ? PROVIDER_MAP.get(normalized) || null : null;
+  if (!normalized) {
+    return null;
+  }
+  return getAuthProviders().find((item) => item.key === normalized) || null;
 }
 
 export function normalizeProvider(provider: string | null | undefined): string {
