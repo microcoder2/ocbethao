@@ -4,7 +4,32 @@ const runtimeApiBaseUrl =
     ? `${window.location.protocol}//${window.location.hostname}:3000`
     : "";
 
-const apiBaseUrl = envApiBaseUrl || runtimeApiBaseUrl;
+function isLocalHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function resolveApiBaseUrl(): string {
+  if (!envApiBaseUrl) {
+    return runtimeApiBaseUrl;
+  }
+
+  if (typeof window === "undefined") {
+    return envApiBaseUrl;
+  }
+
+  try {
+    const envUrl = new URL(envApiBaseUrl);
+    if (isLocalHost(envUrl.hostname) && !isLocalHost(window.location.hostname)) {
+      return runtimeApiBaseUrl;
+    }
+  } catch {
+    return envApiBaseUrl;
+  }
+
+  return envApiBaseUrl;
+}
+
+const apiBaseUrl = resolveApiBaseUrl();
 
 if (!apiBaseUrl) {
   throw new Error("Unable to resolve API base URL");

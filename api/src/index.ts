@@ -19,7 +19,7 @@ const baseDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
 const publicDir = resolvePublicDir(baseDir);
 app.use(express.static(publicDir));
 
-const staticOrigins = ["http://localhost:5174"];
+const staticOrigins = ["http://localhost:5174", "http://127.0.0.1:5174"];
 const envOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
   .map((value) => value.trim())
