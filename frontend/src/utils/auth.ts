@@ -6,6 +6,8 @@ export type AuthUser = {
   phone?: string | null;
   email?: string | null;
   customerType?: string | null;
+  preferredAuthProvider?: string | null;
+  linkedAuthProviders?: string[];
 };
 
 const memoryStore: Record<string, string> = {};

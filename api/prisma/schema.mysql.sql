@@ -2,13 +2,12 @@
 CREATE TABLE `User` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `fullName` VARCHAR(191) NOT NULL,
-    `password` VARCHAR(191) NOT NULL,
+    `password` VARCHAR(191) NULL,
     `role` ENUM('ADMIN', 'STAFF', 'CUSTOMER') NOT NULL,
+    `username` VARCHAR(191) NULL,
     `phone` VARCHAR(191) NULL,
     `email` VARCHAR(191) NULL,
-    `zaloId` VARCHAR(191) NULL,
-    `appleId` VARCHAR(191) NULL,
-    `preferredAuthProvider` ENUM('PHONE', 'EMAIL', 'ZALO', 'APPLE') NULL,
+    `preferredAuthProvider` VARCHAR(191) NULL,
     `customerType` ENUM('WALK_IN', 'REGULAR', 'VIP', 'OFFICE', 'ONLINE', 'TOURIST') NULL,
     `avatarUrl` LONGTEXT NULL,
     `notes` LONGTEXT NULL,
@@ -16,10 +15,55 @@ CREATE TABLE `User` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
+    UNIQUE INDEX `User_username_key`(`username`),
     UNIQUE INDEX `User_phone_key`(`phone`),
     UNIQUE INDEX `User_email_key`(`email`),
-    UNIQUE INDEX `User_zaloId_key`(`zaloId`),
-    UNIQUE INDEX `User_appleId_key`(`appleId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `UserAuthIdentity` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `userId` INTEGER NOT NULL,
+    `provider` VARCHAR(191) NOT NULL,
+    `providerUserId` VARCHAR(191) NOT NULL,
+    `providerEmail` VARCHAR(191) NULL,
+    `providerPhone` VARCHAR(191) NULL,
+    `providerUsername` VARCHAR(191) NULL,
+    `displayName` VARCHAR(191) NULL,
+    `avatarUrl` LONGTEXT NULL,
+    `emailVerified` BOOLEAN NOT NULL DEFAULT false,
+    `phoneVerified` BOOLEAN NOT NULL DEFAULT false,
+    `rawProfile` JSON NULL,
+    `linkedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `lastLoginAt` DATETIME(3) NULL,
+    `revokedAt` DATETIME(3) NULL,
+
+    INDEX `UserAuthIdentity_userId_provider_idx`(`userId`, `provider`),
+    INDEX `UserAuthIdentity_providerEmail_idx`(`providerEmail`),
+    INDEX `UserAuthIdentity_providerPhone_idx`(`providerPhone`),
+    UNIQUE INDEX `UserAuthIdentity_provider_providerUserId_key`(`provider`, `providerUserId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `AuthChallenge` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `userId` INTEGER NULL,
+    `provider` VARCHAR(191) NOT NULL,
+    `intent` VARCHAR(191) NOT NULL DEFAULT 'login',
+    `state` VARCHAR(191) NOT NULL,
+    `nonce` VARCHAR(191) NULL,
+    `codeVerifier` LONGTEXT NULL,
+    `redirectUri` LONGTEXT NULL,
+    `externalSessionId` VARCHAR(191) NULL,
+    `expiresAt` DATETIME(3) NOT NULL,
+    `consumedAt` DATETIME(3) NULL,
+    `meta` JSON NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    UNIQUE INDEX `AuthChallenge_state_key`(`state`),
+    INDEX `AuthChallenge_provider_expiresAt_idx`(`provider`, `expiresAt`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -168,6 +212,8 @@ CREATE TABLE `OrderItem` (
 CREATE TABLE `UserSession` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `userId` INTEGER NOT NULL,
+    `authIdentityId` INTEGER NULL,
+    `loginProvider` VARCHAR(191) NULL,
     `refreshTokenHash` VARCHAR(191) NOT NULL,
     `ip` VARCHAR(191) NULL,
     `userAgent` VARCHAR(191) NULL,
@@ -177,6 +223,7 @@ CREATE TABLE `UserSession` (
     `revokedAt` DATETIME(3) NULL,
 
     INDEX `UserSession_userId_idx`(`userId`),
+    INDEX `UserSession_authIdentityId_idx`(`authIdentityId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -194,6 +241,12 @@ CREATE TABLE `AuditLog` (
     INDEX `AuditLog_action_idx`(`action`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- AddForeignKey
+ALTER TABLE `UserAuthIdentity` ADD CONSTRAINT `UserAuthIdentity_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `AuthChallenge` ADD CONSTRAINT `AuthChallenge_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `MenuItem` ADD CONSTRAINT `MenuItem_categoryId_fkey` FOREIGN KEY (`categoryId`) REFERENCES `Category`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -236,6 +289,9 @@ ALTER TABLE `OrderItem` ADD CONSTRAINT `OrderItem_dailyMenuItemId_fkey` FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE `UserSession` ADD CONSTRAINT `UserSession_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `UserSession` ADD CONSTRAINT `UserSession_authIdentityId_fkey` FOREIGN KEY (`authIdentityId`) REFERENCES `UserAuthIdentity`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `AuditLog` ADD CONSTRAINT `AuditLog_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;

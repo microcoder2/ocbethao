@@ -11,9 +11,23 @@ import {
   Tags,
 } from "tsoa";
 import bcrypt from "bcryptjs";
-import { AuthProvider, CustomerType, Prisma, Role } from "@prisma/client";
+import { CustomerType, Prisma, Role } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { serializeUser } from "../utils/mappers";
+import { syncLocalAuthIdentities } from "../services/accountIdentityService";
+import { syncUserAuthSetup } from "../services/authService";
+
+class AuthIdentityBody {
+  provider!: string;
+  providerUserId!: string;
+  providerEmail?: string;
+  providerPhone?: string;
+  providerUsername?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
+}
 
 class UserBody {
   fullName!: string;
@@ -22,13 +36,12 @@ class UserBody {
   username?: string;
   phone?: string;
   email?: string;
-  zaloId?: string;
-  appleId?: string;
-  preferredAuthProvider?: AuthProvider;
+  preferredAuthProvider?: string;
   customerType?: CustomerType;
   avatarUrl?: string;
   notes?: string;
   isActive?: boolean;
+  authIdentities?: AuthIdentityBody[];
 }
 
 @Route("users")
@@ -37,7 +50,7 @@ export class UsersController extends Controller {
   @Get("/")
   @Security("bearerAuth", ["ADMIN"])
   public async getUsers(@Query() role?: Role, @Query() search?: string) {
-    const where: any = {};
+    const where: Prisma.UserWhereInput = {};
     if (role) {
       where.role = role;
     }
@@ -45,13 +58,24 @@ export class UsersController extends Controller {
       const q = search.trim();
       where.OR = [
         { fullName: { contains: q } },
+        { username: { contains: q } },
         { phone: { contains: q } },
         { email: { contains: q } },
+        {
+          authIdentities: {
+            some: {
+              providerUserId: { contains: q },
+            },
+          },
+        },
       ];
     }
 
     const users = await prisma.user.findMany({
       where,
+      include: {
+        authIdentities: true,
+      },
       orderBy: { createdAt: "desc" },
     });
     return users.map(serializeUser);
@@ -60,21 +84,19 @@ export class UsersController extends Controller {
   @Post("/")
   @Security("bearerAuth", ["ADMIN"])
   public async createUser(@Body() body: UserBody) {
-    if (!body.password) {
+    if (!body.password && (!Array.isArray(body.authIdentities) || body.authIdentities.length === 0)) {
       this.setStatus(400);
-      return { message: "password is required" };
+      return { message: "password or authIdentities is required" };
     }
 
-    const password = await bcrypt.hash(body.password, 10);
+    const password = body.password ? await bcrypt.hash(body.password, 10) : undefined;
     const data: Prisma.UserCreateInput = {
       fullName: body.fullName,
       password,
       role: body.role,
       username: body.username,
       phone: body.phone,
-      email: body.email,
-      zaloId: body.zaloId,
-      appleId: body.appleId,
+      email: body.email?.toLowerCase(),
       preferredAuthProvider: body.preferredAuthProvider,
       customerType: body.customerType,
       avatarUrl: body.avatarUrl,
@@ -82,9 +104,21 @@ export class UsersController extends Controller {
       isActive: body.isActive ?? true,
     };
 
-    const user = await prisma.user.create({ data });
+    const user = await prisma.user.create({
+      data,
+      include: {
+        authIdentities: true,
+      },
+    });
+
+    await syncLocalAuthIdentities(user);
+    const updated = await syncUserAuthSetup(user.id, {
+      preferredAuthProvider: body.preferredAuthProvider,
+      authIdentities: body.authIdentities,
+    });
+
     this.setStatus(201);
-    return serializeUser(user);
+    return serializeUser(updated);
   }
 
   @Put("{id}")
@@ -95,9 +129,7 @@ export class UsersController extends Controller {
       role: body.role,
       username: body.username,
       phone: body.phone,
-      email: body.email,
-      zaloId: body.zaloId,
-      appleId: body.appleId,
+      email: body.email?.toLowerCase(),
       preferredAuthProvider: body.preferredAuthProvider,
       customerType: body.customerType,
       avatarUrl: body.avatarUrl,
@@ -109,10 +141,16 @@ export class UsersController extends Controller {
       data.password = await bcrypt.hash(body.password, 10);
     }
 
-    const user = await prisma.user.update({
+    await prisma.user.update({
       where: { id },
       data,
     });
-    return serializeUser(user);
+
+    const updated = await syncUserAuthSetup(id, {
+      preferredAuthProvider: body.preferredAuthProvider,
+      authIdentities: body.authIdentities,
+    });
+
+    return serializeUser(updated);
   }
 }

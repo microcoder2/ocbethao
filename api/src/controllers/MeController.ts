@@ -19,6 +19,9 @@ export class MeController extends Controller {
     const authUser = (req as any).user;
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: authUser.id },
+      include: {
+        authIdentities: true,
+      },
     });
     return serializeUser(user);
   }

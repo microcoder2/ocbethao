@@ -4,6 +4,25 @@ import { toNumber } from "./serializers";
 type AnyRecord = Record<string, any>;
 
 export function serializeUser(user: AnyRecord) {
+  const authIdentities = Array.isArray(user.authIdentities)
+    ? user.authIdentities
+        .filter((identity: AnyRecord) => !identity.revokedAt)
+        .map((identity: AnyRecord) => ({
+          id: identity.id,
+          provider: identity.provider,
+          providerUserId: identity.providerUserId,
+          providerEmail: identity.providerEmail ?? null,
+          providerPhone: identity.providerPhone ?? null,
+          providerUsername: identity.providerUsername ?? null,
+          displayName: identity.displayName ?? null,
+          avatarUrl: identity.avatarUrl ?? null,
+          emailVerified: Boolean(identity.emailVerified),
+          phoneVerified: Boolean(identity.phoneVerified),
+          linkedAt: identity.linkedAt,
+          lastLoginAt: identity.lastLoginAt ?? null,
+        }))
+    : [];
+
   return {
     id: user.id,
     fullName: user.fullName,
@@ -11,13 +30,14 @@ export function serializeUser(user: AnyRecord) {
     username: user.username ?? null,
     phone: user.phone ?? null,
     email: user.email ?? null,
-    zaloId: user.zaloId ?? null,
-    appleId: user.appleId ?? null,
     preferredAuthProvider: user.preferredAuthProvider ?? null,
     customerType: (user.customerType as CustomerType | null) ?? null,
     avatarUrl: user.avatarUrl ?? null,
     notes: user.notes ?? null,
     isActive: Boolean(user.isActive),
+    hasPassword: Boolean(user.password),
+    linkedAuthProviders: authIdentities.map((identity: AnyRecord) => identity.provider),
+    authIdentities,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };

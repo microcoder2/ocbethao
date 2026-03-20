@@ -17,17 +17,15 @@
               <div class="col-6"><input v-model="form.email" class="form-control" placeholder="Email" /></div>
             </div>
             <div class="row g-3">
-              <div class="col-6"><input v-model="form.zaloId" class="form-control" placeholder="Zalo ID" /></div>
-              <div class="col-6"><input v-model="form.appleId" class="form-control" placeholder="Apple ID" /></div>
-            </div>
-            <div class="row g-3">
               <div class="col-6">
                 <select v-model="form.preferredAuthProvider" class="form-select">
                   <option value="">Provider mac dinh</option>
-                  <option value="PHONE">PHONE</option>
-                  <option value="EMAIL">EMAIL</option>
-                  <option value="ZALO">ZALO</option>
-                  <option value="APPLE">APPLE</option>
+                  <option value="password">password</option>
+                  <option value="google">google</option>
+                  <option value="facebook">facebook</option>
+                  <option value="apple">apple</option>
+                  <option value="zalo">zalo</option>
+                  <option value="vneid">vneid</option>
                 </select>
               </div>
               <div class="col-6">
@@ -45,6 +43,9 @@
             <textarea v-model="form.notes" rows="2" class="form-control" placeholder="Ghi chu noi bo"></textarea>
             <button class="btn btn-ember">Luu user</button>
           </form>
+          <div v-if="form.authIdentityLabels.length" class="mt-3 small text-muted">
+            Linked providers: {{ form.authIdentityLabels.join(", ") }}
+          </div>
         </div>
       </div>
 
@@ -59,6 +60,7 @@
                   <th>Username</th>
                   <th>Role</th>
                   <th>Dinh danh</th>
+                  <th>Provider</th>
                   <th></th>
                 </tr>
               </thead>
@@ -67,7 +69,8 @@
                   <td>{{ user.fullName }}</td>
                   <td>{{ user.username || "--" }}</td>
                   <td>{{ user.role }}</td>
-                  <td>{{ user.phone || user.email || user.zaloId || user.appleId || "--" }}</td>
+                  <td>{{ [user.phone, user.email].filter(Boolean).join(" / ") || "--" }}</td>
+                  <td>{{ user.linkedAuthProviders?.join(", ") || (user.hasPassword ? "password" : "--") }}</td>
                   <td class="text-end">
                     <button class="btn btn-sm btn-outline-dark" @click="editUser(user)">Sua</button>
                   </td>
@@ -94,12 +97,11 @@ const form = reactive<any>({
   role: "STAFF",
   phone: "",
   email: "",
-  zaloId: "",
-  appleId: "",
   preferredAuthProvider: "",
   customerType: "",
   password: "",
   notes: "",
+  authIdentityLabels: [] as string[],
 });
 
 function resetForm() {
@@ -110,12 +112,11 @@ function resetForm() {
     role: "STAFF",
     phone: "",
     email: "",
-    zaloId: "",
-    appleId: "",
     preferredAuthProvider: "",
     customerType: "",
     password: "",
     notes: "",
+    authIdentityLabels: [],
   });
 }
 
@@ -132,12 +133,15 @@ function editUser(user: any) {
     role: user.role,
     phone: user.phone || "",
     email: user.email || "",
-    zaloId: user.zaloId || "",
-    appleId: user.appleId || "",
     preferredAuthProvider: user.preferredAuthProvider || "",
     customerType: user.customerType || "",
     password: "",
     notes: user.notes || "",
+    authIdentityLabels: (user.authIdentities || []).map((identity: any) => {
+      const handle =
+        identity.providerUsername || identity.providerEmail || identity.providerPhone || identity.providerUserId;
+      return `${identity.provider}:${handle}`;
+    }),
   });
 }
 
@@ -148,8 +152,6 @@ async function saveUser() {
     role: form.role,
     phone: form.phone || undefined,
     email: form.email || undefined,
-    zaloId: form.zaloId || undefined,
-    appleId: form.appleId || undefined,
     preferredAuthProvider: form.preferredAuthProvider || undefined,
     customerType: form.customerType || undefined,
     password: form.password || undefined,

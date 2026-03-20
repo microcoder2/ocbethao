@@ -13,13 +13,6 @@ enum Role {
   CUSTOMER
 }
 
-enum AuthProvider {
-  PHONE
-  EMAIL
-  ZALO
-  APPLE
-}
-
 enum CustomerType {
   WALK_IN
   REGULAR
@@ -75,14 +68,12 @@ enum PaymentMethod {
 model User {
   id                    Int          @id @default(autoincrement())
   fullName              String
-  password              String
+  password              String?
   role                  Role
   username              String?      @unique
   phone                 String?      @unique
   email                 String?      @unique
-  zaloId                String?      @unique
-  appleId               String?      @unique
-  preferredAuthProvider AuthProvider?
+  preferredAuthProvider String?
   customerType          CustomerType?
   avatarUrl             String?      @db.LongText
   notes                 String?      @db.LongText
@@ -95,8 +86,56 @@ model User {
   createdOrders    Order[]     @relation("OrderCreator")
   assignedOrders   Order[]     @relation("OrderAssignee")
   customerOrders   Order[]     @relation("OrderCustomer")
+  authIdentities   UserAuthIdentity[]
+  authChallenges   AuthChallenge[]
   sessions         UserSession[]
   auditLogs        AuditLog[]
+}
+
+model UserAuthIdentity {
+  id               Int      @id @default(autoincrement())
+  userId           Int
+  provider         String
+  providerUserId   String
+  providerEmail    String?
+  providerPhone    String?
+  providerUsername String?
+  displayName      String?
+  avatarUrl        String?  @db.LongText
+  emailVerified    Boolean  @default(false)
+  phoneVerified    Boolean  @default(false)
+  rawProfile       Json?
+  linkedAt         DateTime @default(now())
+  lastLoginAt      DateTime?
+  revokedAt        DateTime?
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions UserSession[]
+
+  @@unique([provider, providerUserId])
+  @@index([userId, provider])
+  @@index([providerEmail])
+  @@index([providerPhone])
+}
+
+model AuthChallenge {
+  id                Int      @id @default(autoincrement())
+  userId            Int?
+  provider          String
+  intent            String   @default("login")
+  state             String   @unique
+  nonce             String?
+  codeVerifier      String?  @db.LongText
+  redirectUri       String?  @db.LongText
+  externalSessionId String?
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  meta              Json?
+  createdAt         DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([provider, expiresAt])
 }
 
 model Category {
@@ -252,6 +291,8 @@ model OrderItem {
 model UserSession {
   id               Int      @id @default(autoincrement())
   userId           Int
+  authIdentityId   Int?
+  loginProvider    String?
   refreshTokenHash String
   ip               String?
   userAgent        String?
@@ -260,9 +301,11 @@ model UserSession {
   logoutAt         DateTime?
   revokedAt        DateTime?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authIdentity UserAuthIdentity? @relation(fields: [authIdentityId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([authIdentityId])
 }
 
 model AuditLog {

@@ -1,6 +1,5 @@
 import bcrypt from "bcryptjs";
 import {
-  AuthProvider,
   CustomerType,
   DailyMenuStatus,
   OrderSource,
@@ -11,6 +10,10 @@ import {
   Role,
 } from "@prisma/client";
 import { prisma } from "../src/utils/prisma";
+import {
+  syncLocalAuthIdentities,
+  upsertAuthIdentityForUser,
+} from "../src/services/accountIdentityService";
 
 function startOfToday(): Date {
   const now = new Date();
@@ -29,7 +32,7 @@ async function seedUsers() {
     update: {
       username: "admin",
       phone: "0909000001",
-      preferredAuthProvider: AuthProvider.EMAIL,
+      preferredAuthProvider: "email",
     },
     create: {
       fullName: "Admin Ocbethao",
@@ -38,7 +41,7 @@ async function seedUsers() {
       phone: "0909000001",
       password,
       role: Role.ADMIN,
-      preferredAuthProvider: AuthProvider.EMAIL,
+      preferredAuthProvider: "email",
     },
   });
 
@@ -47,7 +50,7 @@ async function seedUsers() {
     update: {
       username: "staff",
       phone: "0909000002",
-      preferredAuthProvider: AuthProvider.EMAIL,
+      preferredAuthProvider: "email",
     },
     create: {
       fullName: "Staff Ban 1",
@@ -56,7 +59,7 @@ async function seedUsers() {
       phone: "0909000002",
       password,
       role: Role.STAFF,
-      preferredAuthProvider: AuthProvider.EMAIL,
+      preferredAuthProvider: "email",
     },
   });
 
@@ -66,7 +69,7 @@ async function seedUsers() {
       username: "khach1",
       email: "customer@ocbethao.local",
       customerType: CustomerType.REGULAR,
-      preferredAuthProvider: AuthProvider.PHONE,
+      preferredAuthProvider: "phone",
     },
     create: {
       fullName: "Khach Thuong Xuyen",
@@ -76,9 +79,34 @@ async function seedUsers() {
       password,
       role: Role.CUSTOMER,
       customerType: CustomerType.REGULAR,
-      preferredAuthProvider: AuthProvider.PHONE,
+      preferredAuthProvider: "phone",
     },
   });
+
+  const users = await prisma.user.findMany({
+    where: {
+      OR: [
+        { email: "admin@ocbethao.local" },
+        { email: "staff@ocbethao.local" },
+        { phone: "0909000003" },
+      ],
+    },
+  });
+
+  for (const user of users) {
+    await syncLocalAuthIdentities(user);
+  }
+
+  const customer = users.find((user) => user.phone === "0909000003");
+  if (customer) {
+    await upsertAuthIdentityForUser(customer.id, {
+      provider: "zalo",
+      providerUserId: "zalo-customer-0909000003",
+      providerPhone: "0909000003",
+      displayName: customer.fullName,
+      phoneVerified: true,
+    });
+  }
 }
 
 async function seedCatalog(adminId: number) {
