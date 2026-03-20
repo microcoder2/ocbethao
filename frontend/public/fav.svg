@@ -1,0 +1,19 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="18" fill="#FFF8F0"/>
+  <g transform="translate(4.5 6.5) scale(0.43)">
+    <path d="M72 18C102 18 126 42 126 72C126 100 108 123 82.5 131C76.9 132.8 70.6 133.8 64 133.8C28.7 133.8 2 109.8 2 77.5C2 51 20.6 29.5 47.2 22.2C55 19.5 62.9 18 72 18Z" fill="url(#paint0_linear_fav)"/>
+    <path d="M62.5 35C44.1 39.1 30.5 55 30.5 74.2C30.5 96.4 48.2 113.8 70.6 113.8C91.7 113.8 108.5 98 108.5 78.3C108.5 60.5 94.7 47.2 77.8 47.2C63.8 47.2 53.2 57.2 53.2 69.8C53.2 80 60.9 87.8 70.8 87.8C78.6 87.8 84.7 82.3 84.7 75C84.7 69.2 80.2 64.7 74.1 64.7" stroke="#FFF8F0" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M96.5 95.6C107.7 95.6 116.8 104.4 116.8 115.2C116.8 125.7 107.7 134 96.5 134C85.3 134 76.2 125.7 76.2 115.2C76.2 110 78.4 105.2 82.2 101.8C85.8 98.4 90.9 95.6 96.5 95.6Z" fill="#FCE7D0"/>
+    <path d="M103.8 103.5C108.2 105.8 111.2 110.1 111.2 115.2C111.2 122.4 104.8 128 96.5 128C90.3 128 84.9 124.8 82.7 120.1" stroke="#D58E58" stroke-width="6.5" stroke-linecap="round"/>
+    <path d="M114 96.5C118.8 93.5 121.9 88.4 122.4 82.8" stroke="#FFF0DD" stroke-width="7" stroke-linecap="round"/>
+    <path d="M104 88C108.1 85.6 110.9 81.6 111.5 77" stroke="#FFF0DD" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="74.2" cy="74.5" r="5.4" fill="#FFF8F0"/>
+  </g>
+  <defs>
+    <linearGradient id="paint0_linear_fav" x1="20" y1="28" x2="128" y2="138" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7A24D"/>
+      <stop offset="0.54" stop-color="#D55A2A"/>
+      <stop offset="1" stop-color="#7A2E17"/>
+    </linearGradient>
+  </defs>
+</svg>

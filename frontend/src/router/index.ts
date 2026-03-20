@@ -1,4 +1,8 @@
-import { createRouter, createWebHashHistory, type RouteRecordRaw } from "vue-router";
+import {
+  createRouter,
+  createWebHashHistory,
+  type RouteRecordRaw,
+} from "vue-router";
 import { getRole, isAuthenticated } from "../utils/auth";
 import { APP_NAME } from "../config";
 
@@ -72,7 +76,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/login",
     component: () => import("../views/Login.vue"),
-    meta: { title: "Dang nhap" },
+    meta: { title: "Đăng Nhập" },
   },
   {
     path: "/:pathMatch(.*)*",
