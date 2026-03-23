@@ -101,6 +101,15 @@ function cleanNullable(value: string | null | undefined): string | null {
   return normalized ? normalized : null;
 }
 
+function isPrismaUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 function isEmailLike(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
@@ -174,6 +183,25 @@ function getActiveAuthIdentities(user: { authIdentities?: Array<{ provider: stri
 async function loadUserWithAuth(userId: number): Promise<UserWithAuthContext> {
   return prisma.user.findUniqueOrThrow({
     where: { id: userId },
+    include: {
+      authIdentities: true,
+    },
+  });
+}
+
+async function findActiveUserByExactEmail(
+  email: string | null | undefined
+): Promise<UserWithAuthContext | null> {
+  const normalizedEmail = cleanNullable(email)?.toLowerCase() || null;
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  return prisma.user.findFirst({
+    where: {
+      isActive: true,
+      email: normalizedEmail,
+    },
     include: {
       authIdentities: true,
     },
@@ -520,11 +548,45 @@ async function resolveExternalUser(
     });
   }
 
-  if (!targetUser) {
-    targetUser = await createCustomerFromExternalIdentity(provider, identityInput);
+  if (!targetUser && provider === "facebook") {
+    // Meta's web login payload does not provide an explicit email_verified signal.
+    // If the email already belongs to an active user, link Facebook to that user
+    // instead of creating a duplicate account that will fail on the unique email.
+    targetUser = await findActiveUserByExactEmail(identityInput.providerEmail);
   }
 
-  const authIdentity = await upsertAuthIdentityForUser(targetUser.id, identityInput);
+  if (!targetUser) {
+    try {
+      targetUser = await createCustomerFromExternalIdentity(provider, identityInput);
+    } catch (error) {
+      if (isPrismaUniqueConstraintError(error)) {
+        const emailMatchedUser =
+          provider === "facebook"
+            ? await findActiveUserByExactEmail(identityInput.providerEmail)
+            : null;
+        if (emailMatchedUser) {
+          targetUser = emailMatchedUser;
+        } else {
+          throw new AuthError(409, "Account already exists", "ACCOUNT_EXISTS");
+        }
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  let authIdentity;
+  try {
+    authIdentity = await upsertAuthIdentityForUser(targetUser.id, identityInput);
+  } catch (error) {
+    if (error instanceof IdentityError) {
+      throw new AuthError(error.status, error.message, error.code);
+    }
+    if (isPrismaUniqueConstraintError(error)) {
+      throw new AuthError(409, "Account already exists", "ACCOUNT_EXISTS");
+    }
+    throw error;
+  }
   await markIdentityLogin(authIdentity.id);
 
   if (
