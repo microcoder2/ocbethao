@@ -36,6 +36,7 @@
           <input v-model="form.guestName" class="form-control" placeholder="Ten khach" />
           <input v-model="form.guestPhone" class="form-control" placeholder="So dien thoai" />
           <input v-model.number="form.guestCount" type="number" class="form-control" placeholder="So khach" />
+          <input v-model="form.arrivalAt" type="datetime-local" class="form-control" placeholder="Gio hen den" />
           <textarea v-model="form.note" class="form-control" rows="2" placeholder="Ghi chu order"></textarea>
         </div>
 
@@ -70,6 +71,7 @@
               <tr>
                 <th>Ma don</th>
                 <th>Ban / Khach</th>
+                <th>Gio hen</th>
                 <th>Tong</th>
                 <th>Trang thai</th>
                 <th></th>
@@ -79,6 +81,7 @@
               <tr v-for="order in activeOrders" :key="order.id">
                 <td>{{ order.orderNumber }}</td>
                 <td>{{ order.tableLabel || "--" }} / {{ order.customer?.fullName || order.guestName || "--" }}</td>
+                <td>{{ formatArrivalTime(order.arrivalAt) }}</td>
                 <td>{{ formatMoney(order.totalAmount) }}</td>
                 <td>{{ order.status }}</td>
                 <td class="text-end d-flex justify-content-end gap-2">
@@ -109,6 +112,7 @@ const form = reactive({
   guestName: "",
   guestPhone: "",
   guestCount: 2,
+  arrivalAt: "",
   note: "",
 });
 
@@ -147,6 +151,24 @@ function changeQty(line: any, delta: number) {
   line.quantity = Math.max(1, line.quantity + delta);
 }
 
+function formatArrivalTime(value?: string | null) {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+  }).format(date);
+}
+
 async function submitOrder() {
   submitting.value = true;
   try {
@@ -156,6 +178,7 @@ async function submitOrder() {
       guestName: form.guestName,
       guestPhone: form.guestPhone,
       guestCount: form.guestCount,
+      arrivalAt: form.arrivalAt || undefined,
       note: form.note,
       items: cart.value.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
@@ -163,7 +186,14 @@ async function submitOrder() {
       })),
     });
     cart.value = [];
-    Object.assign(form, { tableLabel: "", guestName: "", guestPhone: "", guestCount: 2, note: "" });
+    Object.assign(form, {
+      tableLabel: "",
+      guestName: "",
+      guestPhone: "",
+      guestCount: 2,
+      arrivalAt: "",
+      note: "",
+    });
     await loadData();
   } finally {
     submitting.value = false;

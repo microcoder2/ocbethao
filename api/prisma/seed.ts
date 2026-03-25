@@ -3,6 +3,7 @@ import {
   CustomerType,
   DailyMenuStatus,
   MenuItemStatus,
+  OrderItemStatus,
   OrderSource,
   OrderStatus,
   PaymentMethod,
@@ -50,6 +51,7 @@ type SeedOrderSpec = {
   guestPhone?: string;
   note?: string;
   internalNote?: string;
+  arrivalAt?: Date;
   serviceFee?: number;
   discountAmount?: number;
   createdAt: Date;
@@ -59,6 +61,7 @@ type SeedOrderSpec = {
     menuItemSlug: string;
     quantity: number;
     note?: string;
+    status?: OrderItemStatus;
   }>;
 };
 
@@ -100,6 +103,18 @@ function money(value: number): Prisma.Decimal {
 
 function shouldCountTowardsSoldQuantity(status: OrderStatus): boolean {
   return status !== OrderStatus.CANCELLED;
+}
+
+function getDefaultItemStatus(status: OrderStatus): OrderItemStatus {
+  if (status === OrderStatus.COMPLETED) {
+    return OrderItemStatus.READY;
+  }
+
+  if (status === OrderStatus.CANCELLED) {
+    return OrderItemStatus.CANCELLED;
+  }
+
+  return OrderItemStatus.WAITING;
 }
 
 async function seedUsers() {
@@ -804,6 +819,7 @@ async function seedServiceDay(
           itemNameSnapshot: offer.itemNameSnapshot,
           unitPrice: money(offer.unitPrice),
           quantity: item.quantity,
+          status: item.status ?? getDefaultItemStatus(spec.status),
           lineTotal: money(offer.unitPrice * item.quantity),
           note: item.note,
         };
@@ -814,6 +830,7 @@ async function seedServiceDay(
       itemNameSnapshot: string;
       unitPrice: Prisma.Decimal;
       quantity: number;
+      status: OrderItemStatus;
       lineTotal: Prisma.Decimal;
       note?: string;
     }>;
@@ -836,6 +853,7 @@ async function seedServiceDay(
         guestPhone: spec.guestPhone ?? customer?.phone ?? null,
         note: spec.note,
         internalNote: spec.internalNote,
+        arrivalAt: spec.arrivalAt,
         subtotal: money(subtotal),
         serviceFee: money(serviceFee),
         discountAmount: money(discountAmount),
@@ -898,9 +916,10 @@ async function seedOrders(
           guestCount: 2,
           note: "Ít cay, giữ nóng giúp bàn.",
           createdAt: atTime(today, 11, 5),
+          arrivalAt: atTime(today, 11, 35),
           items: [
-            { menuItemSlug: "oc-huong-rang-muoi", quantity: 1 },
-            { menuItemSlug: "sting-vang", quantity: 2 },
+            { menuItemSlug: "oc-huong-rang-muoi", quantity: 1, status: OrderItemStatus.COOKING },
+            { menuItemSlug: "sting-vang", quantity: 2, status: OrderItemStatus.WAITING },
           ],
         },
         {
@@ -918,10 +937,11 @@ async function seedOrders(
           serviceFee: 5000,
           createdAt: atTime(today, 11, 35),
           confirmedAt: atTime(today, 11, 42),
+          arrivalAt: atTime(today, 11, 50),
           items: [
-            { menuItemSlug: "so-huyet-chay-toi", quantity: 1 },
-            { menuItemSlug: "banh-mi-nuong-muoi-ot", quantity: 1 },
-            { menuItemSlug: "tra-tac", quantity: 1 },
+            { menuItemSlug: "so-huyet-chay-toi", quantity: 1, status: OrderItemStatus.READY },
+            { menuItemSlug: "banh-mi-nuong-muoi-ot", quantity: 1, status: OrderItemStatus.COOKING },
+            { menuItemSlug: "tra-tac", quantity: 1, status: OrderItemStatus.WAITING },
           ],
         },
         {
@@ -937,10 +957,11 @@ async function seedOrders(
           internalNote: "Ưu tiên ra món rau trước.",
           createdAt: atTime(today, 12, 0),
           confirmedAt: atTime(today, 12, 3),
+          arrivalAt: atTime(today, 12, 15),
           items: [
-            { menuItemSlug: "oc-mong-tay-xao-rau-muong", quantity: 1 },
-            { menuItemSlug: "rau-muong-xao-toi", quantity: 1 },
-            { menuItemSlug: "nuoc-suoi", quantity: 2 },
+            { menuItemSlug: "oc-mong-tay-xao-rau-muong", quantity: 1, status: OrderItemStatus.COOKING },
+            { menuItemSlug: "rau-muong-xao-toi", quantity: 1, status: OrderItemStatus.WAITING },
+            { menuItemSlug: "nuoc-suoi", quantity: 2, status: OrderItemStatus.READY },
           ],
         },
         {
@@ -959,6 +980,7 @@ async function seedOrders(
           createdAt: atTime(today, 13, 10),
           confirmedAt: atTime(today, 13, 18),
           completedAt: atTime(today, 14, 5),
+          arrivalAt: atTime(today, 13, 35),
           items: [
             { menuItemSlug: "oc-huong-sot-trung-muoi", quantity: 1 },
             { menuItemSlug: "tra-tac", quantity: 2 },
@@ -979,6 +1001,7 @@ async function seedOrders(
           note: "Thêm khăn lạnh cho bàn này.",
           createdAt: atTime(today, 18, 20),
           confirmedAt: atTime(today, 18, 28),
+          arrivalAt: atTime(today, 18, 45),
           items: [
             { menuItemSlug: "so-diep-nuong-mo-hanh", quantity: 1 },
             { menuItemSlug: "nuoc-suoi", quantity: 2 },
@@ -999,6 +1022,7 @@ async function seedOrders(
           createdAt: atTime(today, 19, 5),
           confirmedAt: atTime(today, 19, 12),
           completedAt: atTime(today, 20, 0),
+          arrivalAt: atTime(today, 19, 30),
           items: [
             { menuItemSlug: "chem-chep-hap-thai", quantity: 1 },
             { menuItemSlug: "so-huyet-nuong-moi", quantity: 1 },
@@ -1020,6 +1044,7 @@ async function seedOrders(
           internalNote: "Giữ liên hệ để dời qua ngày mai.",
           createdAt: atTime(today, 20, 10),
           confirmedAt: atTime(today, 20, 18),
+          arrivalAt: atTime(today, 20, 40),
           items: [
             { menuItemSlug: "oc-huong-rang-muoi", quantity: 2 },
             { menuItemSlug: "so-diep-nuong-mo-hanh", quantity: 2 },
@@ -1055,9 +1080,10 @@ async function seedOrders(
           note: "Giữ chỗ bàn sát cửa cho khách đi sớm.",
           createdAt: atTime(tomorrow, 18, 10),
           confirmedAt: atTime(tomorrow, 18, 15),
+          arrivalAt: atTime(tomorrow, 18, 40),
           items: [
-            { menuItemSlug: "oc-huong-rang-muoi", quantity: 1 },
-            { menuItemSlug: "tra-tac", quantity: 2 },
+            { menuItemSlug: "oc-huong-rang-muoi", quantity: 1, status: OrderItemStatus.WAITING },
+            { menuItemSlug: "tra-tac", quantity: 2, status: OrderItemStatus.READY },
           ],
         },
         {
@@ -1073,9 +1099,10 @@ async function seedOrders(
           note: "Khách nói có thể gọi thêm món nướng khi tới quán.",
           createdAt: atTime(tomorrow, 19, 0),
           confirmedAt: atTime(tomorrow, 19, 8),
+          arrivalAt: atTime(tomorrow, 19, 25),
           items: [
-            { menuItemSlug: "so-huyet-chay-toi", quantity: 1 },
-            { menuItemSlug: "banh-mi-nuong-muoi-ot", quantity: 1 },
+            { menuItemSlug: "so-huyet-chay-toi", quantity: 1, status: OrderItemStatus.COOKING },
+            { menuItemSlug: "banh-mi-nuong-muoi-ot", quantity: 1, status: OrderItemStatus.WAITING },
           ],
         },
       ],
@@ -1109,6 +1136,7 @@ async function seedOrders(
           createdAt: atTime(yesterday, 18, 15),
           confirmedAt: atTime(yesterday, 18, 22),
           completedAt: atTime(yesterday, 19, 10),
+          arrivalAt: atTime(yesterday, 18, 40),
           items: [
             { menuItemSlug: "so-huyet-chay-toi", quantity: 1 },
             { menuItemSlug: "tra-tac", quantity: 2 },
@@ -1130,6 +1158,7 @@ async function seedOrders(
           createdAt: atTime(yesterday, 19, 25),
           confirmedAt: atTime(yesterday, 19, 32),
           completedAt: atTime(yesterday, 20, 12),
+          arrivalAt: atTime(yesterday, 19, 45),
           items: [
             { menuItemSlug: "oc-mong-tay-xao-rau-muong", quantity: 1 },
             { menuItemSlug: "sting-vang", quantity: 2 },
@@ -1147,6 +1176,7 @@ async function seedOrders(
           guestCount: 1,
           note: "Khách đổi địa chỉ giao hàng nên hủy.",
           createdAt: atTime(yesterday, 21, 0),
+          arrivalAt: atTime(yesterday, 21, 20),
           items: [{ menuItemSlug: "chem-chep-hap-thai", quantity: 1 }],
         },
       ],

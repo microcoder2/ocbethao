@@ -91,6 +91,15 @@
         </div>
       </header>
 
+      <div v-if="scheduleBuckets.length" class="orders-schedule-strip">
+        <div v-for="bucket in scheduleBuckets" :key="bucket.key" class="orders-schedule-chip">
+          <strong>{{ bucket.label }}</strong>
+          <span>{{ bucket.orderCount }} đơn</span>
+          <span>{{ bucket.guestCount }} khách</span>
+          <span>{{ bucket.waiting + bucket.cooking }} món đang chạy</span>
+        </div>
+      </div>
+
       <div v-if="isLoading && !orders.length" class="orders-state">
         <div class="orders-state-title">Đang tải đơn hàng</div>
         <p>Dữ liệu sẽ hiển thị ngay khi hệ thống lấy xong.</p>
@@ -117,6 +126,9 @@
                 <span class="order-customer-name">{{ getCustomerName(order) }}</span>
                 <span class="order-customer-phone">{{ getCustomerPhone(order) }}</span>
                 <span v-if="order.tableLabel" class="order-table">{{ order.tableLabel }}</span>
+                <span class="order-arrival-chip">
+                  {{ getQueueLabel(order) }} {{ getQueueTime(order) }}
+                </span>
               </div>
             </div>
 
@@ -134,6 +146,32 @@
             </span>
           </div>
 
+          <div v-if="order.itemProgress?.total" class="order-progress">
+            <div class="order-progress-head">
+              <span class="orders-field-label">Hàng đợi món</span>
+              <strong>{{ getProgressText(order) }}</strong>
+            </div>
+            <div class="order-progress-track">
+              <span
+                class="order-progress-segment is-waiting"
+                :style="{ width: `${getProgressPercent(order, 'waiting')}%` }"
+              ></span>
+              <span
+                class="order-progress-segment is-cooking"
+                :style="{ width: `${getProgressPercent(order, 'cooking')}%` }"
+              ></span>
+              <span
+                class="order-progress-segment is-ready"
+                :style="{ width: `${getProgressPercent(order, 'ready')}%` }"
+              ></span>
+            </div>
+            <div class="order-progress-legend">
+              <span>Chờ {{ order.itemProgress.waiting }}</span>
+              <span>Đang làm {{ order.itemProgress.cooking }}</span>
+              <span>Lên món {{ order.itemProgress.ready }}</span>
+            </div>
+          </div>
+
           <ul class="order-item-list">
             <li v-if="!getEditableItems(order).length" class="order-item-row is-empty">
               <span class="order-item-name">Chưa có món</span>
@@ -147,6 +185,25 @@
                 <div class="order-item-copy">
                   <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
                   <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
+                  <div class="order-item-statuses">
+                    <template v-if="canUpdateItemStatus(order, item)">
+                      <button
+                        v-for="status in itemStatusActions"
+                        :key="status.value"
+                        type="button"
+                        :class="['order-item-status', getItemStatusClass(status.value), { 'is-active': item.status === status.value }]"
+                        @click="updateItemStatus(order, item, status.value)"
+                      >
+                        {{ status.label }}
+                      </button>
+                    </template>
+                    <span
+                      v-else
+                      :class="['order-item-status', getItemStatusClass(item.id ? item.status : 'WAITING'), 'is-active']"
+                    >
+                      {{ item.id ? getItemStatusLabel(item.status) : "Chờ lưu món" }}
+                    </span>
+                  </div>
                 </div>
                 <span class="order-item-total">
                   {{ formatMoney(item.lineTotal) }}
@@ -242,7 +299,7 @@
               v-if="canCompleteOrder(order)"
               class="btn btn-ember"
               type="button"
-              :disabled="isBusy(order) || hasDraftChanged(order)"
+              :disabled="isBusy(order) || hasDraftChanged(order) || !isReadyToComplete(order)"
               @click="openCompleteDialog(order)"
             >
               Hoàn tất
@@ -377,6 +434,7 @@ type OrderItem = {
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
+  status: string;
   lineTotal: number;
 };
 
@@ -391,7 +449,15 @@ type OrderRecord = {
   guestName?: string | null;
   guestPhone?: string | null;
   createdAt: string;
+  arrivalAt?: string | null;
   dailyMenuId?: number | null;
+  itemProgress?: {
+    total: number;
+    waiting: number;
+    cooking: number;
+    ready: number;
+    cancelled: number;
+  };
   customer?: {
     fullName?: string | null;
     phone?: string | null;
@@ -416,12 +482,14 @@ type DailyMenuRecord = {
 };
 
 type EditableOrderItem = {
+  id?: number | null;
   key: string;
   menuItemId?: number | null;
   dailyMenuItemId?: number | null;
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
+  status: string;
   lineTotal: number;
 };
 
@@ -432,6 +500,12 @@ const paymentMethodLabels: Record<string, string> = {
   E_WALLET: "Ví điện tử",
   PAY_LATER: "Trả sau",
 };
+
+const itemStatusActions = [
+  { value: "WAITING", label: "Chờ" },
+  { value: "COOKING", label: "Đang làm" },
+  { value: "READY", label: "Lên món" },
+] as const;
 
 function getTodayInputValue() {
   const now = new Date();
@@ -468,6 +542,15 @@ function formatOrderTime(value: string) {
   }).format(date);
 }
 
+function getOrderDateValue(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function simplifyStatus(status: string) {
   if (status === "CANCELLED") return "CANCELLED";
   if (status === "COMPLETED") return "COMPLETED";
@@ -476,12 +559,14 @@ function simplifyStatus(status: string) {
 
 function cloneOrderItems(items: OrderItem[] = []) {
   return items.map((item, index) => ({
+    id: item.id,
     key: `${item.dailyMenuItemId ?? item.menuItemId ?? "item"}-${index}`,
     menuItemId: item.menuItemId ?? null,
     dailyMenuItemId: item.dailyMenuItemId ?? null,
     itemNameSnapshot: item.itemNameSnapshot,
     unitPrice: Number(item.unitPrice || 0),
     quantity: Number(item.quantity || 0),
+    status: item.status || "WAITING",
     lineTotal: Number(item.lineTotal || 0),
   }));
 }
@@ -546,6 +631,52 @@ const totalAmount = computed(() =>
 
 const statusFieldLabel = computed(() => `Trạng thái đơn (${formatFilterDate(filter.date)})`);
 
+const scheduleBuckets = computed(() => {
+  const buckets = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      orderCount: number;
+      guestCount: number;
+      waiting: number;
+      cooking: number;
+      ready: number;
+    }
+  >();
+
+  for (const order of orders.value) {
+    const sourceDate = getOrderDateValue(order.arrivalAt || order.createdAt);
+    if (!sourceDate) {
+      continue;
+    }
+
+    const slotMinutes = sourceDate.getMinutes() < 30 ? "00" : "30";
+    const key = `${String(sourceDate.getHours()).padStart(2, "0")}:${slotMinutes}`;
+
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        key,
+        label: key,
+        orderCount: 0,
+        guestCount: 0,
+        waiting: 0,
+        cooking: 0,
+        ready: 0,
+      });
+    }
+
+    const bucket = buckets.get(key)!;
+    bucket.orderCount += 1;
+    bucket.guestCount += Number(order.guestCount || 0);
+    bucket.waiting += Number(order.itemProgress?.waiting || 0);
+    bucket.cooking += Number(order.itemProgress?.cooking || 0);
+    bucket.ready += Number(order.itemProgress?.ready || 0);
+  }
+
+  return Array.from(buckets.values()).sort((a, b) => a.key.localeCompare(b.key));
+});
+
 function getOrderStatusLabel(status: string) {
   const simpleStatus = simplifyStatus(status);
   if (simpleStatus === "CONFIRMED") return "Đang xử lý";
@@ -553,8 +684,19 @@ function getOrderStatusLabel(status: string) {
   return "Hủy";
 }
 
+function getItemStatusLabel(status?: string | null) {
+  if (status === "READY") return "Lên món";
+  if (status === "COOKING") return "Đang làm";
+  if (status === "CANCELLED") return "Đã hủy";
+  return "Chờ";
+}
+
 function getSimpleStatusClass(status: string) {
   return `is-${simplifyStatus(status).toLowerCase()}`;
+}
+
+function getItemStatusClass(status?: string | null) {
+  return `is-${String(status || "WAITING").toLowerCase()}`;
 }
 
 function getOrderSurfaceClass(status: string) {
@@ -571,6 +713,32 @@ function getCustomerName(order: OrderRecord) {
 
 function getCustomerPhone(order: OrderRecord) {
   return order.guestPhone || order.customer?.phone || "Không có SĐT";
+}
+
+function getQueueTime(order: OrderRecord) {
+  return formatOrderTime(order.arrivalAt || order.createdAt);
+}
+
+function getQueueLabel(order: OrderRecord) {
+  return order.arrivalAt ? "Giờ hẹn" : "Tạo lúc";
+}
+
+function getProgressText(order: OrderRecord) {
+  const progress = order.itemProgress;
+  if (!progress?.total) {
+    return "Chưa có món";
+  }
+
+  return `${progress.ready}/${progress.total} món sẵn sàng`;
+}
+
+function getProgressPercent(order: OrderRecord, key: "waiting" | "cooking" | "ready") {
+  const total = Number(order.itemProgress?.total || 0);
+  if (!total) {
+    return 0;
+  }
+
+  return (Number(order.itemProgress?.[key] || 0) / total) * 100;
 }
 
 function getErrorMessage(error: any, fallback: string) {
@@ -595,6 +763,25 @@ function canCompleteOrder(order: OrderRecord) {
 
 function canCancelOrder(order: OrderRecord) {
   return simplifyStatus(order.status) === "CONFIRMED";
+}
+
+function canUpdateItemStatus(order: OrderRecord, item: EditableOrderItem) {
+  return (
+    canEditItems(order) &&
+    !hasDraftChanged(order) &&
+    !isBusy(order) &&
+    typeof item.id === "number" &&
+    item.id > 0
+  );
+}
+
+function isReadyToComplete(order: OrderRecord) {
+  const progress = order.itemProgress;
+  if (!progress?.total) {
+    return false;
+  }
+
+  return progress.waiting === 0 && progress.cooking === 0;
 }
 
 function clearSearchDebounce() {
@@ -789,18 +976,30 @@ function addDraftItem(order: OrderRecord) {
     };
   } else {
     draft.push({
+      id: null,
       key: `new-${option.id}`,
       menuItemId: option.menuItem.id,
       dailyMenuItemId: option.id,
       itemNameSnapshot: option.menuItem.name,
       unitPrice: option.sellingPrice,
       quantity: 1,
+      status: "WAITING",
       lineTotal: option.sellingPrice,
     });
   }
 
   itemDrafts[order.id] = draft;
   itemAddSelections[order.id] = "";
+}
+
+function sortOrdersByQueue(a: OrderRecord, b: OrderRecord) {
+  const aTime = getOrderDateValue(a.arrivalAt || a.createdAt)?.getTime() ?? 0;
+  const bTime = getOrderDateValue(b.arrivalAt || b.createdAt)?.getTime() ?? 0;
+  if (aTime !== bTime) {
+    return aTime - bTime;
+  }
+
+  return String(a.orderNumber).localeCompare(String(b.orderNumber));
 }
 
 async function loadOrders() {
@@ -832,7 +1031,7 @@ async function loadOrders() {
       nextOrders = nextOrders.filter(isAttentionOrder);
     }
 
-    orders.value = nextOrders;
+    orders.value = [...nextOrders].sort(sortOrdersByQueue);
 
     Object.keys(itemDrafts).forEach((key) => delete itemDrafts[Number(key)]);
     Object.keys(itemAddSelections).forEach((key) => delete itemAddSelections[Number(key)]);
@@ -898,6 +1097,28 @@ async function completeOrder(order: OrderRecord, paymentMethod: string) {
     paymentMethod,
     paymentStatus: "PAID",
   });
+}
+
+async function updateItemStatus(order: OrderRecord, item: EditableOrderItem, status: string) {
+  if (!canUpdateItemStatus(order, item) || !item.id) {
+    return;
+  }
+
+  updatingOrderId.value = order.id;
+  errorMessage.value = "";
+
+  try {
+    const { data } = await api.put(`/orders/${order.id}/items/${item.id}/status`, { status });
+    const nextOrder = data as OrderRecord;
+    orders.value = orders.value
+      .map((entry) => (entry.id === order.id ? nextOrder : entry))
+      .sort(sortOrdersByQueue);
+    discardDraft(order.id);
+  } catch (error) {
+    errorMessage.value = getErrorMessage(error, "Không cập nhật được trạng thái món.");
+  } finally {
+    updatingOrderId.value = null;
+  }
 }
 
 function scheduleSearch() {
@@ -1082,6 +1303,31 @@ onBeforeUnmount(() => {
   color: var(--ember-strong);
 }
 
+.orders-schedule-strip {
+  display: flex;
+  gap: 10px;
+  padding: 0 20px 16px;
+  overflow-x: auto;
+  border-bottom: 1px solid rgba(230, 209, 192, 0.85);
+}
+
+.orders-schedule-chip {
+  min-width: 150px;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(230, 209, 192, 0.9);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.orders-schedule-chip strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
 .orders-surface {
   overflow: hidden;
 }
@@ -1227,6 +1473,18 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
 }
 
+.order-arrival-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(246, 233, 220, 0.9);
+  color: var(--ember-strong);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .order-total {
   font-weight: 800;
   color: var(--ember-strong);
@@ -1293,6 +1551,50 @@ onBeforeUnmount(() => {
   color: var(--muted);
 }
 
+.order-progress {
+  display: grid;
+  gap: 8px;
+}
+
+.order-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.order-progress-track {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(35, 19, 15, 0.08);
+}
+
+.order-progress-segment {
+  height: 100%;
+}
+
+.order-progress-segment.is-waiting {
+  background: rgba(203, 165, 81, 0.7);
+}
+
+.order-progress-segment.is-cooking {
+  background: rgba(201, 126, 71, 0.7);
+}
+
+.order-progress-segment.is-ready {
+  background: rgba(66, 133, 104, 0.78);
+}
+
+.order-progress-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .order-item-list {
   margin: 0;
   padding: 0;
@@ -1339,6 +1641,50 @@ onBeforeUnmount(() => {
 .order-item-meta {
   color: var(--muted);
   font-size: 0.84rem;
+}
+
+.order-item-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.order-item-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: rgba(35, 19, 15, 0.06);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.order-item-status.is-waiting {
+  background: rgba(203, 165, 81, 0.12);
+  color: #8b6517;
+}
+
+.order-item-status.is-cooking {
+  background: rgba(201, 126, 71, 0.13);
+  color: #8a451f;
+}
+
+.order-item-status.is-ready {
+  background: rgba(66, 133, 104, 0.14);
+  color: var(--green);
+}
+
+.order-item-status.is-cancelled {
+  background: rgba(148, 88, 88, 0.14);
+  color: #8f2f15;
+}
+
+.order-item-status.is-active {
+  border-color: currentColor;
 }
 
 .order-item-total {
@@ -1601,6 +1947,13 @@ onBeforeUnmount(() => {
     margin-top: 0;
   }
 
+  .orders-schedule-strip {
+    padding: 0 16px 14px;
+    border-top: 1px solid rgba(230, 209, 192, 0.9);
+    border-bottom: 1px solid rgba(230, 209, 192, 0.9);
+    background: rgba(255, 253, 249, 0.96);
+  }
+
   .orders-surface {
     border-top: 0;
     background: transparent;
@@ -1627,6 +1980,11 @@ onBeforeUnmount(() => {
 
   .order-head-side {
     min-width: 96px;
+  }
+
+  .order-progress-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .order-item-row {

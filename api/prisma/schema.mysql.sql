@@ -171,6 +171,7 @@ CREATE TABLE `Order` (
     `guestPhone` VARCHAR(191) NULL,
     `note` LONGTEXT NULL,
     `internalNote` LONGTEXT NULL,
+    `arrivalAt` DATETIME(3) NULL,
     `subtotal` DECIMAL(10, 2) NOT NULL,
     `serviceFee` DECIMAL(10, 2) NOT NULL DEFAULT 0,
     `discountAmount` DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -186,6 +187,7 @@ CREATE TABLE `Order` (
 
     UNIQUE INDEX `Order_orderNumber_key`(`orderNumber`),
     INDEX `Order_status_createdAt_idx`(`status`, `createdAt`),
+    INDEX `Order_status_arrivalAt_idx`(`status`, `arrivalAt`),
     INDEX `Order_customerId_createdAt_idx`(`customerId`, `createdAt`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -199,12 +201,14 @@ CREATE TABLE `OrderItem` (
     `itemNameSnapshot` VARCHAR(191) NOT NULL,
     `unitPrice` DECIMAL(10, 2) NOT NULL,
     `quantity` INTEGER NOT NULL,
+    `status` ENUM('WAITING', 'COOKING', 'READY', 'CANCELLED') NOT NULL DEFAULT 'WAITING',
     `lineTotal` DECIMAL(10, 2) NOT NULL,
     `note` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `OrderItem_menuItemId_idx`(`menuItemId`),
     INDEX `OrderItem_dailyMenuItemId_idx`(`dailyMenuItemId`),
+    INDEX `OrderItem_status_idx`(`status`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

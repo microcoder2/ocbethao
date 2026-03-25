@@ -1,7 +1,8 @@
-import type {
+import {
   CustomerType,
   DailyMenuStatus,
   MenuItemStatus,
+  OrderItemStatus,
   OrderStatus,
   PaymentStatus,
   Role,
@@ -215,7 +216,55 @@ export function serializeDailyMenu(menu: AnyRecord) {
   };
 }
 
+function serializeOrderItems(items: AnyRecord[]) {
+  return items.map((item: AnyRecord) => ({
+    id: item.id,
+    menuItemId: item.menuItemId ?? null,
+    dailyMenuItemId: item.dailyMenuItemId ?? null,
+    itemNameSnapshot: item.itemNameSnapshot,
+    unitPrice: toNumber(item.unitPrice),
+    quantity: item.quantity,
+    status: (item.status as OrderItemStatus | null) ?? OrderItemStatus.WAITING,
+    lineTotal: toNumber(item.lineTotal),
+    note: item.note ?? null,
+    menuItem: item.menuItem ? serializeMenuItem(item.menuItem) : null,
+  }));
+}
+
+function buildOrderItemProgress(items: AnyRecord[]) {
+  const progress = {
+    total: 0,
+    waiting: 0,
+    cooking: 0,
+    ready: 0,
+    cancelled: 0,
+  };
+
+  for (const item of items) {
+    progress.total += 1;
+    const status = (item.status as OrderItemStatus | null) ?? OrderItemStatus.WAITING;
+    if (status === OrderItemStatus.READY) {
+      progress.ready += 1;
+      continue;
+    }
+    if (status === OrderItemStatus.COOKING) {
+      progress.cooking += 1;
+      continue;
+    }
+    if (status === OrderItemStatus.CANCELLED) {
+      progress.cancelled += 1;
+      continue;
+    }
+    progress.waiting += 1;
+  }
+
+  return progress;
+}
+
 export function serializeOrder(order: AnyRecord) {
+  const items = Array.isArray(order.items) ? serializeOrderItems(order.items) : [];
+  const itemProgress = buildOrderItemProgress(items);
+
   return {
     id: order.id,
     orderNumber: order.orderNumber,
@@ -229,6 +278,7 @@ export function serializeOrder(order: AnyRecord) {
     guestPhone: order.guestPhone ?? null,
     note: order.note ?? null,
     internalNote: order.internalNote ?? null,
+    arrivalAt: order.arrivalAt ?? null,
     subtotal: toNumber(order.subtotal),
     serviceFee: toNumber(order.serviceFee),
     discountAmount: toNumber(order.discountAmount),
@@ -243,18 +293,7 @@ export function serializeOrder(order: AnyRecord) {
     completedAt: order.completedAt ?? null,
     customer: order.customer ? serializeUser(order.customer) : null,
     assignedStaff: order.assignedStaff ? serializeUser(order.assignedStaff) : null,
-    items: Array.isArray(order.items)
-      ? order.items.map((item: AnyRecord) => ({
-          id: item.id,
-          menuItemId: item.menuItemId ?? null,
-          dailyMenuItemId: item.dailyMenuItemId ?? null,
-          itemNameSnapshot: item.itemNameSnapshot,
-          unitPrice: toNumber(item.unitPrice),
-          quantity: item.quantity,
-          lineTotal: toNumber(item.lineTotal),
-          note: item.note ?? null,
-          menuItem: item.menuItem ? serializeMenuItem(item.menuItem) : null,
-        }))
-      : [],
+    itemProgress,
+    items,
   };
 }

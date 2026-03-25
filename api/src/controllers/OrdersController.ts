@@ -13,6 +13,7 @@ import {
 } from "tsoa";
 import type { Request as ExRequest } from "express";
 import {
+  OrderItemStatus,
   OrderSource,
   OrderStatus,
   PaymentMethod,
@@ -27,6 +28,7 @@ class OrderItemInput {
   menuItemId?: number;
   quantity!: number;
   note?: string;
+  status?: OrderItemStatus;
 }
 
 class CreateOrderBody {
@@ -39,6 +41,7 @@ class CreateOrderBody {
   guestPhone?: string;
   note?: string;
   internalNote?: string;
+  arrivalAt?: string;
   paymentMethod?: PaymentMethod;
   paymentStatus?: PaymentStatus;
   serviceFee?: number;
@@ -52,10 +55,16 @@ class UpdateOrderStatusBody {
   paymentMethod?: PaymentMethod;
   assignedStaffId?: number;
   internalNote?: string;
+  arrivalAt?: string;
 }
 
 class UpdateOrderBody {
   items!: OrderItemInput[];
+  arrivalAt?: string;
+}
+
+class UpdateOrderItemStatusBody {
+  status!: OrderItemStatus;
 }
 
 type ResolvedOrderLine = {
@@ -64,6 +73,7 @@ type ResolvedOrderLine = {
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
+  status: OrderItemStatus;
   lineTotal: number;
   note?: string;
   stockUsage: Array<{
@@ -105,6 +115,38 @@ function buildOrderNumber(): string {
 
 function canEditOrder(status: OrderStatus): boolean {
   return status !== OrderStatus.COMPLETED && status !== OrderStatus.CANCELLED;
+}
+
+function getOrderItemKey(
+  dailyMenuItemId: number | null | undefined,
+  menuItemId: number | null | undefined
+) {
+  return `${dailyMenuItemId ?? "none"}:${menuItemId ?? "none"}`;
+}
+
+function parseOptionalDateTime(value: unknown, fieldName: string) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new Error(`${fieldName} khong hop le`);
+    }
+    return value;
+  }
+
+  const normalized = String(value).trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${fieldName} khong hop le`);
+  }
+
+  return parsed;
 }
 
 function normalizePositiveInt(value: number): number {
@@ -244,6 +286,7 @@ async function resolveOrderLines(
         itemNameSnapshot: dailyMenuItem.menuItem.name,
         unitPrice,
         quantity,
+        status: item.status ?? OrderItemStatus.WAITING,
         lineTotal: unitPrice * quantity,
         note: item.note,
         stockUsage: stockLinks.map((link) => ({
@@ -266,6 +309,7 @@ async function resolveOrderLines(
         itemNameSnapshot: menuItem.name,
         unitPrice,
         quantity,
+        status: item.status ?? OrderItemStatus.WAITING,
         lineTotal: unitPrice * quantity,
         note: item.note,
         stockUsage: [],
@@ -456,6 +500,7 @@ export class OrdersController extends Controller {
     @Body() body: CreateOrderBody
   ) {
     const authUser = (req as any).user;
+    const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
 
     const source =
       authUser.role === "CUSTOMER"
@@ -495,6 +540,7 @@ export class OrdersController extends Controller {
             (authUser.role === "CUSTOMER" ? currentUser.phone ?? undefined : undefined),
           note: body.note,
           internalNote: body.internalNote,
+          arrivalAt,
           subtotal: money(subtotal),
           serviceFee: money(serviceFee),
           discountAmount: money(discountAmount),
@@ -532,6 +578,8 @@ export class OrdersController extends Controller {
     @Path() id: number,
     @Body() body: UpdateOrderStatusBody
   ) {
+    const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
+
     await prisma.$transaction(async (tx) => {
       const current = await tx.order.findUniqueOrThrow({
         where: { id },
@@ -579,6 +627,7 @@ export class OrdersController extends Controller {
         paymentStatus: body.paymentStatus,
         paymentMethod: body.paymentMethod,
         internalNote: body.internalNote,
+        arrivalAt: arrivalAt ?? undefined,
         assignedStaff:
           typeof body.assignedStaffId === "number"
             ? { connect: { id: body.assignedStaffId } }
@@ -592,6 +641,24 @@ export class OrdersController extends Controller {
         data.completedAt = current.completedAt ?? new Date();
         data.paymentStatus = PaymentStatus.PAID;
         data.paymentMethod = body.paymentMethod ?? current.paymentMethod;
+        await tx.orderItem.updateMany({
+          where: {
+            orderId: id,
+            status: { not: OrderItemStatus.CANCELLED },
+          },
+          data: {
+            status: OrderItemStatus.READY,
+          },
+        });
+      }
+
+      if (body.status === OrderStatus.CANCELLED) {
+        await tx.orderItem.updateMany({
+          where: { orderId: id },
+          data: {
+            status: OrderItemStatus.CANCELLED,
+          },
+        });
       }
 
       await tx.order.update({
@@ -610,6 +677,8 @@ export class OrdersController extends Controller {
     if (!Array.isArray(body.items) || body.items.length === 0) {
       throw new Error("Don hang phai co it nhat mot mon");
     }
+
+    const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
 
     await prisma.$transaction(async (tx) => {
       const current = await tx.order.findUniqueOrThrow({
@@ -644,6 +713,12 @@ export class OrdersController extends Controller {
       const serviceFee = Number(current.serviceFee);
       const discountAmount = Number(current.discountAmount);
       const totalAmount = subtotal + serviceFee - discountAmount;
+      const existingStatuses = new Map(
+        current.items.map((item) => [
+          getOrderItemKey(item.dailyMenuItemId, item.menuItemId),
+          item.status,
+        ])
+      );
 
       await tx.orderItem.deleteMany({
         where: { orderId: id },
@@ -652,6 +727,7 @@ export class OrdersController extends Controller {
       await tx.order.update({
         where: { id },
         data: {
+          arrivalAt: arrivalAt ?? undefined,
           subtotal: money(subtotal),
           totalAmount: money(totalAmount),
           items: {
@@ -661,6 +737,10 @@ export class OrdersController extends Controller {
               itemNameSnapshot: line.itemNameSnapshot,
               unitPrice: money(line.unitPrice),
               quantity: line.quantity,
+              status:
+                existingStatuses.get(
+                  getOrderItemKey(line.dailyMenuItemId, line.menuItemId)
+                ) ?? line.status,
               lineTotal: money(line.lineTotal),
               note: line.note,
             })),
@@ -672,6 +752,41 @@ export class OrdersController extends Controller {
     });
 
     const order = await getOrderDetail(id);
+    return serializeOrder(order);
+  }
+
+  @Put("{orderId}/items/{itemId}/status")
+  @Security("bearerAuth", ["ADMIN", "STAFF"])
+  public async updateOrderItemStatus(
+    @Path() orderId: number,
+    @Path() itemId: number,
+    @Body() body: UpdateOrderItemStatusBody
+  ) {
+    await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
+      });
+
+      if (!canEditOrder(order.status)) {
+        throw new Error("Chi co the cap nhat mon trong don dang xu ly");
+      }
+
+      await tx.orderItem.findFirstOrThrow({
+        where: {
+          id: itemId,
+          orderId,
+        },
+      });
+
+      await tx.orderItem.update({
+        where: { id: itemId },
+        data: {
+          status: body.status,
+        },
+      });
+    });
+
+    const order = await getOrderDetail(orderId);
     return serializeOrder(order);
   }
 }

@@ -279,6 +279,15 @@
           </div>
 
           <label class="customer-note">
+            <span>Giờ bạn muốn tới / nhận món</span>
+            <input
+              v-model="arrivalTime"
+              type="time"
+              placeholder="Nếu muốn tới ngay thì để trống"
+            />
+          </label>
+
+          <label class="customer-note">
             <span>Ghi chú cho bếp</span>
             <textarea
               v-model="note"
@@ -391,6 +400,7 @@ const currentUser = getUser();
 const menu = ref<DailyMenuData | null>(null);
 const cart = ref<CartLine[]>([]);
 const note = ref("");
+const arrivalTime = ref("");
 const loading = ref(true);
 const loadError = ref("");
 const searchQuery = ref("");
@@ -639,6 +649,14 @@ function removeLine(dailyMenuItemId: number) {
   cart.value = cart.value.filter((line) => line.dailyMenuItemId !== dailyMenuItemId);
 }
 
+function buildArrivalAt(serviceDate?: string, time?: string) {
+  if (!serviceDate || !time) {
+    return undefined;
+  }
+
+  return `${serviceDate.slice(0, 10)}T${time}`;
+}
+
 async function submitOrder() {
   if (!menu.value?.id || cart.value.length === 0) return;
 
@@ -648,6 +666,7 @@ async function submitOrder() {
   try {
     await api.post("/orders", {
       dailyMenuId: menu.value.id,
+      arrivalAt: buildArrivalAt(menu.value.serviceDate, arrivalTime.value),
       note: note.value,
       items: cart.value.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
@@ -657,6 +676,7 @@ async function submitOrder() {
 
     cart.value = [];
     note.value = "";
+    arrivalTime.value = "";
     feedback.value = {
       type: "success",
       text: "Đơn của bạn đã được gửi tới bếp. Bạn có thể theo dõi trạng thái trong mục Đơn của tôi.",
@@ -1448,19 +1468,24 @@ onMounted(loadMenu);
   color: var(--customer-ink);
 }
 
-.customer-note textarea {
+.customer-note textarea,
+.customer-note input {
   width: 100%;
   border: 1px solid rgba(120, 74, 54, 0.14);
   border-radius: 20px;
   padding: 14px 16px;
-  resize: vertical;
-  min-height: 116px;
   background: rgba(255, 255, 255, 0.8);
   color: var(--customer-ink);
   font: inherit;
 }
 
+.customer-note textarea {
+  resize: vertical;
+  min-height: 116px;
+}
+
 .customer-note textarea:focus,
+.customer-note input:focus,
 .customer-search input:focus {
   outline: none;
 }
