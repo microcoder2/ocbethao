@@ -108,17 +108,26 @@ label {
 }
 
 .brand-block {
-  padding: 28px 24px 16px;
-}
-
-.brand-block h1 {
   margin: 0;
-  font-size: 2rem;
+  padding: 0;
 }
 
-.brand-block p {
-  color: rgba(255, 248, 241, 0.72);
-  margin-top: 10px;
+.sidebar-brand {
+  display: block;
+  margin: 0;
+  padding: 0;
+  text-decoration: none;
+  line-height: 0;
+  border-radius: 0;
+}
+
+.sidebar-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
 }
 
 .brand-kicker,
@@ -158,6 +167,69 @@ label {
   position: sticky;
   top: 0;
   z-index: 999;
+}
+
+.topbar-main,
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.topbar-logo {
+  display: block;
+  height: 56px;
+  width: auto;
+}
+
+.topbar-user {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.topbar-icon-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  border: 1px solid rgba(35, 19, 15, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text);
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.topbar-icon-button:hover {
+  background: rgba(201, 87, 43, 0.1);
+  border-color: rgba(201, 87, 43, 0.24);
+  color: var(--ember-strong);
+}
+
+.topbar-icon-button:focus-visible {
+  outline: 2px solid rgba(201, 87, 43, 0.28);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.topbar-menu-button {
+  color: var(--text);
+}
+
+.topbar-menu-button i,
+.topbar-logout-button i {
+  font-size: 1.05rem;
 }
 
 .page-panel {
@@ -329,6 +401,18 @@ label {
 }
 
 @media (max-width: 767px) {
+  .topbar {
+    padding: 14px 16px;
+  }
+
+  .topbar-logo {
+    height: 44px;
+  }
+
+  .topbar-user {
+    display: none;
+  }
+
   input,
   select,
   textarea,

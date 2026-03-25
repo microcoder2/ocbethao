@@ -16,6 +16,13 @@ import { MenuItemStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { serializeMenuItem } from "../utils/mappers";
 
+class MenuItemIngredientPresetBody {
+  ingredientId!: number;
+  consumeQuantity?: number;
+  sortOrder?: number;
+  note?: string;
+}
+
 class MenuItemBody {
   name!: string;
   slug!: string;
@@ -29,6 +36,7 @@ class MenuItemBody {
   isFeatured?: boolean;
   isAvailable?: boolean;
   preparationTimeMin?: number;
+  ingredientPresets?: MenuItemIngredientPresetBody[];
 }
 
 class PriceHistoryBody {
@@ -37,6 +45,39 @@ class PriceHistoryBody {
   effectiveTo?: string;
   note?: string;
 }
+
+function toMoney(value: number): Prisma.Decimal {
+  return new Prisma.Decimal(value.toFixed(2));
+}
+
+function normalizeIngredientPresets(presets?: MenuItemIngredientPresetBody[]) {
+  const dedup = new Map<number, MenuItemIngredientPresetBody>();
+  for (const preset of presets || []) {
+    if (!preset || typeof preset.ingredientId !== "number") continue;
+    dedup.set(preset.ingredientId, {
+      ingredientId: preset.ingredientId,
+      consumeQuantity: typeof preset.consumeQuantity === "number" ? preset.consumeQuantity : 1,
+      sortOrder: typeof preset.sortOrder === "number" ? preset.sortOrder : 0,
+      note: preset.note,
+    });
+  }
+
+  return Array.from(dedup.values()).sort(
+    (left, right) => (left.sortOrder || 0) - (right.sortOrder || 0)
+  );
+}
+
+const menuItemInclude = {
+  category: true,
+  ingredientPresets: {
+    include: { ingredient: true },
+    orderBy: [{ sortOrder: "asc" as const }, { id: "asc" as const }],
+  },
+  priceHistories: {
+    orderBy: { effectiveFrom: "desc" as const },
+    take: 5,
+  },
+};
 
 @Route("menu-items")
 @Tags("Menu Items")
@@ -48,7 +89,7 @@ export class MenuItemsController extends Controller {
     @Query() categoryId?: number,
     @Query() status?: MenuItemStatus
   ) {
-    const where: any = {};
+    const where: Prisma.MenuItemWhereInput = {};
     if (search?.trim()) {
       where.OR = [
         { name: { contains: search.trim() } },
@@ -64,13 +105,7 @@ export class MenuItemsController extends Controller {
 
     const items = await prisma.menuItem.findMany({
       where,
-      include: {
-        category: true,
-        priceHistories: {
-          orderBy: { effectiveFrom: "desc" },
-          take: 5,
-        },
-      },
+      include: menuItemInclude,
       orderBy: [{ isFeatured: "desc" }, { updatedAt: "desc" }],
     });
     return items.map(serializeMenuItem);
@@ -82,7 +117,7 @@ export class MenuItemsController extends Controller {
     const item = await prisma.menuItem.findUniqueOrThrow({
       where: { id },
       include: {
-        category: true,
+        ...menuItemInclude,
         priceHistories: {
           orderBy: { effectiveFrom: "desc" },
           take: 20,
@@ -99,6 +134,7 @@ export class MenuItemsController extends Controller {
     @Body() body: MenuItemBody
   ) {
     const authUser = (req as any).user;
+    const ingredientPresets = normalizeIngredientPresets(body.ingredientPresets);
     const item = await prisma.menuItem.create({
       data: {
         name: body.name,
@@ -107,7 +143,7 @@ export class MenuItemsController extends Controller {
         unit: body.unit || "phan",
         spicyLevel: body.spicyLevel,
         imageUrl: body.imageUrl,
-        basePrice: new Prisma.Decimal(body.basePrice.toFixed(2)),
+        basePrice: toMoney(body.basePrice),
         categoryId: body.categoryId,
         status: body.status ?? MenuItemStatus.ACTIVE,
         isFeatured: body.isFeatured ?? false,
@@ -116,19 +152,21 @@ export class MenuItemsController extends Controller {
         createdById: authUser.id,
         priceHistories: {
           create: {
-            price: new Prisma.Decimal(body.basePrice.toFixed(2)),
+            price: toMoney(body.basePrice),
             effectiveFrom: new Date(),
-            note: "Gia khoi tao",
+            note: "Giá mẫu khởi tạo",
           },
         },
-      },
-      include: {
-        category: true,
-        priceHistories: {
-          orderBy: { effectiveFrom: "desc" },
-          take: 5,
+        ingredientPresets: {
+          create: ingredientPresets.map((preset) => ({
+            ingredientId: preset.ingredientId,
+            consumeQuantity: toMoney(preset.consumeQuantity || 1),
+            sortOrder: preset.sortOrder ?? 0,
+            note: preset.note,
+          })),
         },
       },
+      include: menuItemInclude,
     });
     this.setStatus(201);
     return serializeMenuItem(item);
@@ -141,6 +179,7 @@ export class MenuItemsController extends Controller {
       where: { id },
     });
 
+    const ingredientPresets = normalizeIngredientPresets(body.ingredientPresets);
     const data: Prisma.MenuItemUpdateInput = {
       name: body.name,
       slug: body.slug,
@@ -153,16 +192,25 @@ export class MenuItemsController extends Controller {
       isFeatured: body.isFeatured ?? current.isFeatured,
       isAvailable: body.isAvailable ?? current.isAvailable,
       preparationTimeMin: body.preparationTimeMin,
+      ingredientPresets: {
+        deleteMany: {},
+        create: ingredientPresets.map((preset) => ({
+          ingredientId: preset.ingredientId,
+          consumeQuantity: toMoney(preset.consumeQuantity || 1),
+          sortOrder: preset.sortOrder ?? 0,
+          note: preset.note,
+        })),
+      },
     };
 
-    const newBasePrice = new Prisma.Decimal(body.basePrice.toFixed(2));
+    const newBasePrice = toMoney(body.basePrice);
     if (Number(current.basePrice) !== body.basePrice) {
       data.basePrice = newBasePrice;
       data.priceHistories = {
         create: {
           price: newBasePrice,
           effectiveFrom: new Date(),
-          note: "Cap nhat gia tu trang quan ly mon",
+          note: "Cập nhật giá mẫu từ trang quản lý món",
         },
       };
     }
@@ -170,13 +218,7 @@ export class MenuItemsController extends Controller {
     const updated = await prisma.menuItem.update({
       where: { id },
       data,
-      include: {
-        category: true,
-        priceHistories: {
-          orderBy: { effectiveFrom: "desc" },
-          take: 5,
-        },
-      },
+      include: menuItemInclude,
     });
     return serializeMenuItem(updated);
   }
@@ -184,7 +226,7 @@ export class MenuItemsController extends Controller {
   @Post("{id}/price")
   @Security("bearerAuth", ["ADMIN"])
   public async addPriceHistory(@Path() id: number, @Body() body: PriceHistoryBody) {
-    const price = new Prisma.Decimal(body.price.toFixed(2));
+    const price = toMoney(body.price);
     await prisma.menuItemPrice.create({
       data: {
         menuItemId: id,
@@ -205,7 +247,7 @@ export class MenuItemsController extends Controller {
     const item = await prisma.menuItem.findUniqueOrThrow({
       where: { id },
       include: {
-        category: true,
+        ...menuItemInclude,
         priceHistories: {
           orderBy: { effectiveFrom: "desc" },
           take: 20,

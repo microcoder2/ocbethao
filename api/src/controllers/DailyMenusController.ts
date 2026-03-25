@@ -16,12 +16,29 @@ import { DailyMenuStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { serializeDailyMenu } from "../utils/mappers";
 
+class DailyMenuStockPoolInput {
+  id?: number;
+  key?: string;
+  ingredientId!: number;
+  label?: string;
+  quantity!: number;
+  isAvailable?: boolean;
+  note?: string;
+}
+
+class DailyMenuItemStockLinkInput {
+  dailyStockPoolId?: number;
+  stockPoolKey?: string;
+  consumeQuantity?: number;
+}
+
 class DailyMenuItemInput {
+  id?: number;
   menuItemId!: number;
-  quantity?: number;
   overridePrice?: number;
   isAvailable?: boolean;
   highlightLabel?: string;
+  stockLinks!: DailyMenuItemStockLinkInput[];
 }
 
 class DailyMenuBody {
@@ -31,83 +48,334 @@ class DailyMenuBody {
   status?: DailyMenuStatus;
   note?: string;
   bannerText?: string;
+  stockPools!: DailyMenuStockPoolInput[];
   items!: DailyMenuItemInput[];
 }
 
-async function syncDailyMenuItems(
-  tx: Prisma.TransactionClient,
-  dailyMenuId: number,
-  items: DailyMenuItemInput[]
-): Promise<void> {
-  const menuItemIds = items.map((item) => item.menuItemId);
-  if (menuItemIds.length === 0) {
-    await tx.dailyMenuItem.deleteMany({ where: { dailyMenuId } });
-    return;
-  }
-
-  await tx.dailyMenuItem.deleteMany({
-    where: {
-      dailyMenuId,
-      menuItemId: { notIn: menuItemIds },
-    },
-  });
-
-  for (const item of items) {
-    await tx.dailyMenuItem.upsert({
-      where: {
-        dailyMenuId_menuItemId: {
-          dailyMenuId,
-          menuItemId: item.menuItemId,
-        },
-      },
-      update: {
-        quantity: item.quantity,
-        overridePrice:
-          typeof item.overridePrice === "number"
-            ? new Prisma.Decimal(item.overridePrice.toFixed(2))
-            : null,
-        isAvailable: item.isAvailable ?? true,
-        highlightLabel: item.highlightLabel,
-      },
-      create: {
-        dailyMenuId,
-        menuItemId: item.menuItemId,
-        quantity: item.quantity,
-        overridePrice:
-          typeof item.overridePrice === "number"
-            ? new Prisma.Decimal(item.overridePrice.toFixed(2))
-            : undefined,
-        isAvailable: item.isAvailable ?? true,
-        highlightLabel: item.highlightLabel,
-      },
-    });
-  }
-}
-
-async function getDailyMenuDetail(id: number) {
-  return prisma.dailyMenu.findUniqueOrThrow({
-    where: { id },
-    include: {
-      items: {
-        include: {
-          menuItem: {
-            include: {
-              category: true,
-              priceHistories: {
-                orderBy: { effectiveFrom: "desc" },
-                take: 1,
-              },
-            },
-          },
-        },
-        orderBy: { id: "asc" },
-      },
-    },
-  });
+function toMoney(value: number): Prisma.Decimal {
+  return new Prisma.Decimal(value.toFixed(2));
 }
 
 function buildMenuCode(serviceDate: string): string {
   return `MENU-${serviceDate}`;
+}
+
+function buildDailyMenuInclude(publicOnly = false) {
+  return {
+    stockPools: {
+      include: {
+        ingredient: true,
+      },
+      orderBy: { id: "asc" as const },
+    },
+    items: {
+      where: publicOnly ? { isAvailable: true } : undefined,
+      include: {
+        menuItem: {
+          include: {
+            category: true,
+            ingredientPresets: {
+              include: { ingredient: true },
+              orderBy: [{ sortOrder: "asc" as const }, { id: "asc" as const }],
+            },
+            priceHistories: {
+              orderBy: { effectiveFrom: "desc" as const },
+              take: 1,
+            },
+          },
+        },
+        stockLinks: {
+          include: {
+            dailyStockPool: {
+              include: { ingredient: true },
+            },
+          },
+          orderBy: { id: "asc" as const },
+        },
+      },
+      orderBy: { id: "asc" as const },
+    },
+  };
+}
+
+async function getDailyMenuDetail(id: number, publicOnly = false) {
+  return prisma.dailyMenu.findUniqueOrThrow({
+    where: { id },
+    include: buildDailyMenuInclude(publicOnly),
+  });
+}
+
+function normalizeStockPools(inputs: DailyMenuStockPoolInput[]) {
+  return (inputs || [])
+    .filter(
+      (pool) =>
+        pool &&
+        typeof pool.ingredientId === "number" &&
+        typeof pool.quantity === "number" &&
+        pool.quantity >= 0
+    )
+    .map((pool) => ({
+      id: pool.id,
+      key: pool.key,
+      ingredientId: pool.ingredientId,
+      label: pool.label?.trim() || undefined,
+      quantity: pool.quantity,
+      isAvailable: pool.isAvailable ?? true,
+      note: pool.note?.trim() || undefined,
+    }));
+}
+
+function normalizeItems(inputs: DailyMenuItemInput[]) {
+  return (inputs || [])
+    .filter((item) => item && typeof item.menuItemId === "number")
+    .map((item) => ({
+      id: item.id,
+      menuItemId: item.menuItemId,
+      overridePrice: typeof item.overridePrice === "number" ? item.overridePrice : undefined,
+      isAvailable: item.isAvailable ?? true,
+      highlightLabel: item.highlightLabel?.trim() || undefined,
+      stockLinks: (item.stockLinks || [])
+        .filter(
+          (link) =>
+            Boolean(
+              typeof link.dailyStockPoolId === "number" ||
+                String(link.stockPoolKey || "").trim()
+            )
+        )
+        .map((link) => ({
+          dailyStockPoolId: link.dailyStockPoolId,
+          stockPoolKey: link.stockPoolKey?.trim() || undefined,
+          consumeQuantity:
+            typeof link.consumeQuantity === "number" && link.consumeQuantity > 0
+              ? link.consumeQuantity
+              : 1,
+        })),
+    }));
+}
+
+async function syncDailyMenuResources(
+  tx: Prisma.TransactionClient,
+  dailyMenuId: number,
+  body: DailyMenuBody
+): Promise<void> {
+  const stockPools = normalizeStockPools(body.stockPools);
+  const items = normalizeItems(body.items);
+  const ingredientIds = Array.from(new Set(stockPools.map((pool) => pool.ingredientId)));
+
+  const [ingredients, existingPools, existingItems] = await Promise.all([
+    ingredientIds.length
+      ? tx.ingredient.findMany({ where: { id: { in: ingredientIds } } })
+      : Promise.resolve([]),
+    tx.dailyStockPool.findMany({
+      where: { dailyMenuId },
+      include: {
+        _count: {
+          select: {
+            itemLinks: true,
+          },
+        },
+      },
+    }),
+    tx.dailyMenuItem.findMany({
+      where: { dailyMenuId },
+      include: {
+        _count: {
+          select: {
+            orderItems: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  const ingredientMap = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
+  const poolRefs = new Map<string, number>();
+  const keptPoolIds: number[] = [];
+
+  for (const pool of stockPools) {
+    const ingredient = ingredientMap.get(pool.ingredientId);
+    if (!ingredient) {
+      throw new Error(`Ingredient ${pool.ingredientId} not found`);
+    }
+
+    const existingPool = typeof pool.id === "number"
+      ? existingPools.find((candidate) => candidate.id === pool.id)
+      : undefined;
+
+    if (existingPool) {
+      if (
+        Number(existingPool.soldQuantity) > 0 &&
+        existingPool.ingredientId !== pool.ingredientId
+      ) {
+        throw new Error("Khong the doi nguon hang da co phat sinh don");
+      }
+      if (pool.quantity < Number(existingPool.soldQuantity)) {
+        throw new Error("So luong pool khong du lon hon phan da ban");
+      }
+
+      const updated = await tx.dailyStockPool.update({
+        where: { id: existingPool.id },
+        data: {
+          ingredientId: pool.ingredientId,
+          label: pool.label || ingredient.name,
+          quantity: toMoney(pool.quantity),
+          isAvailable: pool.isAvailable,
+          note: pool.note,
+        },
+      });
+      keptPoolIds.push(updated.id);
+      poolRefs.set(`id:${updated.id}`, updated.id);
+      if (pool.key) {
+        poolRefs.set(`key:${pool.key}`, updated.id);
+      }
+      continue;
+    }
+
+    const created = await tx.dailyStockPool.create({
+      data: {
+        dailyMenuId,
+        ingredientId: pool.ingredientId,
+        label: pool.label || ingredient.name,
+        quantity: toMoney(pool.quantity),
+        isAvailable: pool.isAvailable,
+        note: pool.note,
+      },
+    });
+    keptPoolIds.push(created.id);
+    poolRefs.set(`id:${created.id}`, created.id);
+    if (pool.key) {
+      poolRefs.set(`key:${pool.key}`, created.id);
+    }
+  }
+
+  for (const pool of existingPools) {
+    if (keptPoolIds.includes(pool.id)) {
+      poolRefs.set(`id:${pool.id}`, pool.id);
+      continue;
+    }
+
+    if (Number(pool.soldQuantity) > 0 || pool._count.itemLinks > 0) {
+      await tx.dailyStockPool.update({
+        where: { id: pool.id },
+        data: { isAvailable: false },
+      });
+      poolRefs.set(`id:${pool.id}`, pool.id);
+      continue;
+    }
+
+    await tx.dailyStockPool.delete({
+      where: { id: pool.id },
+    });
+  }
+
+  const keptItemIds: number[] = [];
+
+  for (const item of items) {
+    if (item.stockLinks.length === 0) {
+      throw new Error("Moi mon trong menu ngay phai gan it nhat mot pool nguon hang");
+    }
+
+    const resolvedStockLinks = item.stockLinks.map((link) => {
+      const resolvedId =
+        typeof link.dailyStockPoolId === "number"
+          ? poolRefs.get(`id:${link.dailyStockPoolId}`) || link.dailyStockPoolId
+          : poolRefs.get(`key:${link.stockPoolKey}`);
+
+      if (!resolvedId) {
+        throw new Error("Khong tim thay pool nguon hang da chon");
+      }
+
+      return {
+        dailyStockPoolId: resolvedId,
+        consumeQuantity: link.consumeQuantity,
+      };
+    });
+
+    const existingItemById = typeof item.id === "number"
+      ? existingItems.find((candidate) => candidate.id === item.id)
+      : undefined;
+    const existingItemByMenuItemId = existingItems.find(
+      (candidate) => candidate.menuItemId === item.menuItemId
+    );
+    const existingItem = existingItemById || existingItemByMenuItemId;
+
+    if (
+      existingItem &&
+      existingItem._count.orderItems > 0 &&
+      existingItem.menuItemId !== item.menuItemId
+    ) {
+      throw new Error("Khong the doi mon mau cho offer da co don hang");
+    }
+
+    const savedItem = existingItem
+      ? await tx.dailyMenuItem.update({
+          where: { id: existingItem.id },
+          data: {
+            menuItemId: item.menuItemId,
+            overridePrice:
+              typeof item.overridePrice === "number" ? toMoney(item.overridePrice) : null,
+            isAvailable: item.isAvailable,
+            highlightLabel: item.highlightLabel,
+          },
+        })
+      : await tx.dailyMenuItem.create({
+          data: {
+            dailyMenuId,
+            menuItemId: item.menuItemId,
+            overridePrice:
+              typeof item.overridePrice === "number" ? toMoney(item.overridePrice) : undefined,
+            isAvailable: item.isAvailable,
+            highlightLabel: item.highlightLabel,
+          },
+        });
+
+    keptItemIds.push(savedItem.id);
+
+    const keepLinkPoolIds = resolvedStockLinks.map((link) => link.dailyStockPoolId);
+    await tx.dailyMenuItemStock.deleteMany({
+      where: {
+        dailyMenuItemId: savedItem.id,
+        dailyStockPoolId: { notIn: keepLinkPoolIds },
+      },
+    });
+
+    for (const link of resolvedStockLinks) {
+      await tx.dailyMenuItemStock.upsert({
+        where: {
+          dailyMenuItemId_dailyStockPoolId: {
+            dailyMenuItemId: savedItem.id,
+            dailyStockPoolId: link.dailyStockPoolId,
+          },
+        },
+        update: {
+          consumeQuantity: toMoney(link.consumeQuantity),
+        },
+        create: {
+          dailyMenuItemId: savedItem.id,
+          dailyStockPoolId: link.dailyStockPoolId,
+          consumeQuantity: toMoney(link.consumeQuantity),
+        },
+      });
+    }
+  }
+
+  for (const item of existingItems) {
+    if (keptItemIds.includes(item.id)) {
+      continue;
+    }
+
+    if (item._count.orderItems > 0) {
+      await tx.dailyMenuItem.update({
+        where: { id: item.id },
+        data: { isAvailable: false },
+      });
+      continue;
+    }
+
+    await tx.dailyMenuItem.delete({
+      where: { id: item.id },
+    });
+  }
 }
 
 @Route("daily-menus")
@@ -121,23 +389,7 @@ export class DailyMenusController extends Controller {
         serviceDate: new Date(targetDate),
         status: DailyMenuStatus.PUBLISHED,
       },
-      include: {
-        items: {
-          where: { isAvailable: true },
-          include: {
-            menuItem: {
-              include: {
-                category: true,
-                priceHistories: {
-                  orderBy: { effectiveFrom: "desc" },
-                  take: 1,
-                },
-              },
-            },
-          },
-          orderBy: { id: "asc" },
-        },
-      },
+      include: buildDailyMenuInclude(true),
     });
     if (!menu) {
       return null;
@@ -151,7 +403,7 @@ export class DailyMenusController extends Controller {
     @Query() status?: DailyMenuStatus,
     @Query() date?: string
   ) {
-    const where: any = {};
+    const where: Prisma.DailyMenuWhereInput = {};
     if (status) {
       where.status = status;
     }
@@ -161,22 +413,7 @@ export class DailyMenusController extends Controller {
 
     const menus = await prisma.dailyMenu.findMany({
       where,
-      include: {
-        items: {
-          include: {
-            menuItem: {
-              include: {
-                category: true,
-                priceHistories: {
-                  orderBy: { effectiveFrom: "desc" },
-                  take: 1,
-                },
-              },
-            },
-          },
-          orderBy: { id: "asc" },
-        },
-      },
+      include: buildDailyMenuInclude(),
       orderBy: [{ serviceDate: "desc" }, { createdAt: "desc" }],
     });
     return menus.map(serializeDailyMenu);
@@ -211,7 +448,7 @@ export class DailyMenusController extends Controller {
         },
       });
 
-      await syncDailyMenuItems(tx, menu.id, body.items || []);
+      await syncDailyMenuResources(tx, menu.id, body);
       return menu.id;
     });
 
@@ -236,7 +473,7 @@ export class DailyMenusController extends Controller {
         },
       });
 
-      await syncDailyMenuItems(tx, id, body.items || []);
+      await syncDailyMenuResources(tx, id, body);
     });
 
     const menu = await getDailyMenuDetail(id);

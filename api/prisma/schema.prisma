@@ -24,8 +24,8 @@ enum CustomerType {
 
 enum MenuItemStatus {
   ACTIVE
-  SOLD_OUT
   HIDDEN
+  ARCHIVED
 }
 
 enum DailyMenuStatus {
@@ -151,6 +151,21 @@ model Category {
   items MenuItem[]
 }
 
+model Ingredient {
+  id          Int      @id @default(autoincrement())
+  name        String
+  slug        String   @unique
+  description String?  @db.LongText
+  unit        String   @default("phan")
+  imageUrl    String?  @db.LongText
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ingredientPresets MenuItemIngredientPreset[]
+  dailyStockPools   DailyStockPool[]
+}
+
 model MenuItem {
   id                 Int            @id @default(autoincrement())
   name               String
@@ -169,11 +184,12 @@ model MenuItem {
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
-  category       Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  createdBy      User?           @relation("MenuItemCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  priceHistories MenuItemPrice[]
-  dailyMenuItems DailyMenuItem[]
-  orderItems     OrderItem[]
+  category          Category                 @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdBy         User?                    @relation("MenuItemCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  priceHistories    MenuItemPrice[]
+  ingredientPresets MenuItemIngredientPreset[]
+  dailyMenuItems    DailyMenuItem[]
+  orderItems        OrderItem[]
 
   @@index([categoryId, status])
 }
@@ -193,6 +209,23 @@ model MenuItemPrice {
   @@unique([menuItemId, effectiveFrom])
 }
 
+model MenuItemIngredientPreset {
+  id              Int      @id @default(autoincrement())
+  menuItemId      Int
+  ingredientId    Int
+  consumeQuantity Decimal  @default(1) @db.Decimal(10, 2)
+  sortOrder       Int      @default(0)
+  note            String?  @db.LongText
+  createdAt       DateTime @default(now())
+
+  menuItem   MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([menuItemId, ingredientId])
+  @@index([menuItemId, sortOrder])
+  @@index([ingredientId])
+}
+
 model DailyMenu {
   id          Int             @id @default(autoincrement())
   code        String          @unique
@@ -205,58 +238,91 @@ model DailyMenu {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  createdBy User?            @relation("DailyMenuCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  items     DailyMenuItem[]
-  orders    Order[]
+  createdBy  User?            @relation("DailyMenuCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  stockPools DailyStockPool[]
+  items      DailyMenuItem[]
+  orders     Order[]
 
   @@index([serviceDate, status])
+}
+
+model DailyStockPool {
+  id           Int      @id @default(autoincrement())
+  dailyMenuId  Int
+  ingredientId Int
+  label        String?
+  quantity     Decimal  @db.Decimal(10, 2)
+  soldQuantity Decimal  @default(0) @db.Decimal(10, 2)
+  isAvailable  Boolean  @default(true)
+  note         String?  @db.LongText
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  dailyMenu   DailyMenu            @relation(fields: [dailyMenuId], references: [id], onDelete: Cascade)
+  ingredient  Ingredient           @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  itemLinks   DailyMenuItemStock[]
+
+  @@index([dailyMenuId, ingredientId])
 }
 
 model DailyMenuItem {
   id             Int       @id @default(autoincrement())
   dailyMenuId    Int
   menuItemId     Int
-  quantity       Int?
-  soldQuantity   Int       @default(0)
   overridePrice  Decimal?  @db.Decimal(10, 2)
   isAvailable    Boolean   @default(true)
   highlightLabel String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  dailyMenu DailyMenu  @relation(fields: [dailyMenuId], references: [id], onDelete: Cascade)
-  menuItem  MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  dailyMenu  DailyMenu            @relation(fields: [dailyMenuId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem             @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  stockLinks DailyMenuItemStock[]
   orderItems OrderItem[]
 
   @@unique([dailyMenuId, menuItemId])
   @@index([menuItemId])
 }
 
+model DailyMenuItemStock {
+  id               Int      @id @default(autoincrement())
+  dailyMenuItemId  Int
+  dailyStockPoolId Int
+  consumeQuantity  Decimal  @default(1) @db.Decimal(10, 2)
+  createdAt        DateTime @default(now())
+
+  dailyMenuItem DailyMenuItem @relation(fields: [dailyMenuItemId], references: [id], onDelete: Cascade)
+  dailyStockPool DailyStockPool @relation(fields: [dailyStockPoolId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyMenuItemId, dailyStockPoolId])
+  @@index([dailyStockPoolId])
+}
+
 model Order {
-  id             Int           @id @default(autoincrement())
-  orderNumber    String        @unique
-  source         OrderSource
-  status         OrderStatus   @default(PENDING)
-  paymentStatus  PaymentStatus @default(UNPAID)
-  paymentMethod  PaymentMethod?
-  tableLabel     String?
-  guestCount     Int?
-  guestName      String?
-  guestPhone     String?
-  note           String?       @db.LongText
-  internalNote   String?       @db.LongText
-  subtotal       Decimal       @db.Decimal(10, 2)
-  serviceFee     Decimal       @default(0) @db.Decimal(10, 2)
-  discountAmount Decimal       @default(0) @db.Decimal(10, 2)
-  totalAmount    Decimal       @db.Decimal(10, 2)
-  createdById    Int?
+  id              Int           @id @default(autoincrement())
+  orderNumber     String        @unique
+  source          OrderSource
+  status          OrderStatus   @default(PENDING)
+  paymentStatus   PaymentStatus @default(UNPAID)
+  paymentMethod   PaymentMethod?
+  tableLabel      String?
+  guestCount      Int?
+  guestName       String?
+  guestPhone      String?
+  note            String?       @db.LongText
+  internalNote    String?       @db.LongText
+  subtotal        Decimal       @db.Decimal(10, 2)
+  serviceFee      Decimal       @default(0) @db.Decimal(10, 2)
+  discountAmount  Decimal       @default(0) @db.Decimal(10, 2)
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  createdById     Int?
   assignedStaffId Int?
-  customerId     Int?
-  dailyMenuId    Int?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  confirmedAt    DateTime?
-  completedAt    DateTime?
+  customerId      Int?
+  dailyMenuId     Int?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  confirmedAt     DateTime?
+  completedAt     DateTime?
 
   createdBy    User?      @relation("OrderCreator", fields: [createdById], references: [id], onDelete: SetNull)
   assignedStaff User?     @relation("OrderAssignee", fields: [assignedStaffId], references: [id], onDelete: SetNull)
