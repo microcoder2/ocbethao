@@ -81,13 +81,7 @@ export class DashboardController extends Controller {
         }),
       ]);
 
-    const activeStatuses: OrderStatus[] = [
-      OrderStatus.PENDING,
-      OrderStatus.CONFIRMED,
-      OrderStatus.PREPARING,
-      OrderStatus.READY,
-      OrderStatus.SERVED,
-    ];
+    const activeStatuses: OrderStatus[] = [OrderStatus.CONFIRMED];
 
     const byStatus = allOrders.reduce<Record<string, number>>((acc, order) => {
       const key = order.status;

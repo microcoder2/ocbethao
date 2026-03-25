@@ -82,9 +82,9 @@
                 <td>{{ formatMoney(order.totalAmount) }}</td>
                 <td>{{ order.status }}</td>
                 <td class="text-end d-flex justify-content-end gap-2">
-                  <button class="btn btn-sm btn-outline-dark" @click="updateStatus(order.id, 'PREPARING')">Preparing</button>
-                  <button class="btn btn-sm btn-outline-dark" @click="updateStatus(order.id, 'READY')">Ready</button>
-                  <button class="btn btn-sm btn-ember" @click="updateStatus(order.id, 'COMPLETED')">Complete</button>
+                  <button class="btn btn-sm btn-outline-dark" @click="updateStatus(order.id, 'COMPLETED', 'CASH')">Tien mat</button>
+                  <button class="btn btn-sm btn-ember" @click="updateStatus(order.id, 'COMPLETED', 'TRANSFER')">Chuyen khoan</button>
+                  <button class="btn btn-sm btn-outline-danger" @click="updateStatus(order.id, 'CANCELLED')">Huy</button>
                 </td>
               </tr>
             </tbody>
@@ -170,8 +170,8 @@ async function submitOrder() {
   }
 }
 
-async function updateStatus(id: number, status: string) {
-  await api.put(`/orders/${id}/status`, { status });
+async function updateStatus(id: number, status: string, paymentMethod?: string) {
+  await api.put(`/orders/${id}/status`, { status, paymentMethod });
   await loadData();
 }
 

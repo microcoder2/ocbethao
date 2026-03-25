@@ -54,6 +54,10 @@ class UpdateOrderStatusBody {
   internalNote?: string;
 }
 
+class UpdateOrderBody {
+  items!: OrderItemInput[];
+}
+
 type ResolvedOrderLine = {
   menuItemId: number | null;
   dailyMenuItemId: number | null;
@@ -72,11 +76,35 @@ function money(value: number): Prisma.Decimal {
   return new Prisma.Decimal(value.toFixed(2));
 }
 
+function getDateRange(date: string) {
+  const normalized = String(date || "").trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("Ngay loc khong hop le");
+  }
+
+  const nextDay = new Date(parsed);
+  nextDay.setDate(nextDay.getDate() + 1);
+
+  return {
+    gte: parsed,
+    lt: nextDay,
+  };
+}
+
 function buildOrderNumber(): string {
   const now = new Date();
   const stamp = now.toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `OBT-${stamp}-${rand}`;
+}
+
+function canEditOrder(status: OrderStatus): boolean {
+  return status !== OrderStatus.COMPLETED && status !== OrderStatus.CANCELLED;
 }
 
 function normalizePositiveInt(value: number): number {
@@ -315,11 +343,19 @@ export class OrdersController extends Controller {
   public async getOrders(
     @Query() status?: OrderStatus,
     @Query() paymentStatus?: PaymentStatus,
-    @Query() search?: string
+    @Query() search?: string,
+    @Query() date?: string,
+    @Query() scope?: string
   ) {
     const where: Prisma.OrderWhereInput = {};
     if (status) where.status = status;
     if (paymentStatus) where.paymentStatus = paymentStatus;
+    if (date?.trim()) {
+      const dateRange = getDateRange(date.trim());
+      if (dateRange) {
+        where.createdAt = dateRange;
+      }
+    }
     if (search?.trim()) {
       const q = search.trim();
       where.OR = [
@@ -327,6 +363,15 @@ export class OrdersController extends Controller {
         { guestName: { contains: q } },
         { guestPhone: { contains: q } },
         { tableLabel: { contains: q } },
+        { customer: { is: { fullName: { contains: q } } } },
+        { customer: { is: { phone: { contains: q } } } },
+      ];
+    }
+
+    if (scope === "attention" && !status && !paymentStatus) {
+      where.AND = [
+        { status: { not: OrderStatus.CANCELLED } },
+        { status: OrderStatus.CONFIRMED },
       ];
     }
 
@@ -437,7 +482,7 @@ export class OrdersController extends Controller {
         data: {
           orderNumber: buildOrderNumber(),
           source,
-          status: OrderStatus.PENDING,
+          status: OrderStatus.CONFIRMED,
           paymentStatus: body.paymentStatus ?? PaymentStatus.UNPAID,
           paymentMethod: body.paymentMethod,
           tableLabel: body.tableLabel,
@@ -513,6 +558,12 @@ export class OrdersController extends Controller {
         current.status !== OrderStatus.CANCELLED && body.status === OrderStatus.CANCELLED;
       const reactivatingOrder =
         current.status === OrderStatus.CANCELLED && body.status !== OrderStatus.CANCELLED;
+      const movingToCompleted =
+        current.status !== OrderStatus.COMPLETED && body.status === OrderStatus.COMPLETED;
+
+      if (movingToCompleted && !body.paymentMethod && !current.paymentMethod) {
+        throw new Error("Can chon hinh thuc thanh toan khi hoan tat don");
+      }
 
       if (movingToCancelled) {
         await applyStockUsage(tx, stockUsage, -1);
@@ -538,16 +589,86 @@ export class OrdersController extends Controller {
         data.confirmedAt = new Date();
       }
       if (body.status === OrderStatus.COMPLETED) {
-        data.completedAt = new Date();
-        if (!body.paymentStatus) {
-          data.paymentStatus = PaymentStatus.PAID;
-        }
+        data.completedAt = current.completedAt ?? new Date();
+        data.paymentStatus = PaymentStatus.PAID;
+        data.paymentMethod = body.paymentMethod ?? current.paymentMethod;
       }
 
       await tx.order.update({
         where: { id },
         data,
       });
+    });
+
+    const order = await getOrderDetail(id);
+    return serializeOrder(order);
+  }
+
+  @Put("{id}")
+  @Security("bearerAuth", ["ADMIN"])
+  public async updateOrder(@Path() id: number, @Body() body: UpdateOrderBody) {
+    if (!Array.isArray(body.items) || body.items.length === 0) {
+      throw new Error("Don hang phai co it nhat mot mon");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.order.findUniqueOrThrow({
+        where: { id },
+        include: {
+          items: {
+            include: {
+              dailyMenuItem: {
+                include: {
+                  stockLinks: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!canEditOrder(current.status)) {
+        throw new Error("Chi co the sua don chua hoan tat hoac chua huy");
+      }
+
+      const currentUsage = getStockUsageFromOrder(current as Awaited<
+        ReturnType<typeof getOrderForStockSync>
+      >);
+      await applyStockUsage(tx, currentUsage, -1);
+
+      const lines = await resolveOrderLines(tx, body.items || []);
+      const nextUsage = aggregateStockUsage(lines);
+      await ensureStockAvailability(tx, nextUsage);
+
+      const subtotal = lines.reduce((sum, item) => sum + item.lineTotal, 0);
+      const serviceFee = Number(current.serviceFee);
+      const discountAmount = Number(current.discountAmount);
+      const totalAmount = subtotal + serviceFee - discountAmount;
+
+      await tx.orderItem.deleteMany({
+        where: { orderId: id },
+      });
+
+      await tx.order.update({
+        where: { id },
+        data: {
+          subtotal: money(subtotal),
+          totalAmount: money(totalAmount),
+          items: {
+            create: lines.map((line) => ({
+              menuItemId: line.menuItemId,
+              dailyMenuItemId: line.dailyMenuItemId,
+              itemNameSnapshot: line.itemNameSnapshot,
+              unitPrice: money(line.unitPrice),
+              quantity: line.quantity,
+              lineTotal: money(line.lineTotal),
+              note: line.note,
+            })),
+          },
+        },
+      });
+
+      await applyStockUsage(tx, nextUsage, 1);
     });
 
     const order = await getOrderDetail(id);
