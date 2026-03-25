@@ -82,6 +82,22 @@ function getGoogleClientId(): string {
   return String(process.env.GOOGLE_CLIENT_ID || "").trim();
 }
 
+function getFacebookAppId(): string {
+  return String(process.env.FACEBOOK_APP_ID || "").trim();
+}
+
+function getFacebookAppSecret(): string {
+  return String(process.env.FACEBOOK_APP_SECRET || "").trim();
+}
+
+function getFacebookGraphVersion(): string {
+  return String(process.env.FACEBOOK_GRAPH_VERSION || "v22.0").trim();
+}
+
+function getFacebookLoginScope(): string {
+  return String(process.env.FACEBOOK_LOGIN_SCOPE || "public_profile,email").trim();
+}
+
 function buildRuntimeProvider(provider: AuthProviderTemplate): AuthProviderDefinition {
   const loginEnabledProviders = parseProviderList(
     process.env.AUTH_ENABLED_LOGIN_PROVIDERS,
@@ -118,6 +134,30 @@ function buildRuntimeProvider(provider: AuthProviderTemplate): AuthProviderDefin
         ? {
             clientId,
             uxMode: "popup",
+          }
+        : undefined,
+    };
+  }
+
+  if (provider.key === "facebook") {
+    const appId = getFacebookAppId();
+    const appSecret = getFacebookAppSecret();
+    const isReady = Boolean(appId && appSecret);
+
+    return {
+      ...provider,
+      supportsLink: Boolean(provider.supportsLink),
+      isEnabled,
+      isLinkEnabled,
+      isReady,
+      notes: isReady
+        ? "Requires Meta app to allow Facebook Login for Web."
+        : "Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET to enable Facebook sign-in.",
+      publicConfig: appId
+        ? {
+            appId,
+            version: getFacebookGraphVersion(),
+            scope: getFacebookLoginScope(),
           }
         : undefined,
     };

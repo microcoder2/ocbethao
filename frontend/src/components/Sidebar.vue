@@ -1,9 +1,14 @@
 <template>
   <aside :class="['sidebar-panel', { hidden: !open }]">
     <div class="brand-block">
-      <div class="brand-kicker">F&B Ops</div>
-      <h1>{{ brand.name }}</h1>
-      <p>{{ brand.tagline }}</p>
+      <RouterLink
+        to="/"
+        class="sidebar-brand"
+        aria-label="Ốc Bé Thảo"
+        title="Ốc Bé Thảo"
+      >
+        <img :src="logoUrl" alt="Ốc Bé Thảo" class="sidebar-logo" />
+      </RouterLink>
     </div>
 
     <nav class="nav flex-column gap-2 px-3 pb-4">
@@ -23,7 +28,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
-import { brand } from "../content/brand";
+import logoUrl from "../assets/oc-be-thao-logo.svg";
 import { getMenuByRole } from "../menu";
 import { getRole } from "../utils/auth";
 

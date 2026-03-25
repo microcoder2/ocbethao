@@ -2,26 +2,54 @@
   <div class="app-shell">
     <AppSidebar :open="sidebarOpen" class="layout-sidebar" />
     <div class="app-main">
-      <AppHeader @toggle-sidebar="sidebarOpen = !sidebarOpen" />
+      <AppHeader :show-brand="showHeaderBrand" @toggle-sidebar="toggleSidebar" />
       <main class="app-content">
         <RouterView />
       </main>
     </div>
-    <div v-if="sidebarOpen" class="app-overlay d-lg-none" @click="sidebarOpen = false"></div>
+    <div v-if="sidebarOpen" class="app-overlay d-lg-none" @click="mobileSidebarOpen = false"></div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { RouterView } from "vue-router";
-import { onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AppHeader from "../components/Header.vue";
 import AppSidebar from "../components/Sidebar.vue";
 
-const sidebarOpen = ref(true);
+const MOBILE_BREAKPOINT_QUERY = "(max-width: 991px)";
+const isMobile = ref(false);
+const mobileSidebarOpen = ref(false);
+
+const sidebarOpen = computed(() => !isMobile.value || mobileSidebarOpen.value);
+const showHeaderBrand = computed(() => isMobile.value && !mobileSidebarOpen.value);
+
+let mobileQuery: MediaQueryList | null = null;
+
+function syncViewportState(event?: MediaQueryList | MediaQueryListEvent) {
+  const matches = event ? event.matches : mobileQuery?.matches ?? false;
+  isMobile.value = matches;
+
+  if (!matches) {
+    mobileSidebarOpen.value = false;
+  }
+}
+
+function toggleSidebar() {
+  if (!isMobile.value) {
+    return;
+  }
+
+  mobileSidebarOpen.value = !mobileSidebarOpen.value;
+}
 
 onMounted(() => {
-  if (window.matchMedia("(max-width: 991px)").matches) {
-    sidebarOpen.value = false;
-  }
+  mobileQuery = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
+  syncViewportState(mobileQuery);
+  mobileQuery.addEventListener("change", syncViewportState);
+});
+
+onBeforeUnmount(() => {
+  mobileQuery?.removeEventListener("change", syncViewportState);
 });
 </script>

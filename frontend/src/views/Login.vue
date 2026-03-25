@@ -4,9 +4,13 @@
     <div class="obt-login-min__ambient obt-login-min__ambient--right"></div>
 
     <section class="obt-login-min__card">
-      <img :src="logoUrl" alt="Oc Be Thao" class="obt-login-min__logo" />
+      <img :src="logoUrl" alt="Ốc Bé Thảo" class="obt-login-min__logo" />
 
-      <form v-if="showPasswordForm" class="obt-login-min__form" @submit.prevent="submitPasswordLogin">
+      <form
+        v-if="showPasswordForm"
+        class="obt-login-min__form"
+        @submit.prevent="submitPasswordLogin"
+      >
         <div class="obt-login-min__field">
           <span class="obt-login-min__icon">
             <i class="bi bi-person-circle"></i>
@@ -32,7 +36,10 @@
           />
         </div>
 
-        <button class="btn btn-ember obt-login-min__submit" :disabled="Boolean(pendingProvider)">
+        <button
+          class="btn btn-ember obt-login-min__submit"
+          :disabled="Boolean(pendingProvider)"
+        >
           <span v-if="pendingProvider === 'password'">Đang đăng nhập...</span>
           <span v-else>Đăng nhập</span>
         </button>
@@ -50,11 +57,42 @@
         ></div>
         <button
           v-else
-          class="btn obt-login-min__provider obt-login-min__provider--disabled"
+          class="btn obt-login-min__provider obt-login-min__provider--social obt-login-min__provider--disabled"
           disabled
         >
-          <i class="bi bi-google"></i>
-          <span>{{ googleProvider.label }}</span>
+          <span
+            class="obt-login-min__provider-mark obt-login-min__provider-mark--google"
+          >
+            <i class="bi bi-google"></i>
+          </span>
+          <span class="obt-login-min__provider-copy">Đăng nhập với Google</span>
+        </button>
+      </div>
+
+      <div
+        v-if="facebookProvider"
+        class="obt-login-min__provider-slot obt-login-min__provider-slot--facebook"
+      >
+        <button
+          class="btn obt-login-min__provider obt-login-min__provider--social obt-login-min__provider--facebook"
+          :class="{
+            'obt-login-min__provider--disabled': !facebookProvider.isReady,
+          }"
+          :disabled="Boolean(pendingProvider) || !facebookProvider.isReady"
+          @click="submitFacebookLogin"
+        >
+          <span
+            class="obt-login-min__provider-mark obt-login-min__provider-mark--facebook"
+          >
+            <i class="bi bi-facebook"></i>
+          </span>
+          <span class="obt-login-min__provider-copy">
+            {{
+              pendingProvider === "facebook"
+                ? "Đang đăng nhập Facebook..."
+                : "Đăng nhập với Facebook"
+            }}
+          </span>
         </button>
       </div>
 
@@ -62,28 +100,40 @@
         <button
           v-for="provider in placeholderProviders"
           :key="provider.key"
-          class="btn obt-login-min__provider"
+          class="btn obt-login-min__provider obt-login-min__provider--social"
           :class="{ 'obt-login-min__provider--disabled': !provider.isReady }"
-          :disabled="true"
+          disabled
         >
-          <i :class="providerIconClass(provider.key)"></i>
-          <span>{{ provider.label }}</span>
+          <span class="obt-login-min__provider-mark">
+            <i :class="providerIconClass(provider.key)"></i>
+          </span>
+          <span class="obt-login-min__provider-copy">{{ provider.label }}</span>
         </button>
       </div>
 
-      <div v-if="providerHint" class="obt-login-min__hint">{{ providerHint }}</div>
+      <div v-if="providerHint" class="obt-login-min__hint">
+        {{ providerHint }}
+      </div>
       <div v-if="error" class="alert alert-danger mt-3 mb-0">{{ error }}</div>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../api";
+import logoUrl from "../assets/logo.svg";
 import { saveAuth } from "../utils/auth";
+import { loginWithFacebook } from "../utils/facebookIdentity";
 import { loadGoogleIdentityScript } from "../utils/googleIdentity";
-import logoUrl from "../assets/oc-be-thao-logo.svg";
 
 type AuthProviderItem = {
   key: string;
@@ -106,30 +156,51 @@ const providers = ref<AuthProviderItem[]>([]);
 const googleButtonHost = ref<HTMLElement | null>(null);
 let initializedGoogleClientId = "";
 
+function clearGoogleButtonFocus() {
+  const activeElement = document.activeElement as HTMLElement | null;
+  if (activeElement?.tagName === "IFRAME") {
+    activeElement.blur();
+  }
+}
+
 const loginForm = ref({
   identifier: "admin",
   password: "123456",
 });
 
 const passwordProvider = computed(
-  () => providers.value.find((provider) => provider.key === "password") || null
+  () => providers.value.find((provider) => provider.key === "password") || null,
 );
 const showPasswordForm = computed(
-  () => !providersLoaded.value || passwordProvider.value?.isEnabled !== false
+  () => !providersLoaded.value || passwordProvider.value?.isEnabled !== false,
 );
 const externalProviders = computed(() =>
   providers.value.filter(
-    (provider) => provider.supportsLogin && provider.key !== "password" && provider.isEnabled
-  )
+    (provider) =>
+      provider.supportsLogin &&
+      provider.key !== "password" &&
+      provider.isEnabled,
+  ),
 );
 const googleProvider = computed(
-  () => externalProviders.value.find((provider) => provider.key === "google") || null
+  () =>
+    externalProviders.value.find((provider) => provider.key === "google") ||
+    null,
+);
+const facebookProvider = computed(
+  () =>
+    externalProviders.value.find((provider) => provider.key === "facebook") ||
+    null,
 );
 const placeholderProviders = computed(() =>
-  externalProviders.value.filter((provider) => provider.key !== "google")
+  externalProviders.value.filter(
+    (provider) => !["google", "facebook"].includes(provider.key),
+  ),
 );
 const providerHint = computed(() => {
-  const firstPendingProvider = externalProviders.value.find((provider) => !provider.isReady && provider.notes);
+  const firstPendingProvider = externalProviders.value.find(
+    (provider) => !provider.isReady && provider.notes,
+  );
   return firstPendingProvider?.notes || "";
 });
 
@@ -189,6 +260,7 @@ async function handleGoogleCredential(response: GoogleCredentialResponse) {
   pendingProvider.value = "google";
   error.value = "";
   try {
+    clearGoogleButtonFocus();
     const { data } = await api.post("/auth/external/google/complete", {
       idToken: response.credential,
     });
@@ -200,6 +272,39 @@ async function handleGoogleCredential(response: GoogleCredentialResponse) {
       error.value = caught.message;
     } else {
       error.value = "Đăng nhập Google thất bại";
+    }
+  } finally {
+    pendingProvider.value = "";
+  }
+}
+
+async function submitFacebookLogin() {
+  const provider = facebookProvider.value;
+  if (!provider || !provider.isReady || pendingProvider.value) {
+    return;
+  }
+
+  pendingProvider.value = "facebook";
+  error.value = "";
+
+  try {
+    const appId = String(provider.publicConfig?.appId || "").trim();
+    const version = String(provider.publicConfig?.version || "v22.0").trim();
+    const scope = String(
+      provider.publicConfig?.scope || "public_profile,email",
+    ).trim();
+    const authResponse = await loginWithFacebook({ appId, version, scope });
+    const { data } = await api.post("/auth/external/facebook/complete", {
+      accessToken: authResponse.accessToken,
+    });
+    await finishLogin(data);
+  } catch (caught: any) {
+    if (caught?.response?.data?.message) {
+      error.value = caught.response.data.message;
+    } else if (caught?.message) {
+      error.value = caught.message;
+    } else {
+      error.value = "Đăng nhập Facebook thất bại";
     }
   } finally {
     pendingProvider.value = "";
@@ -225,9 +330,13 @@ async function renderGoogleButton() {
 
   try {
     const google = await loadGoogleIdentityScript();
-    const hostWidth = Math.floor(host.getBoundingClientRect().width || host.clientWidth || 0);
-    const viewportWidth = Math.max(280, Math.floor(window.innerWidth - 40));
-    const buttonWidth = Math.max(220, Math.min(hostWidth || viewportWidth, 360));
+    const hostWidth = Math.floor(
+      host.parentElement?.getBoundingClientRect().width ||
+        host.getBoundingClientRect().width ||
+        host.clientWidth ||
+        0,
+    );
+    const buttonWidth = Math.max(220, hostWidth || 320);
 
     if (initializedGoogleClientId !== clientId) {
       google.accounts.id.initialize({
@@ -250,6 +359,13 @@ async function renderGoogleButton() {
       shape: "pill",
       width: buttonWidth,
       logo_alignment: "left",
+      locale: "vi",
+    });
+    host.addEventListener("pointerup", clearGoogleButtonFocus, {
+      passive: true,
+    });
+    host.addEventListener("touchend", clearGoogleButtonFocus, {
+      passive: true,
     });
   } catch (caught: any) {
     error.value = caught?.message || "Không tải được Google Sign-In";
@@ -270,15 +386,26 @@ async function loadProviders() {
 }
 
 watch(
-  () => [googleProvider.value?.key, googleProvider.value?.isReady, googleProvider.value?.publicConfig?.clientId, googleButtonHost.value] as const,
+  () =>
+    [
+      googleProvider.value?.key,
+      googleProvider.value?.isReady,
+      googleProvider.value?.publicConfig?.clientId,
+      googleButtonHost.value,
+    ] as const,
   async () => {
     await nextTick();
     await renderGoogleButton();
-  }
+  },
 );
 
 onMounted(async () => {
+  window.addEventListener("focus", clearGoogleButtonFocus);
   await loadProviders();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("focus", clearGoogleButtonFocus);
 });
 </script>
 
@@ -293,15 +420,21 @@ onMounted(async () => {
   height: var(--app-height, 100svh);
   display: grid;
   place-items: center;
-  padding:
-    max(18px, env(safe-area-inset-top))
-    clamp(10px, 4vw, 16px)
+  padding: max(18px, env(safe-area-inset-top)) clamp(10px, 4vw, 16px)
     max(18px, env(safe-area-inset-bottom));
   overflow: clip;
   overscroll-behavior: none;
   background:
-    radial-gradient(circle at top left, rgba(255, 197, 125, 0.22), transparent 24%),
-    radial-gradient(circle at bottom right, rgba(201, 87, 43, 0.16), transparent 28%),
+    radial-gradient(
+      circle at top left,
+      rgba(255, 197, 125, 0.22),
+      transparent 24%
+    ),
+    radial-gradient(
+      circle at bottom right,
+      rgba(201, 87, 43, 0.16),
+      transparent 28%
+    ),
     linear-gradient(160deg, #fff8f0 0%, #fffdf9 55%, #f8ead9 100%);
 }
 
@@ -334,11 +467,18 @@ onMounted(async () => {
   z-index: 1;
   width: min(100%, 420px);
   max-width: calc(var(--app-width, 100vw) - 20px);
-  max-height: calc(var(--app-height, 100svh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 36px);
-  padding: clamp(20px, 3.2dvh, 34px) clamp(14px, 4vw, 24px) clamp(16px, 2.6dvh, 24px);
+  max-height: calc(
+    var(--app-height, 100svh) - env(safe-area-inset-top) -
+      env(safe-area-inset-bottom) - 36px
+  );
+  padding: clamp(20px, 3.2dvh, 34px) clamp(14px, 4vw, 24px)
+    clamp(16px, 2.6dvh, 24px);
   border-radius: clamp(22px, 4vw, 30px);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 249, 241, 0.92));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.94),
+    rgba(255, 249, 241, 0.92)
+  );
   border: 1px solid rgba(230, 209, 192, 0.9);
   box-shadow:
     0 30px 60px rgba(88, 38, 17, 0.12),
@@ -421,30 +561,93 @@ onMounted(async () => {
 .obt-login-min__providers {
   display: grid;
   gap: clamp(8px, 1.2dvh, 10px);
+  width: 100%;
+}
+
+.obt-login-min__provider-slot--facebook {
+  margin-top: 4px;
 }
 
 .obt-login-min__google-host {
+  position: relative;
   width: 100%;
-  max-width: 100%;
-  min-height: 42px;
-  display: grid;
-  place-items: center;
+  min-height: 40px;
+  display: block;
   overflow: hidden;
 }
 
+.obt-login-min__google-host :deep(iframe) {
+  max-width: 100% !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border: 0 !important;
+}
+
 .obt-login-min__provider {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
   width: 100%;
   max-width: 100%;
-  min-height: clamp(46px, 5.3dvh, 50px);
-  border-radius: clamp(16px, 3vw, 18px);
-  border: 1px solid rgba(216, 191, 172, 0.9);
-  background: rgba(255, 255, 255, 0.8);
-  color: #543322;
-  font-weight: 700;
+}
+
+.obt-login-min__provider--social {
+  position: relative;
+  min-height: 40px;
+  border-radius: 999px;
+  border: 1px solid #dadce0;
+  background: #ffffff;
+  color: #3c4043;
+  font-size: 0.95rem;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.12);
+}
+
+.obt-login-min__provider-copy {
+  display: block;
+  width: 100%;
+  padding: 0 42px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.obt-login-min__provider-mark {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  font-size: 1rem;
+}
+
+.obt-login-min__provider-mark--google {
+  color: #ea4335;
+}
+
+.obt-login-min__provider-mark--facebook {
+  color: #ffffff;
+}
+
+.obt-login-min__provider--social:hover:not(:disabled) {
+  background: #f8f9fa;
+  border-color: #d2d7de;
+  color: #1f1f1f;
+}
+
+.obt-login-min__provider--facebook:not(.obt-login-min__provider--disabled) {
+  background: #1877f2;
+  border-color: #1877f2;
+  color: #ffffff;
+}
+
+.obt-login-min__provider--facebook:not(
+    .obt-login-min__provider--disabled
+  ):hover {
+  background: #1668d8;
+  border-color: #1668d8;
+  color: #ffffff;
 }
 
 .obt-login-min__provider--disabled {
@@ -460,15 +663,16 @@ onMounted(async () => {
 
 @media (max-width: 576px) {
   .obt-login-min {
-    padding:
-      max(14px, env(safe-area-inset-top))
-      10px
+    padding: max(14px, env(safe-area-inset-top)) 10px
       max(14px, env(safe-area-inset-bottom));
   }
 
   .obt-login-min__card {
     max-width: calc(var(--app-width, 100vw) - 16px);
-    max-height: calc(var(--app-height, 100svh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 20px);
+    max-height: calc(
+      var(--app-height, 100svh) - env(safe-area-inset-top) -
+        env(safe-area-inset-bottom) - 20px
+    );
     padding: 18px 14px 14px;
     border-radius: 22px;
   }
@@ -498,9 +702,7 @@ onMounted(async () => {
 
 @media (max-height: 760px) {
   .obt-login-min {
-    padding:
-      max(10px, env(safe-area-inset-top))
-      10px
+    padding: max(10px, env(safe-area-inset-top)) 10px
       max(10px, env(safe-area-inset-bottom));
   }
 

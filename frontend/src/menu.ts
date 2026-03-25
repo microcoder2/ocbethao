@@ -6,19 +6,19 @@ export type AppMenuItem = {
 
 const MENU: Record<string, AppMenuItem[]> = {
   ADMIN: [
-    { label: "Tong quan", to: "/admin/dashboard", icon: "bi-grid-1x2-fill" },
-    { label: "Mon an", to: "/admin/menu-items", icon: "bi-egg-fried" },
-    { label: "Thuc don ngay", to: "/admin/daily-menus", icon: "bi-calendar2-week-fill" },
-    { label: "Don hang", to: "/admin/orders", icon: "bi-receipt-cutoff" },
-    { label: "Nguoi dung", to: "/admin/users", icon: "bi-people-fill" },
+    { label: "Tổng Quan", to: "/admin/dashboard", icon: "bi-grid-1x2-fill" },
+    { label: "Đơn Hàng", to: "/admin/orders", icon: "bi-receipt-cutoff" },
+    { label: "Menu Ngày", to: "/admin/daily-menus", icon: "bi-calendar2-week-fill" },
+    { label: "Ngân hàng món", to: "/admin/menu-items", icon: "bi-egg-fried" },
+    { label: "Khách hàng", to: "/admin/users", icon: "bi-people-fill" },
   ],
   STAFF: [
     { label: "Console", to: "/staff/console", icon: "bi-lightning-charge-fill" },
-    { label: "Don hang", to: "/staff/orders", icon: "bi-cup-hot-fill" },
+    { label: "Đơn hàng", to: "/staff/orders", icon: "bi-cup-hot-fill" },
   ],
   CUSTOMER: [
-    { label: "Thuc don", to: "/customer/menu", icon: "bi-egg-fried" },
-    { label: "Don cua toi", to: "/customer/orders", icon: "bi-bag-check-fill" },
+    { label: "Thực đơn", to: "/customer/menu", icon: "bi-egg-fried" },
+    { label: "Đơn của tôi", to: "/customer/orders", icon: "bi-bag-check-fill" },
   ],
 };
 

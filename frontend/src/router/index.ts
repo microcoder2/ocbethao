@@ -34,12 +34,12 @@ const routes: RouteRecordRaw[] = [
       {
         path: "admin/menu-items",
         component: () => import("../views/admin/MenuItems.vue"),
-        meta: { title: "Mon an" },
+        meta: { title: "Ngân hàng món" },
       },
       {
         path: "admin/daily-menus",
         component: () => import("../views/admin/DailyMenus.vue"),
-        meta: { title: "Thuc don ngay" },
+        meta: { title: "Menu ngày" },
       },
       {
         path: "admin/orders",
@@ -64,12 +64,12 @@ const routes: RouteRecordRaw[] = [
       {
         path: "customer/menu",
         component: () => import("../views/customer/Menu.vue"),
-        meta: { title: "Thuc don" },
+        meta: { title: "Thực đơn hôm nay" },
       },
       {
         path: "customer/orders",
         component: () => import("../views/customer/Orders.vue"),
-        meta: { title: "Don cua toi" },
+        meta: { title: "Đơn của tôi" },
       },
     ],
   },

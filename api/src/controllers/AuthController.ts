@@ -94,6 +94,8 @@ class ExternalAuthCompleteRequest {
   phoneVerified?: boolean;
   code?: string;
   idToken?: string;
+  @Example<string>("EAAGm0PX4ZCpsBAK...")
+  accessToken?: string;
   rawProfile?: Record<string, unknown>;
 }
 

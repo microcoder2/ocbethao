@@ -24,6 +24,10 @@ import {
   GoogleIdentityError,
   verifyGoogleIdToken,
 } from "./googleIdentityService";
+import {
+  FacebookIdentityError,
+  verifyFacebookAccessToken,
+} from "./facebookIdentityService";
 import { prisma } from "../utils/prisma";
 
 export type LoginSuccessResponse = {
@@ -95,6 +99,15 @@ function randomToken(size = 24): string {
 function cleanNullable(value: string | null | undefined): string | null {
   const normalized = String(value || "").trim();
   return normalized ? normalized : null;
+}
+
+function isPrismaUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
 }
 
 function isEmailLike(value: string): boolean {
@@ -170,6 +183,25 @@ function getActiveAuthIdentities(user: { authIdentities?: Array<{ provider: stri
 async function loadUserWithAuth(userId: number): Promise<UserWithAuthContext> {
   return prisma.user.findUniqueOrThrow({
     where: { id: userId },
+    include: {
+      authIdentities: true,
+    },
+  });
+}
+
+async function findActiveUserByExactEmail(
+  email: string | null | undefined
+): Promise<UserWithAuthContext | null> {
+  const normalizedEmail = cleanNullable(email)?.toLowerCase() || null;
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  return prisma.user.findFirst({
+    where: {
+      isActive: true,
+      email: normalizedEmail,
+    },
     include: {
       authIdentities: true,
     },
@@ -400,6 +432,29 @@ async function resolveVerifiedExternalInput(
     }
   }
 
+  if (definition.key === "facebook") {
+    try {
+      const facebookIdentity = await verifyFacebookAccessToken(
+        String(input.accessToken || "")
+      );
+      return {
+        ...input,
+        providerUserId: facebookIdentity.providerUserId,
+        email: facebookIdentity.email,
+        fullName: facebookIdentity.fullName,
+        avatarUrl: facebookIdentity.avatarUrl,
+        emailVerified: facebookIdentity.emailVerified,
+        phoneVerified: false,
+        rawProfile: facebookIdentity.rawProfile as Prisma.InputJsonValue,
+      };
+    } catch (error) {
+      if (error instanceof FacebookIdentityError) {
+        throw new AuthError(error.status, error.message, error.code);
+      }
+      throw error;
+    }
+  }
+
   return input;
 }
 
@@ -493,11 +548,45 @@ async function resolveExternalUser(
     });
   }
 
-  if (!targetUser) {
-    targetUser = await createCustomerFromExternalIdentity(provider, identityInput);
+  if (!targetUser && provider === "facebook") {
+    // Meta's web login payload does not provide an explicit email_verified signal.
+    // If the email already belongs to an active user, link Facebook to that user
+    // instead of creating a duplicate account that will fail on the unique email.
+    targetUser = await findActiveUserByExactEmail(identityInput.providerEmail);
   }
 
-  const authIdentity = await upsertAuthIdentityForUser(targetUser.id, identityInput);
+  if (!targetUser) {
+    try {
+      targetUser = await createCustomerFromExternalIdentity(provider, identityInput);
+    } catch (error) {
+      if (isPrismaUniqueConstraintError(error)) {
+        const emailMatchedUser =
+          provider === "facebook"
+            ? await findActiveUserByExactEmail(identityInput.providerEmail)
+            : null;
+        if (emailMatchedUser) {
+          targetUser = emailMatchedUser;
+        } else {
+          throw new AuthError(409, "Account already exists", "ACCOUNT_EXISTS");
+        }
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  let authIdentity;
+  try {
+    authIdentity = await upsertAuthIdentityForUser(targetUser.id, identityInput);
+  } catch (error) {
+    if (error instanceof IdentityError) {
+      throw new AuthError(error.status, error.message, error.code);
+    }
+    if (isPrismaUniqueConstraintError(error)) {
+      throw new AuthError(409, "Account already exists", "ACCOUNT_EXISTS");
+    }
+    throw error;
+  }
   await markIdentityLogin(authIdentity.id);
 
   if (
@@ -842,6 +931,7 @@ export type CompleteExternalAuthInput = {
   phoneVerified?: boolean;
   code?: string;
   idToken?: string;
+  accessToken?: string;
   rawProfile?: Prisma.InputJsonValue;
 };
 
@@ -871,6 +961,7 @@ export async function completeExternalAuth(
     sessionId,
     hasCode: Boolean(cleanNullable(verifiedInput.code)),
     hasIdToken: Boolean(cleanNullable(verifiedInput.idToken)),
+    hasAccessToken: Boolean(cleanNullable(verifiedInput.accessToken)),
   });
 
   return toLoginSuccessResponse(user, { accessToken, refreshToken });
