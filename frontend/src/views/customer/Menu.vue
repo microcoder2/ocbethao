@@ -217,109 +217,29 @@
       </div>
 
       <aside id="customer-cart" class="customer-layout__aside">
-        <div class="customer-cart">
-          <div class="customer-cart__header">
-            <div>
-              <div class="customer-cart__eyebrow">Giỏ hàng của bạn</div>
-              <h2>Xác nhận đơn thật nhanh</h2>
-              <p>Kiểm tra món, số lượng và ghi chú cho bếp trước khi gửi đơn.</p>
-            </div>
-            <RouterLink to="/customer/orders" class="customer-cart__link">Đơn của tôi</RouterLink>
-          </div>
-
-          <div class="customer-cart__summary">
-            <div class="customer-cart__summary-item">
-              <span>Món đã chọn</span>
-              <strong>{{ cartItemCount }}</strong>
-            </div>
-            <div class="customer-cart__summary-item">
-              <span>Món khác nhau</span>
-              <strong>{{ cart.length }}</strong>
-            </div>
-            <div class="customer-cart__summary-item">
-              <span>Tạm tính</span>
-              <strong>{{ formatMoney(cartTotal) }}</strong>
-            </div>
-          </div>
-
-          <div v-if="cart.length === 0" class="customer-cart__empty">
-            <div class="customer-cart__empty-icon">
-              <i class="bi bi-basket3"></i>
-            </div>
-            <h3>Giỏ hàng đang trống</h3>
-            <p>Chọn món bạn yêu thích ở danh sách bên trái. Mỗi lần bấm thêm món, giỏ hàng sẽ cập nhật ngay.</p>
-          </div>
-
-          <div v-else class="customer-cart__lines">
-            <article v-for="line in cart" :key="line.dailyMenuItemId" class="cart-line">
-              <div class="cart-line__body">
-                <div class="cart-line__name">{{ line.name }}</div>
-                <div class="cart-line__meta">
-                  <span>{{ formatMoney(line.price) }} / món</span>
-                  <span>{{ formatMoney(line.price * line.quantity) }}</span>
-                </div>
-              </div>
-
-              <div class="cart-line__controls">
-                <div class="cart-stepper">
-                  <button class="cart-stepper__button" @click="changeQty(line, -1)">
-                    <i class="bi bi-dash"></i>
-                  </button>
-                  <span>{{ line.quantity }}</span>
-                  <button class="cart-stepper__button" @click="changeQty(line, 1)">
-                    <i class="bi bi-plus"></i>
-                  </button>
-                </div>
-
-                <button class="cart-remove-button" @click="removeLine(line.dailyMenuItemId)">
-                  <i class="bi bi-trash3"></i>
-                </button>
-              </div>
-            </article>
-          </div>
-
-          <label class="customer-note">
-            <span>Giờ bạn muốn tới / nhận món</span>
-            <input
-              v-model="arrivalTime"
-              type="time"
-              placeholder="Nếu muốn tới ngay thì để trống"
-            />
-          </label>
-
-          <label class="customer-note">
-            <span>Ghi chú cho bếp</span>
-            <textarea
-              v-model="note"
-              rows="4"
-              placeholder="Ví dụ: ít cay, thêm rau răm, tách riêng nước chấm..."
-            ></textarea>
-          </label>
-
-          <div class="customer-cart__totals">
-            <div class="customer-cart__total-row">
-              <span>Tạm tính</span>
-              <strong>{{ formatMoney(cartTotal) }}</strong>
-            </div>
-            <div class="customer-cart__total-row customer-cart__total-row--muted">
-              <span>Phí dịch vụ</span>
-              <strong>Miễn phí</strong>
-            </div>
-            <div class="customer-cart__total-row customer-cart__total-row--grand">
-              <span>Tổng cần xác nhận</span>
-              <strong>{{ formatMoney(cartTotal) }}</strong>
-            </div>
-          </div>
-
-          <button
-            class="btn btn-ember customer-cart__submit"
-            :disabled="cart.length === 0 || submitting || !menu?.id"
-            @click="submitOrder"
-          >
-            <span v-if="submitting">Đang gửi đơn tới bếp...</span>
-            <span v-else>Gửi đơn ngay</span>
-          </button>
-        </div>
+        <OrderDraftPanel
+          eyebrow="Giỏ hàng của bạn"
+          title="Xác nhận đơn thật nhanh"
+          summary="Kiểm tra món, số lượng và ghi chú cho bếp trước khi gửi đơn."
+          link-to="/customer/orders"
+          link-label="Đơn của tôi"
+          :lines="cartDraftLines"
+          :arrival-time="arrivalTime"
+          :note="note"
+          :sticky="true"
+          :disabled="cart.length === 0 || submitting || !menu?.id"
+          :submit-disabled="cart.length === 0 || submitting || !menu?.id"
+          :submitting="submitting"
+          submit-label="Gửi đơn ngay"
+          submitting-label="Đang gửi đơn tới bếp..."
+          empty-title="Giỏ hàng đang trống"
+          empty-description="Chọn món bạn yêu thích ở danh sách bên trái. Mỗi lần bấm thêm món, giỏ hàng sẽ cập nhật ngay."
+          @change-qty="handleCartLineChange"
+          @remove-line="removeLine"
+          @update:arrival-time="arrivalTime = $event"
+          @update:note="note = $event"
+          @submit="submitOrder"
+        />
       </aside>
     </section>
 
@@ -335,9 +255,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { AxiosError } from "axios";
 import { api } from "../../api";
+import { socket } from "../../socket";
+import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import { API_BASE_URL } from "../../config";
 import { getUser } from "../../utils/auth";
 import { formatMoney } from "../../utils/format";
@@ -522,6 +444,14 @@ const cartItemCount = computed(() =>
 const cartTotal = computed(() =>
   cart.value.reduce((sum, line) => sum + line.price * line.quantity, 0)
 );
+const cartDraftLines = computed(() =>
+  cart.value.map((line) => ({
+    key: line.dailyMenuItemId,
+    name: line.name,
+    price: line.price,
+    quantity: line.quantity,
+  }))
+);
 
 const heroStats = computed(() => {
   const availableNow = menuItems.value.filter((item) => canOrderItem(item)).length;
@@ -647,6 +577,15 @@ function changeQty(line: CartLine, delta: number) {
 
 function removeLine(dailyMenuItemId: number) {
   cart.value = cart.value.filter((line) => line.dailyMenuItemId !== dailyMenuItemId);
+}
+
+function handleCartLineChange(payload: { key: string | number; delta: number }) {
+  const line = cart.value.find((entry) => entry.dailyMenuItemId === Number(payload.key));
+  if (!line) {
+    return;
+  }
+
+  changeQty(line, payload.delta);
 }
 
 function buildArrivalAt(serviceDate?: string, time?: string) {
@@ -804,7 +743,23 @@ function scrollToCart() {
   });
 }
 
-onMounted(loadMenu);
+async function silentRefreshMenu() {
+  try {
+    const { data } = await api.get<DailyMenuData>("/daily-menus/public/today");
+    menu.value = data;
+  } catch {
+    // ignore — keep current menu on error
+  }
+}
+
+onMounted(() => {
+  void loadMenu();
+  socket.on("stock:update", silentRefreshMenu);
+});
+
+onBeforeUnmount(() => {
+  socket.off("stock:update", silentRefreshMenu);
+});
 </script>
 
 <style scoped>

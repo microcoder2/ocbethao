@@ -3,11 +3,13 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import http from "http";
 import os from "os";
 import swaggerUi from "swagger-ui-express";
 import swaggerDocument from "../swagger/swagger.json";
 import { RegisterRoutes } from "./routes/routes";
 import { multerMiddleware } from "./middleware";
+import { initSocket } from "./socket";
 import { getPublicImageUrl, resolvePublicDir } from "./utils/uploads";
 
 const env = process.env.NODE_ENV || "development";
@@ -160,7 +162,17 @@ app.use(
 
 const port = Number(process.env.PORT || 3100);
 const host = process.env.HOST || "0.0.0.0";
-app.listen(port, host, () => {
+
+const httpServer = http.createServer(app);
+initSocket(httpServer, (origin, cb) => {
+  if (!origin || isAllowedOrigin(origin)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Not allowed by CORS"));
+  }
+});
+
+httpServer.listen(port, host, () => {
   printStartupUrls(host, port);
 });
 

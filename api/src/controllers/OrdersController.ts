@@ -22,6 +22,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { serializeOrder } from "../utils/mappers";
+import { broadcastStockUpdate } from "../socket";
 
 class OrderItemInput {
   dailyMenuItemId?: number;
@@ -479,6 +480,152 @@ export class OrdersController extends Controller {
     return orders.map(serializeOrder);
   }
 
+  @Put("my/{id}/cancel")
+  @Security("bearerAuth", ["CUSTOMER"])
+  public async cancelMyOrder(@Path() id: number, @Request() req: ExRequest) {
+    const authUser = (req as any).user;
+
+    let cancelPoolIds: number[] = [];
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.order.findUniqueOrThrow({ where: { id } });
+
+      if (current.customerId !== authUser.id) {
+        throw Object.assign(new Error("Forbidden"), { statusCode: 403 });
+      }
+
+      if (
+        current.status !== OrderStatus.PENDING &&
+        current.status !== OrderStatus.CONFIRMED
+      ) {
+        throw new Error("Chi co the huy don dang cho xac nhan hoac da xac nhan");
+      }
+
+      const orderWithStocks = await tx.order.findUniqueOrThrow({
+        where: { id },
+        include: {
+          items: {
+            include: { dailyMenuItem: { include: { stockLinks: true } } },
+          },
+        },
+      });
+
+      const stockUsage = getStockUsageFromOrder(
+        orderWithStocks as Awaited<ReturnType<typeof getOrderForStockSync>>
+      );
+      await applyStockUsage(tx, stockUsage, -1);
+      cancelPoolIds = Array.from(stockUsage.keys());
+
+      await tx.orderItem.updateMany({
+        where: { orderId: id },
+        data: { status: OrderItemStatus.CANCELLED },
+      });
+
+      await tx.order.update({
+        where: { id },
+        data: {
+          status: OrderStatus.CANCELLED,
+          paymentStatus: PaymentStatus.UNPAID,
+          paymentMethod: null,
+        },
+      });
+    });
+
+    const order = await getOrderDetail(id);
+    void broadcastStockUpdate(cancelPoolIds);
+    return serializeOrder(order);
+  }
+
+  @Put("my/{id}")
+  @Security("bearerAuth", ["CUSTOMER"])
+  public async updateMyOrder(
+    @Path() id: number,
+    @Request() req: ExRequest,
+    @Body() body: UpdateOrderBody
+  ) {
+    const authUser = (req as any).user;
+
+    if (!Array.isArray(body.items) || body.items.length === 0) {
+      throw new Error("Don hang phai co it nhat mot mon");
+    }
+
+    const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
+
+    let updatePoolIds: number[] = [];
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.order.findUniqueOrThrow({
+        where: { id },
+        include: {
+          items: {
+            include: { dailyMenuItem: { include: { stockLinks: true } } },
+          },
+        },
+      });
+
+      if (current.customerId !== authUser.id) {
+        throw Object.assign(new Error("Forbidden"), { statusCode: 403 });
+      }
+
+      if (current.status !== OrderStatus.PENDING) {
+        throw new Error("Chi co the sua don dang cho xac nhan");
+      }
+
+      const currentUsage = getStockUsageFromOrder(
+        current as Awaited<ReturnType<typeof getOrderForStockSync>>
+      );
+      await applyStockUsage(tx, currentUsage, -1);
+
+      const lines = await resolveOrderLines(tx, body.items);
+      const nextUsage = aggregateStockUsage(lines);
+      await ensureStockAvailability(tx, nextUsage);
+
+      const subtotal = lines.reduce((sum, item) => sum + item.lineTotal, 0);
+      const serviceFee = Number(current.serviceFee);
+      const discountAmount = Number(current.discountAmount);
+      const totalAmount = subtotal + serviceFee - discountAmount;
+      const existingStatuses = new Map(
+        current.items.map((item) => [
+          getOrderItemKey(item.dailyMenuItemId, item.menuItemId),
+          item.status,
+        ])
+      );
+
+      await tx.orderItem.deleteMany({ where: { orderId: id } });
+
+      await tx.order.update({
+        where: { id },
+        data: {
+          arrivalAt: arrivalAt ?? undefined,
+          subtotal: money(subtotal),
+          totalAmount: money(totalAmount),
+          items: {
+            create: lines.map((line) => ({
+              menuItemId: line.menuItemId,
+              dailyMenuItemId: line.dailyMenuItemId,
+              itemNameSnapshot: line.itemNameSnapshot,
+              unitPrice: money(line.unitPrice),
+              quantity: line.quantity,
+              status:
+                existingStatuses.get(
+                  getOrderItemKey(line.dailyMenuItemId, line.menuItemId)
+                ) ?? line.status,
+              lineTotal: money(line.lineTotal),
+              note: line.note,
+            })),
+          },
+        },
+      });
+
+      await applyStockUsage(tx, nextUsage, 1);
+      updatePoolIds = Array.from(
+        new Set([...currentUsage.keys(), ...nextUsage.keys()])
+      );
+    });
+
+    const order = await getOrderDetail(id);
+    void broadcastStockUpdate(updatePoolIds);
+    return serializeOrder(order);
+  }
+
   @Get("{id}")
   @Security("bearerAuth", ["ADMIN", "STAFF", "CUSTOMER"])
   public async getOrderById(@Path() id: number, @Request() req: ExRequest) {
@@ -513,7 +660,7 @@ export class OrdersController extends Controller {
       where: { id: authUser.id },
     });
 
-    const created = await prisma.$transaction(async (tx) => {
+    const { orderId, poolIds: createdPoolIds } = await prisma.$transaction(async (tx) => {
       const lines = await resolveOrderLines(tx, body.items || []);
       const stockUsage = aggregateStockUsage(lines);
       await ensureStockAvailability(tx, stockUsage);
@@ -527,7 +674,7 @@ export class OrdersController extends Controller {
         data: {
           orderNumber: buildOrderNumber(),
           source,
-          status: OrderStatus.CONFIRMED,
+          status: authUser.role === "CUSTOMER" ? OrderStatus.PENDING : OrderStatus.CONFIRMED,
           paymentStatus: body.paymentStatus ?? PaymentStatus.UNPAID,
           paymentMethod: body.paymentMethod,
           tableLabel: body.tableLabel,
@@ -564,10 +711,11 @@ export class OrdersController extends Controller {
       });
 
       await applyStockUsage(tx, stockUsage, 1);
-      return order.id;
+      return { orderId: order.id, poolIds: Array.from(stockUsage.keys()) };
     });
 
-    const order = await getOrderDetail(created);
+    const order = await getOrderDetail(orderId);
+    void broadcastStockUpdate(createdPoolIds);
     this.setStatus(201);
     return serializeOrder(order);
   }
@@ -580,6 +728,7 @@ export class OrdersController extends Controller {
   ) {
     const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
 
+    let statusPoolIds: number[] = [];
     await prisma.$transaction(async (tx) => {
       const current = await tx.order.findUniqueOrThrow({
         where: { id },
@@ -609,17 +758,23 @@ export class OrdersController extends Controller {
       const movingToCompleted =
         current.status !== OrderStatus.COMPLETED && body.status === OrderStatus.COMPLETED;
 
+      if (body.status === OrderStatus.COMPLETED && current.status === OrderStatus.PENDING) {
+        throw new Error("Don hang can duoc xac nhan truoc khi hoan tat");
+      }
+
       if (movingToCompleted && !body.paymentMethod && !current.paymentMethod) {
         throw new Error("Can chon hinh thuc thanh toan khi hoan tat don");
       }
 
       if (movingToCancelled) {
         await applyStockUsage(tx, stockUsage, -1);
+        statusPoolIds = Array.from(stockUsage.keys());
       }
 
       if (reactivatingOrder) {
         await ensureStockAvailability(tx, stockUsage);
         await applyStockUsage(tx, stockUsage, 1);
+        statusPoolIds = Array.from(stockUsage.keys());
       }
 
       const data: Prisma.OrderUpdateInput = {
@@ -670,6 +825,7 @@ export class OrdersController extends Controller {
     });
 
     const order = await getOrderDetail(id);
+    void broadcastStockUpdate(statusPoolIds);
     return serializeOrder(order);
   }
 
@@ -682,6 +838,7 @@ export class OrdersController extends Controller {
 
     const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
 
+    let updatePoolIds: number[] = [];
     await prisma.$transaction(async (tx) => {
       const current = await tx.order.findUniqueOrThrow({
         where: { id },
@@ -751,9 +908,11 @@ export class OrdersController extends Controller {
       });
 
       await applyStockUsage(tx, nextUsage, 1);
+      updatePoolIds = Array.from(new Set([...currentUsage.keys(), ...nextUsage.keys()]));
     });
 
     const order = await getOrderDetail(id);
+    void broadcastStockUpdate(updatePoolIds);
     return serializeOrder(order);
   }
 

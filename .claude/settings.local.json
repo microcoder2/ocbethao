@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /h/VSCode/ocbethao -type f -name *.prisma)",
+      "Bash(find /h/VSCode/ocbethao/api/src -type f -name *.ts)",
+      "Bash(npm install:*)",
+      "Bash(find /h/VSCode/ocbethao/api/prisma -type f -name *.sql -o -type f -name migration*)"
+    ]
+  }
+}

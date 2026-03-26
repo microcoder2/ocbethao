@@ -2,40 +2,56 @@
   <div class="orders-page">
     <section class="orders-toolbar">
       <div class="orders-toolbar-body">
+        <div class="orders-toolbar-head">
+          <span class="orders-field-label">{{ statusFieldLabel }}</span>
+          <button
+            class="orders-toolbar-collapse"
+            type="button"
+            :aria-expanded="advancedFiltersOpen ? 'true' : 'false'"
+            :aria-label="advancedFiltersOpen ? 'Thu gọn bộ lọc' : 'Mở rộng bộ lọc'"
+            :title="advancedFiltersOpen ? 'Thu gọn bộ lọc' : 'Mở rộng bộ lọc'"
+            @click="advancedFiltersOpen = !advancedFiltersOpen"
+          >
+            <i
+              :class="['bi', advancedFiltersOpen ? 'bi-chevron-up' : 'bi-chevron-down', 'orders-toolbar-chevron']"
+            ></i>
+          </button>
+        </div>
+
         <div class="orders-toolbar-main">
-          <label class="orders-field orders-field-inline">
-            <span class="orders-field-label">{{ statusFieldLabel }}</span>
+          <label class="orders-field-inline">
             <select
               v-model="filter.status"
               class="form-select orders-select"
               :disabled="isLoading"
               @change="handleImmediateFilterChange"
             >
+              <option value="PENDING">Chờ xác nhận</option>
               <option value="CONFIRMED">Đang xử lý</option>
               <option value="COMPLETED">Hoàn tất</option>
               <option value="CANCELLED">Đã hủy</option>
             </select>
           </label>
 
-          <div class="orders-toolbar-side">
-            <button
-              class="orders-advanced-toggle"
-              type="button"
-              :aria-expanded="advancedFiltersOpen ? 'true' : 'false'"
-              @click="advancedFiltersOpen = !advancedFiltersOpen"
-            >
-              <span>Bộ lọc nâng cao</span>
-              <i
-                :class="['bi', advancedFiltersOpen ? 'bi-chevron-up' : 'bi-chevron-down', 'orders-toolbar-chevron']"
-              ></i>
-            </button>
+          <button
+            class="btn btn-dark orders-toolbar-add-btn"
+            type="button"
+            :disabled="!manualMenu || createOrderSubmitting"
+            aria-label="Thêm đơn thủ công"
+            title="Thêm đơn thủ công"
+            @click="openCreateOrderDialog"
+          >
+            <i class="bi bi-plus-lg"></i>
+          </button>
 
+          <div class="orders-toolbar-side">
             <div class="orders-toolbar-summary">
               <span class="orders-meta-chip">
                 {{ isLoading ? "Đang tải..." : `${orders.length} đơn` }}
               </span>
               <span v-if="!isLoading" class="orders-meta-chip">Tổng {{ formatMoney(totalAmount) }}</span>
             </div>
+
           </div>
         </div>
 
@@ -251,13 +267,17 @@
                     @change="handleItemAddSelection(order.id, $event)"
                   >
                     <option value="">Chọn món để thêm</option>
-                    <option
-                      v-for="option in getAddableOptions(order)"
-                      :key="option.id"
-                      :value="String(option.id)"
-                    >
-                      {{ option.menuItem.name }} · {{ formatMoney(option.sellingPrice) }}
-                    </option>
+                    <template v-for="group in groupByIngredient(getAddableOptions(order))" :key="group.label">
+                      <optgroup :label="groupLabel(group)">
+                        <option
+                          v-for="option in group.items"
+                          :key="option.id"
+                          :value="String(option.id)"
+                        >
+                          {{ option.menuItem.name }} · {{ formatMoney(option.sellingPrice) }}
+                        </option>
+                      </optgroup>
+                    </template>
                   </select>
                   <button
                     class="btn btn-outline-dark order-add-btn"
@@ -300,6 +320,15 @@
           </div>
 
           <div class="order-actions">
+            <button
+              v-if="canConfirmOrder(order)"
+              class="btn btn-dark"
+              type="button"
+              :disabled="isBusy(order)"
+              @click="changeOrderStatus(order, 'CONFIRMED')"
+            >
+              {{ updatingOrderId === order.id ? "Đang xác nhận..." : "Xác nhận đơn" }}
+            </button>
             <button
               v-if="canCompleteOrder(order)"
               class="btn btn-ember"
@@ -424,12 +453,122 @@
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="createOrderDialog.visible"
+        class="orders-modal-backdrop orders-modal-backdrop--fullscreen"
+        role="dialog"
+        aria-modal="true"
+        @click.self="closeCreateOrderDialog"
+      >
+        <div class="orders-modal orders-create-modal">
+          <div class="orders-create-modal-header">
+            <div class="orders-modal-title">Thêm đơn thủ công</div>
+            <button
+              class="orders-modal-close orders-create-close"
+              type="button"
+              aria-label="Đóng"
+              @click="closeCreateOrderDialog"
+            >
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+
+          <div class="orders-create-modal-body">
+            <OrderDraftPanel
+              title="Tạo đơn mới"
+              summary=""
+              :lines="createOrderDialog.lines"
+              :arrival-time="createOrderDialog.arrivalTime"
+              :note="createOrderDialog.note"
+              :disabled="createOrderSubmitting || !manualMenu"
+              :submit-disabled="createOrderSubmitting || !canSubmitCreateOrder"
+              :submitting="createOrderSubmitting"
+              :sticky="false"
+              :compact="true"
+              :framed="false"
+              :show-header="false"
+              :show-summary="false"
+              submit-label="Tạo đơn"
+              submitting-label="Đang tạo đơn..."
+              empty-title="Chưa có món trong đơn"
+              empty-description="Chọn món từ danh sách bên dưới để bắt đầu tạo đơn."
+              @change-qty="handleCreateOrderLineChange"
+              @remove-line="removeCreateOrderLine"
+              @update:arrival-time="createOrderDialog.arrivalTime = $event"
+              @update:note="createOrderDialog.note = $event"
+              @submit="submitCreateOrder"
+            >
+              <template #before-lines>
+                <div class="orders-create-grid">
+                  <label class="orders-field">
+                    <span class="orders-field-label">Tên khách</span>
+                    <input
+                      v-model.trim="createOrderDialog.guestName"
+                      class="form-control orders-select"
+                      type="text"
+                      placeholder="Ví dụ: Chị Lan"
+                    />
+                  </label>
+
+                  <label class="orders-field">
+                    <span class="orders-field-label">Số điện thoại</span>
+                    <input
+                      v-model.trim="createOrderDialog.guestPhone"
+                      class="form-control orders-select"
+                      type="tel"
+                      placeholder="0909..."
+                    />
+                  </label>
+                </div>
+
+                <div class="order-add-row">
+                  <div class="order-add-field">
+                    <span class="orders-field-label">Thêm món vào đơn</span>
+                    <div class="order-add-control">
+                      <select
+                        v-model="createOrderDialog.selectedItemId"
+                        class="form-select orders-select"
+                        :disabled="createOrderSubmitting || !manualMenuOptions.length"
+                      >
+                        <option value="">Chọn món</option>
+                        <template v-for="group in groupByIngredient(manualMenuOptions)" :key="group.label">
+                          <optgroup :label="groupLabel(group)">
+                            <option v-for="item in group.items" :key="item.id" :value="String(item.id)">
+                              {{ item.menuItem.name }} · {{ formatMoney(item.sellingPrice) }}
+                            </option>
+                          </optgroup>
+                        </template>
+                      </select>
+                      <button
+                        class="btn btn-ember order-add-btn"
+                        type="button"
+                        :disabled="createOrderSubmitting || !createOrderDialog.selectedItemId"
+                        @click="addCreateOrderItem"
+                      >
+                        <i class="bi bi-plus-lg"></i>
+                      </button>
+                    </div>
+                    <div v-if="!manualMenu" class="order-add-hint">
+                      Chưa có menu cho ngày đang lọc.
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </OrderDraftPanel>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { api } from "../../api";
+import { socket } from "../../socket";
+import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import { formatMoney } from "../../utils/format";
 
 type OrderItem = {
@@ -475,6 +614,13 @@ type DailyMenuOption = {
   sellingPrice: number;
   isAvailable: boolean;
   availableQuantity?: number | null;
+  stockLinks?: Array<{
+    stockPool?: {
+      id?: number;
+      label?: string | null;
+      remainingQuantity?: number;
+    } | null;
+  }>;
   menuItem: {
     id: number;
     name: string;
@@ -498,12 +644,19 @@ type EditableOrderItem = {
   lineTotal: number;
 };
 
+type ManualOrderLine = {
+  key: string;
+  dailyMenuItemId: number;
+  name: string;
+  price: number;
+  quantity: number;
+};
+
 const paymentMethodLabels: Record<string, string> = {
   CASH: "Tiền mặt",
   CARD: "Thẻ",
   TRANSFER: "Chuyển khoản",
   E_WALLET: "Ví điện tử",
-  PAY_LATER: "Trả sau",
 };
 
 const itemStatusActions = [
@@ -547,6 +700,14 @@ function formatOrderTime(value: string) {
   }).format(date);
 }
 
+function buildArrivalAt(serviceDate?: string, time?: string) {
+  if (!serviceDate || !time) {
+    return undefined;
+  }
+
+  return `${serviceDate.slice(0, 10)}T${time}`;
+}
+
 function getOrderDateValue(value?: string | null) {
   if (!value) {
     return null;
@@ -559,6 +720,7 @@ function getOrderDateValue(value?: string | null) {
 function simplifyStatus(status: string) {
   if (status === "CANCELLED") return "CANCELLED";
   if (status === "COMPLETED") return "COMPLETED";
+  if (status === "PENDING") return "PENDING";
   return "CONFIRMED";
 }
 
@@ -598,8 +760,18 @@ const filter = reactive({
   search: "",
 });
 
+const manualMenu = computed(() => dailyMenus.value[0] || null);
+const manualMenuOptions = computed(() =>
+  (manualMenu.value?.items || []).filter((item) => item.isAvailable && item.menuItem)
+);
+const canSubmitCreateOrder = computed(
+  () => Boolean(manualMenu.value && createOrderDialog.lines.length && createOrderDialog.guestName.trim())
+);
+
 const itemDrafts = reactive<Record<number, EditableOrderItem[]>>({});
 const itemAddSelections = reactive<Record<number, string>>({});
+// poolId → remainingQuantity, updated from API load + socket events
+const stockRemainingMap = reactive<Record<number, number>>({});
 
 const removeItemDialog = reactive({
   visible: false,
@@ -615,6 +787,26 @@ const completeDialog = reactive<{
   visible: false,
   order: null,
 });
+
+const createOrderDialog = reactive<{
+  visible: boolean;
+  guestName: string;
+  guestPhone: string;
+  arrivalTime: string;
+  note: string;
+  selectedItemId: string;
+  lines: ManualOrderLine[];
+}>({
+  visible: false,
+  guestName: "",
+  guestPhone: "",
+  arrivalTime: "",
+  note: "",
+  selectedItemId: "",
+  lines: [],
+});
+
+const createOrderSubmitting = ref(false);
 
 const cancelDialog = reactive<{
   visible: boolean;
@@ -684,6 +876,7 @@ const scheduleBuckets = computed(() => {
 
 function getOrderStatusLabel(status: string) {
   const simpleStatus = simplifyStatus(status);
+  if (simpleStatus === "PENDING") return "Chờ xác nhận";
   if (simpleStatus === "CONFIRMED") return "Đang xử lý";
   if (simpleStatus === "COMPLETED") return "Hoàn tất";
   return "Đã hủy";
@@ -758,6 +951,10 @@ function isBusy(order: OrderRecord) {
   return isLoading.value || updatingOrderId.value === order.id || savingOrderId.value === order.id;
 }
 
+function canConfirmOrder(order: OrderRecord) {
+  return simplifyStatus(order.status) === "PENDING";
+}
+
 function canEditItems(order: OrderRecord) {
   return simplifyStatus(order.status) === "CONFIRMED";
 }
@@ -767,7 +964,8 @@ function canCompleteOrder(order: OrderRecord) {
 }
 
 function canCancelOrder(order: OrderRecord) {
-  return simplifyStatus(order.status) === "CONFIRMED";
+  const s = simplifyStatus(order.status);
+  return s === "PENDING" || s === "CONFIRMED";
 }
 
 function canUpdateItemStatus(order: OrderRecord, item: EditableOrderItem) {
@@ -831,6 +1029,107 @@ function confirmRemoveItem() {
 function closeCompleteDialog() {
   completeDialog.visible = false;
   completeDialog.order = null;
+}
+
+function resetCreateOrderDialog() {
+  createOrderDialog.guestName = "";
+  createOrderDialog.guestPhone = "";
+  createOrderDialog.arrivalTime = "";
+  createOrderDialog.note = "";
+  createOrderDialog.selectedItemId = "";
+  createOrderDialog.lines = [];
+}
+
+function closeCreateOrderDialog() {
+  createOrderDialog.visible = false;
+  resetCreateOrderDialog();
+}
+
+function openCreateOrderDialog() {
+  if (!manualMenu.value) {
+    errorMessage.value = "Chưa có menu cho ngày đang lọc để tạo đơn thủ công.";
+    return;
+  }
+
+  errorMessage.value = "";
+  resetCreateOrderDialog();
+  createOrderDialog.visible = true;
+}
+
+function addCreateOrderItem() {
+  const selectedId = Number(createOrderDialog.selectedItemId || 0);
+  if (!selectedId) {
+    return;
+  }
+
+  const option = manualMenuOptions.value.find((item) => item.id === selectedId);
+  if (!option) {
+    return;
+  }
+
+  const existing = createOrderDialog.lines.find((line) => line.dailyMenuItemId === option.id);
+  if (existing) {
+    existing.quantity += 1;
+  } else {
+    createOrderDialog.lines.push({
+      key: `manual-${option.id}`,
+      dailyMenuItemId: option.id,
+      name: option.menuItem.name,
+      price: Number(option.sellingPrice || 0),
+      quantity: 1,
+    });
+  }
+
+  createOrderDialog.selectedItemId = "";
+}
+
+function handleCreateOrderLineChange(payload: { key: string | number; delta: number }) {
+  const line = createOrderDialog.lines.find((entry) => entry.key === String(payload.key));
+  if (!line) {
+    return;
+  }
+
+  const nextQuantity = line.quantity + payload.delta;
+  if (nextQuantity <= 0) {
+    createOrderDialog.lines = createOrderDialog.lines.filter((entry) => entry.key !== line.key);
+    return;
+  }
+
+  line.quantity = nextQuantity;
+}
+
+function removeCreateOrderLine(key: string | number) {
+  createOrderDialog.lines = createOrderDialog.lines.filter((entry) => entry.key !== String(key));
+}
+
+async function submitCreateOrder() {
+  if (!manualMenu.value || !canSubmitCreateOrder.value) {
+    return;
+  }
+
+  createOrderSubmitting.value = true;
+  errorMessage.value = "";
+
+  try {
+    await api.post("/orders", {
+      dailyMenuId: manualMenu.value.id,
+      guestName: createOrderDialog.guestName.trim(),
+      guestPhone: createOrderDialog.guestPhone.trim() || undefined,
+      arrivalAt: buildArrivalAt(filter.date, createOrderDialog.arrivalTime),
+      note: createOrderDialog.note.trim() || undefined,
+      items: createOrderDialog.lines.map((line) => ({
+        dailyMenuItemId: line.dailyMenuItemId,
+        quantity: line.quantity,
+      })),
+    });
+
+    closeCreateOrderDialog();
+    await loadOrders();
+  } catch (error) {
+    errorMessage.value = getErrorMessage(error, "Không tạo được đơn thủ công.");
+  } finally {
+    createOrderSubmitting.value = false;
+  }
 }
 
 function openCompleteDialog(order: OrderRecord) {
@@ -918,6 +1217,45 @@ function getMenuForOrder(order: OrderRecord) {
 function getAddableOptions(order: OrderRecord) {
   const menu = getMenuForOrder(order);
   return (menu?.items || []).filter((item) => item.isAvailable && item.menuItem);
+}
+
+function groupByIngredient(options: DailyMenuOption[]) {
+  const groups = new Map<string, { label: string; poolId: number | null; items: DailyMenuOption[] }>();
+  for (const option of options) {
+    const pool = option.stockLinks?.[0]?.stockPool;
+    const label = pool?.label || "Khác";
+    const poolId = pool?.id ?? null;
+    const key = poolId != null ? `pool-${poolId}` : `label-${label}`;
+    if (!groups.has(key)) {
+      groups.set(key, { label, poolId, items: [] });
+    }
+    groups.get(key)!.items.push(option);
+  }
+  return Array.from(groups.values());
+}
+
+function groupLabel(group: { label: string; poolId: number | null }) {
+  const rem = group.poolId != null ? stockRemainingMap[group.poolId] : undefined;
+  return rem != null ? `${group.label} — còn ${rem}` : group.label;
+}
+
+function syncStockFromMenus(menus: DailyMenuRecord[]) {
+  for (const menu of menus) {
+    for (const item of menu.items || []) {
+      for (const link of item.stockLinks || []) {
+        const pool = link.stockPool;
+        if (pool?.id != null && pool.remainingQuantity != null) {
+          stockRemainingMap[pool.id] = pool.remainingQuantity;
+        }
+      }
+    }
+  }
+}
+
+function handleStockUpdate(pools: Array<{ id: number; remainingQuantity: number }>) {
+  for (const pool of pools) {
+    stockRemainingMap[pool.id] = pool.remainingQuantity;
+  }
 }
 
 function getItemAddSelection(orderId: number) {
@@ -1028,6 +1366,7 @@ async function loadOrders() {
     ]);
 
     dailyMenus.value = dailyMenusResponse.data || [];
+    syncStockFromMenus(dailyMenus.value);
 
     const nextOrders = ordersResponse.data as OrderRecord[];
     orders.value = [...nextOrders].sort(sortOrdersByQueue);
@@ -1134,10 +1473,12 @@ function handleImmediateFilterChange() {
 
 onMounted(() => {
   void loadOrders();
+  socket.on("stock:update", handleStockUpdate);
 });
 
 onBeforeUnmount(() => {
   clearSearchDebounce();
+  socket.off("stock:update", handleStockUpdate);
 });
 </script>
 
@@ -1171,11 +1512,18 @@ onBeforeUnmount(() => {
   padding: 18px 20px;
 }
 
+.orders-toolbar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .orders-toolbar-main {
   display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
-  gap: 14px 16px;
-  align-items: end;
+  grid-template-columns: minmax(220px, 260px) 46px minmax(0, 1fr);
+  gap: 12px 16px;
+  align-items: center;
 }
 
 .orders-toolbar-side {
@@ -1195,16 +1543,39 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
-.orders-advanced-toggle {
+.orders-toolbar-add-btn {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  min-height: 36px;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  min-height: 46px;
   padding: 0;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  line-height: 1;
+  align-self: center;
+  margin: 0;
+}
+
+.orders-toolbar-add-btn i {
+  display: block;
+}
+
+.orders-toolbar-collapse {
   border: none;
   background: transparent;
   color: var(--muted);
-  font-weight: 700;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.orders-toolbar-collapse:hover,
+.orders-toolbar-collapse:focus-visible {
+  color: var(--text);
+  outline: none;
 }
 
 .orders-toolbar-chevron {
@@ -1225,7 +1596,15 @@ onBeforeUnmount(() => {
 }
 
 .orders-field-inline {
+  display: flex;
+  align-items: center;
+  height: 46px;
+  margin: 0;
   max-width: 260px;
+}
+
+.orders-field-inline > .orders-select {
+  height: 100%;
 }
 
 .orders-field {
@@ -1847,7 +2226,7 @@ onBeforeUnmount(() => {
   padding: 20px;
   background: rgba(35, 19, 15, 0.38);
   backdrop-filter: blur(3px);
-  z-index: 1200;
+  z-index: 2100;
 }
 
 .orders-modal {
@@ -1862,10 +2241,56 @@ onBeforeUnmount(() => {
   box-shadow: 0 24px 48px rgba(35, 19, 15, 0.24);
 }
 
+.orders-modal-backdrop--fullscreen {
+  place-items: stretch;
+  padding: 0;
+}
+
+.orders-create-modal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  max-height: none;
+  overflow: hidden;
+  gap: 0;
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.orders-create-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: max(10px, env(safe-area-inset-top)) 12px 10px;
+  border-bottom: 1px solid rgba(230, 209, 192, 0.9);
+  background: rgba(255, 253, 249, 0.98);
+}
+
+.orders-create-modal-body {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  overflow: auto;
+}
+
+.orders-create-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .orders-modal-title {
   font-size: 1.05rem;
   font-weight: 800;
-  padding-right: 36px;
+  margin: 0;
+  padding-right: 0;
 }
 
 .orders-modal-text {
@@ -1883,6 +2308,11 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   background: rgba(35, 19, 15, 0.06);
   color: var(--muted);
+}
+
+.orders-create-close {
+  position: static;
+  flex: 0 0 auto;
 }
 
 .orders-modal-actions {
@@ -1922,6 +2352,10 @@ onBeforeUnmount(() => {
   .orders-advanced-body {
     grid-template-columns: 1fr;
   }
+
+  .orders-create-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 767px) {
@@ -1949,8 +2383,8 @@ onBeforeUnmount(() => {
   }
 
   .orders-toolbar-main {
-    grid-template-columns: 1fr;
-    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr) 46px;
+    align-items: center;
   }
 
   .orders-toolbar-side,
@@ -1959,6 +2393,7 @@ onBeforeUnmount(() => {
   }
 
   .orders-toolbar-side {
+    grid-column: 1 / -1;
     justify-content: space-between;
   }
 
