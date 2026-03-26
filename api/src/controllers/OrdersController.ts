@@ -653,6 +653,8 @@ export class OrdersController extends Controller {
       }
 
       if (body.status === OrderStatus.CANCELLED) {
+        data.paymentStatus = PaymentStatus.UNPAID;
+        data.paymentMethod = null;
         await tx.orderItem.updateMany({
           where: { orderId: id },
           data: {

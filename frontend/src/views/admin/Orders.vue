@@ -11,8 +11,8 @@
               :disabled="isLoading"
               @change="handleImmediateFilterChange"
             >
-              <option value="">Đơn cần xử lý</option>
               <option value="CONFIRMED">Đang xử lý</option>
+              <option value="COMPLETED">Hoàn tất</option>
               <option value="CANCELLED">Đã hủy</option>
             </select>
           </label>
@@ -118,29 +118,35 @@
         >
           <div class="order-card-head">
             <div class="order-head-main">
-              <div class="order-identity">
-                <span class="order-number">{{ order.orderNumber }}</span>
-                <span class="order-time">{{ formatOrderTime(order.createdAt) }}</span>
-              </div>
               <div class="order-contact-line">
                 <span class="order-customer-name">{{ getCustomerName(order) }}</span>
                 <span class="order-customer-phone">{{ getCustomerPhone(order) }}</span>
-                <span v-if="order.tableLabel" class="order-table">{{ order.tableLabel }}</span>
-                <span class="order-arrival-chip">
-                  {{ getQueueLabel(order) }} {{ getQueueTime(order) }}
-                </span>
               </div>
             </div>
 
             <div class="order-head-side">
+              <button
+                class="order-info-trigger"
+                type="button"
+                :title="getOrderInfoTooltip(order)"
+                :aria-label="`Thông tin đơn ${order.orderNumber}`"
+              >
+                <i class="bi bi-info-circle"></i>
+              </button>
               <div class="order-total">{{ formatMoney(order.totalAmount) }}</div>
             </div>
           </div>
 
-          <div class="order-badges">
+          <div class="order-status-line">
+            <span class="order-arrival-chip">
+              Giờ hẹn {{ getQueueTime(order) }}
+            </span>
             <span :class="['order-pill', getSimpleStatusClass(order.status)]">
               {{ getOrderStatusLabel(order.status) }}
             </span>
+          </div>
+
+          <div v-if="shouldShowPaymentMethod(order)" class="order-badges">
             <span v-if="order.paymentMethod" class="order-pill is-muted">
               {{ getPaymentMethodLabel(order.paymentMethod) }}
             </span>
@@ -148,7 +154,6 @@
 
           <div v-if="order.itemProgress?.total" class="order-progress">
             <div class="order-progress-head">
-              <span class="orders-field-label">Hàng đợi món</span>
               <strong>{{ getProgressText(order) }}</strong>
             </div>
             <div class="order-progress-track">
@@ -589,7 +594,7 @@ const errorMessage = ref("");
 
 const filter = reactive({
   date: getTodayInputValue(),
-  status: "",
+  status: "CONFIRMED",
   search: "",
 });
 
@@ -681,7 +686,7 @@ function getOrderStatusLabel(status: string) {
   const simpleStatus = simplifyStatus(status);
   if (simpleStatus === "CONFIRMED") return "Đang xử lý";
   if (simpleStatus === "COMPLETED") return "Hoàn tất";
-  return "Hủy";
+  return "Đã hủy";
 }
 
 function getItemStatusLabel(status?: string | null) {
@@ -707,6 +712,10 @@ function getPaymentMethodLabel(method: string) {
   return paymentMethodLabels[method] || method;
 }
 
+function shouldShowPaymentMethod(order: OrderRecord) {
+  return simplifyStatus(order.status) === "COMPLETED" && order.paymentStatus === "PAID" && !!order.paymentMethod;
+}
+
 function getCustomerName(order: OrderRecord) {
   return order.customer?.fullName || order.guestName || "Khách lẻ";
 }
@@ -715,12 +724,12 @@ function getCustomerPhone(order: OrderRecord) {
   return order.guestPhone || order.customer?.phone || "Không có SĐT";
 }
 
-function getQueueTime(order: OrderRecord) {
-  return formatOrderTime(order.arrivalAt || order.createdAt);
+function getOrderInfoTooltip(order: OrderRecord) {
+  return `ID đơn: ${order.orderNumber}\nGiờ đặt: ${formatOrderTime(order.createdAt)}`;
 }
 
-function getQueueLabel(order: OrderRecord) {
-  return order.arrivalAt ? "Giờ hẹn" : "Tạo lúc";
+function getQueueTime(order: OrderRecord) {
+  return order.arrivalAt ? formatOrderTime(order.arrivalAt) : "Chưa hẹn";
 }
 
 function getProgressText(order: OrderRecord) {
@@ -743,10 +752,6 @@ function getProgressPercent(order: OrderRecord, key: "waiting" | "cooking" | "re
 
 function getErrorMessage(error: any, fallback: string) {
   return error?.response?.data?.message || error?.message || fallback;
-}
-
-function isAttentionOrder(order: OrderRecord) {
-  return simplifyStatus(order.status) === "CONFIRMED";
 }
 
 function isBusy(order: OrderRecord) {
@@ -1010,7 +1015,7 @@ async function loadOrders() {
     const params = {
       date: filter.date || undefined,
       search: filter.search || undefined,
-      scope: filter.status ? undefined : "attention",
+      status: filter.status || undefined,
     };
 
     const [ordersResponse, dailyMenusResponse] = await Promise.all([
@@ -1024,13 +1029,7 @@ async function loadOrders() {
 
     dailyMenus.value = dailyMenusResponse.data || [];
 
-    let nextOrders = ordersResponse.data as OrderRecord[];
-    if (filter.status) {
-      nextOrders = nextOrders.filter((order) => simplifyStatus(order.status) === filter.status);
-    } else {
-      nextOrders = nextOrders.filter(isAttentionOrder);
-    }
-
+    const nextOrders = ordersResponse.data as OrderRecord[];
     orders.value = [...nextOrders].sort(sortOrdersByQueue);
 
     Object.keys(itemDrafts).forEach((key) => delete itemDrafts[Number(key)]);
@@ -1152,14 +1151,18 @@ onBeforeUnmount(() => {
 .orders-toolbar,
 .orders-surface {
   background: rgba(255, 253, 249, 0.94);
-  border: 1px solid rgba(230, 209, 192, 0.9);
   border-radius: 24px;
   box-shadow: var(--shadow);
 }
 
 .orders-toolbar {
+  border: 0;
   overflow: hidden;
   display: grid;
+}
+
+.orders-surface {
+  border: 1px solid rgba(230, 209, 192, 0.9);
 }
 
 .orders-toolbar-body {
@@ -1306,9 +1309,9 @@ onBeforeUnmount(() => {
 .orders-schedule-strip {
   display: flex;
   gap: 10px;
+  margin-top: 12px;
   padding: 0 20px 16px;
   overflow-x: auto;
-  border-bottom: 1px solid rgba(230, 209, 192, 0.85);
 }
 
 .orders-schedule-chip {
@@ -1338,7 +1341,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 16px;
   padding: 16px 20px;
-  border-bottom: 1px solid rgba(230, 209, 192, 0.9);
+  border-bottom: 1px solid rgba(230, 209, 192, 0.45);
 }
 
 .orders-surface-title {
@@ -1394,12 +1397,12 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 14px;
   padding: 18px 20px;
-  border-top: 1px solid rgba(230, 209, 192, 0.9);
+  margin-bottom: 6px;
   background: var(--order-status-surface);
 }
 
-.order-card:first-child {
-  border-top: none;
+.order-card:last-child {
+  margin-bottom: 0;
 }
 
 .order-card.is-status-pending {
@@ -1432,57 +1435,89 @@ onBeforeUnmount(() => {
 }
 
 .order-head-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
   text-align: right;
 }
 
-.order-identity {
-  display: flex;
+.order-info-trigger {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex-wrap: nowrap;
-}
-
-.order-number {
-  font-weight: 800;
-}
-
-.order-time {
-  flex-shrink: 0;
-  white-space: nowrap;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(126, 86, 65, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
   color: var(--muted);
-  font-size: 0.88rem;
-  font-variant-numeric: tabular-nums;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.order-info-trigger:hover,
+.order-info-trigger:focus-visible {
+  color: var(--ember-strong);
+  border-color: rgba(201, 88, 44, 0.32);
+  background: rgba(255, 247, 241, 0.92);
+  outline: none;
+}
+
+.order-info-trigger i {
+  font-size: 0.95rem;
 }
 
 .order-contact-line {
   display: flex;
   align-items: center;
+  min-width: 0;
   flex-wrap: wrap;
+}
+
+.order-contact-line {
   gap: 6px 10px;
+}
+
+.order-status-line {
+  display: grid;
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 
 .order-customer-name {
   font-weight: 700;
 }
 
-.order-customer-phone,
-.order-table {
+.order-customer-phone {
   color: var(--muted);
   font-size: 0.9rem;
 }
 
 .order-arrival-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(246, 233, 220, 0.9);
+  padding: 0 10px 0 0;
   color: var(--ember-strong);
   font-size: 0.8rem;
   font-weight: 700;
+  white-space: nowrap;
+  justify-self: start;
+  z-index: 0;
+}
+
+.order-arrival-chip::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  left: -10px;
+  border-radius: 999px;
+  background: rgba(246, 233, 220, 0.9);
+  z-index: -1;
 }
 
 .order-total {
@@ -1504,6 +1539,8 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
   font-weight: 800;
   white-space: nowrap;
+  flex-shrink: 0;
+  justify-self: end;
 }
 
 .order-pill.is-pending {
@@ -1948,10 +1985,11 @@ onBeforeUnmount(() => {
   }
 
   .orders-schedule-strip {
+    margin-top: 10px;
     padding: 0 16px 14px;
-    border-top: 1px solid rgba(230, 209, 192, 0.9);
-    border-bottom: 1px solid rgba(230, 209, 192, 0.9);
-    background: rgba(255, 253, 249, 0.96);
+    border-top: 0;
+    border-bottom: 0;
+    background: transparent;
   }
 
   .orders-surface {
