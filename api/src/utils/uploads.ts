@@ -15,11 +15,25 @@ function ensureDir(dir: string): void {
   }
 }
 
+let _publicDir: string | null = null;
+
 export function resolvePublicDir(baseDir: string): string {
   const publicDir = path.resolve(baseDir, "..", "public");
+  _publicDir = publicDir;
   ensureDir(publicDir);
   ensureDir(path.join(publicDir, "uploads"));
   return publicDir;
+}
+
+export function deletePublicImage(imageUrl: string): void {
+  if (!_publicDir || !imageUrl.startsWith("/uploads/")) return;
+  const fileName = path.basename(imageUrl);
+  const filePath = path.join(_publicDir, "uploads", fileName);
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {
+    // best-effort — don't fail the request over a stale file
+  }
 }
 
 function createFileName(originalName: string): string {

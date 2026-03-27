@@ -23,6 +23,15 @@
     </div>
 
     <div class="topbar-actions">
+      <RouterLink
+        v-if="accountPath"
+        :to="accountPath"
+        class="btn topbar-icon-button topbar-account-button"
+        aria-label="Tài khoản"
+        title="Tài khoản"
+      >
+        <i class="bi bi-person-circle"></i>
+      </RouterLink>
       <div class="topbar-user">{{ user?.fullName || APP_NAME }}</div>
       <button
         class="btn topbar-icon-button topbar-logout-button"
@@ -53,6 +62,13 @@ defineEmits<{ "toggle-sidebar": [] }>();
 
 const router = useRouter();
 const user = computed(() => getUser());
+const accountPath = computed(() => {
+  const role = String(user.value?.role || "").toUpperCase();
+  if (role === "ADMIN") return "/admin/users";
+  if (role === "STAFF") return "/staff/orders";
+  if (role === "CUSTOMER") return "/customer/orders";
+  return "";
+});
 
 async function handleLogout() {
   try {

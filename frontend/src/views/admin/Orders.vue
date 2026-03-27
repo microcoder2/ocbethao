@@ -127,253 +127,23 @@
       </div>
 
       <div v-else class="orders-list">
-        <article
+        <OrderCard
           v-for="order in orders"
           :key="order.id"
-          :class="['order-card', getOrderSurfaceClass(order.status)]"
-        >
-          <div class="order-card-head">
-            <div class="order-head-main">
-              <div class="order-contact-line">
-                <span class="order-customer-name">{{ getCustomerName(order) }}</span>
-                <span class="order-customer-phone">{{ getCustomerPhone(order) }}</span>
-              </div>
-            </div>
+          :order="order"
+          :menu-options="getAddableOptions(order)"
+          :stock-remaining-map="stockRemainingMap"
+          :busy="isBusy(order)"
+          :is-saving="savingOrderId === order.id"
+          @confirm="changeOrderStatus(order, 'CONFIRMED')"
+          @open-complete="openCompleteDialog(order)"
+          @open-cancel="openCancelDialog(order)"
+          @save-items="(items) => saveOrderItems(order, items)"
+          @update-item-status="(itemId, status) => updateItemStatus(order, itemId, status)"
+        />
 
-            <div class="order-head-side">
-              <button
-                class="order-info-trigger"
-                type="button"
-                :title="getOrderInfoTooltip(order)"
-                :aria-label="`Thông tin đơn ${order.orderNumber}`"
-              >
-                <i class="bi bi-info-circle"></i>
-              </button>
-              <div class="order-total">{{ formatMoney(order.totalAmount) }}</div>
-            </div>
-          </div>
-
-          <div class="order-status-line">
-            <span class="order-arrival-chip">
-              Giờ hẹn {{ getQueueTime(order) }}
-            </span>
-            <span :class="['order-pill', getSimpleStatusClass(order.status)]">
-              {{ getOrderStatusLabel(order.status) }}
-            </span>
-          </div>
-
-          <div v-if="shouldShowPaymentMethod(order)" class="order-badges">
-            <span v-if="order.paymentMethod" class="order-pill is-muted">
-              {{ getPaymentMethodLabel(order.paymentMethod) }}
-            </span>
-          </div>
-
-          <div v-if="order.itemProgress?.total" class="order-progress">
-            <div class="order-progress-head">
-              <strong>{{ getProgressText(order) }}</strong>
-            </div>
-            <div class="order-progress-track">
-              <span
-                class="order-progress-segment is-waiting"
-                :style="{ width: `${getProgressPercent(order, 'waiting')}%` }"
-              ></span>
-              <span
-                class="order-progress-segment is-cooking"
-                :style="{ width: `${getProgressPercent(order, 'cooking')}%` }"
-              ></span>
-              <span
-                class="order-progress-segment is-ready"
-                :style="{ width: `${getProgressPercent(order, 'ready')}%` }"
-              ></span>
-            </div>
-            <div class="order-progress-legend">
-              <span>Chờ {{ order.itemProgress.waiting }}</span>
-              <span>Đang làm {{ order.itemProgress.cooking }}</span>
-              <span>Lên món {{ order.itemProgress.ready }}</span>
-            </div>
-          </div>
-
-          <ul class="order-item-list">
-            <li v-if="!getEditableItems(order).length" class="order-item-row is-empty">
-              <span class="order-item-name">Chưa có món</span>
-            </li>
-            <li
-              v-for="(item, index) in getEditableItems(order)"
-              :key="item.key"
-              class="order-item-row"
-            >
-              <div class="order-item-main">
-                <div class="order-item-copy">
-                  <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
-                  <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
-                  <div class="order-item-statuses">
-                    <template v-if="canUpdateItemStatus(order, item)">
-                      <button
-                        v-for="status in itemStatusActions"
-                        :key="status.value"
-                        type="button"
-                        :class="['order-item-status', getItemStatusClass(status.value), { 'is-active': item.status === status.value }]"
-                        @click="updateItemStatus(order, item, status.value)"
-                      >
-                        {{ status.label }}
-                      </button>
-                    </template>
-                    <span
-                      v-else
-                      :class="['order-item-status', getItemStatusClass(item.id ? item.status : 'WAITING'), 'is-active']"
-                    >
-                      {{ item.id ? getItemStatusLabel(item.status) : "Chờ lưu món" }}
-                    </span>
-                  </div>
-                </div>
-                <span class="order-item-total">
-                  {{ formatMoney(item.lineTotal) }}
-                </span>
-              </div>
-
-              <div v-if="canEditItems(order)" class="order-item-editor">
-                <button
-                  class="btn btn-sm order-qty-btn"
-                  type="button"
-                  :disabled="isBusy(order)"
-                  @click="changeDraftQuantity(order, index, -1)"
-                >
-                  -
-                </button>
-                <span class="order-item-qty">{{ item.quantity }}</span>
-                <button
-                  class="btn btn-sm order-qty-btn"
-                  type="button"
-                  :disabled="isBusy(order)"
-                  @click="changeDraftQuantity(order, index, 1)"
-                >
-                  +
-                </button>
-              </div>
-
-              <span v-else class="order-item-qty-read">{{ item.quantity }}</span>
-            </li>
-          </ul>
-
-          <div v-if="canEditItems(order)" class="order-editor-panel">
-            <div v-if="getAddableOptions(order).length" class="order-add-row">
-              <div class="order-add-field">
-                <span class="orders-field-label">Thêm món vào đơn</span>
-                <div class="order-add-control">
-                  <select
-                    :value="getItemAddSelection(order.id)"
-                    class="form-select orders-select"
-                    :disabled="isBusy(order)"
-                    @change="handleItemAddSelection(order.id, $event)"
-                  >
-                    <option value="">Chọn món để thêm</option>
-                    <template v-for="group in groupByIngredient(getAddableOptions(order))" :key="group.label">
-                      <optgroup :label="groupLabel(group)">
-                        <option
-                          v-for="option in group.items"
-                          :key="option.id"
-                          :value="String(option.id)"
-                        >
-                          {{ option.menuItem.name }} · {{ formatMoney(option.sellingPrice) }}
-                        </option>
-                      </optgroup>
-                    </template>
-                  </select>
-                  <button
-                    class="btn btn-outline-dark order-add-btn"
-                    type="button"
-                    :disabled="isBusy(order) || !itemAddSelections[order.id]"
-                    @click="addDraftItem(order)"
-                    aria-label="Thêm món"
-                    title="Thêm món"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div v-else class="order-add-hint">
-              Hôm nay không còn món khả dụng để thêm vào đơn này.
-            </div>
-
-            <div v-if="hasDraftChanged(order)" class="order-editor-actions">
-              <div class="order-editor-note">
-                Lưu thay đổi món trước khi hoàn tất hoặc hủy đơn.
-              </div>
-              <button
-                class="btn btn-dark"
-                type="button"
-                :disabled="isBusy(order)"
-                @click="saveOrderItems(order)"
-              >
-                {{ savingOrderId === order.id ? "Đang lưu..." : "Lưu món" }}
-              </button>
-              <button
-                class="btn btn-outline-dark"
-                type="button"
-                :disabled="isBusy(order)"
-                @click="discardDraft(order.id)"
-              >
-                Bỏ thay đổi
-              </button>
-            </div>
-          </div>
-
-          <div class="order-actions">
-            <button
-              v-if="canConfirmOrder(order)"
-              class="btn btn-dark"
-              type="button"
-              :disabled="isBusy(order)"
-              @click="changeOrderStatus(order, 'CONFIRMED')"
-            >
-              {{ updatingOrderId === order.id ? "Đang xác nhận..." : "Xác nhận đơn" }}
-            </button>
-            <button
-              v-if="canCompleteOrder(order)"
-              class="btn btn-ember"
-              type="button"
-              :disabled="isBusy(order) || hasDraftChanged(order) || !isReadyToComplete(order)"
-              @click="openCompleteDialog(order)"
-            >
-              Hoàn tất
-            </button>
-            <button
-              v-if="canCancelOrder(order)"
-              class="btn btn-outline-danger"
-              type="button"
-              :disabled="isBusy(order) || hasDraftChanged(order)"
-              @click="openCancelDialog(order)"
-            >
-              Hủy đơn
-            </button>
-          </div>
-        </article>
       </div>
     </section>
-
-    <div
-      v-if="removeItemDialog.visible"
-      class="orders-modal-backdrop"
-      role="dialog"
-      aria-modal="true"
-      @click.self="closeRemoveItemDialog"
-    >
-      <div class="orders-modal">
-        <div class="orders-modal-title">Xóa món khỏi đơn?</div>
-        <p class="orders-modal-text">
-          Giảm về 0 sẽ xóa <strong>{{ removeItemDialog.itemName }}</strong> khỏi đơn.
-        </p>
-        <div class="orders-modal-actions">
-          <button class="btn btn-outline-dark" type="button" @click="closeRemoveItemDialog">
-            Giữ lại
-          </button>
-          <button class="btn btn-danger" type="button" @click="confirmRemoveItem">
-            Xóa món
-          </button>
-        </div>
-      </div>
-    </div>
 
     <div
       v-if="completeDialog.visible && completeDialog.order"
@@ -569,6 +339,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { api } from "../../api";
 import { socket } from "../../socket";
 import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
+import OrderCard from "../../components/admin/OrderCard.vue";
 import { formatMoney } from "../../utils/format";
 
 type OrderItem = {
@@ -632,18 +403,6 @@ type DailyMenuRecord = {
   items: DailyMenuOption[];
 };
 
-type EditableOrderItem = {
-  id?: number | null;
-  key: string;
-  menuItemId?: number | null;
-  dailyMenuItemId?: number | null;
-  itemNameSnapshot: string;
-  unitPrice: number;
-  quantity: number;
-  status: string;
-  lineTotal: number;
-};
-
 type ManualOrderLine = {
   key: string;
   dailyMenuItemId: number;
@@ -651,19 +410,6 @@ type ManualOrderLine = {
   price: number;
   quantity: number;
 };
-
-const paymentMethodLabels: Record<string, string> = {
-  CASH: "Tiền mặt",
-  CARD: "Thẻ",
-  TRANSFER: "Chuyển khoản",
-  E_WALLET: "Ví điện tử",
-};
-
-const itemStatusActions = [
-  { value: "WAITING", label: "Chờ" },
-  { value: "COOKING", label: "Đang làm" },
-  { value: "READY", label: "Lên món" },
-] as const;
 
 function getTodayInputValue() {
   const now = new Date();
@@ -688,18 +434,6 @@ function formatFilterDate(value: string) {
   }).format(date);
 }
 
-function formatOrderTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "--:--";
-  }
-
-  return new Intl.DateTimeFormat("vi-VN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
 function buildArrivalAt(serviceDate?: string, time?: string) {
   if (!serviceDate || !time) {
     return undefined;
@@ -715,35 +449,6 @@ function getOrderDateValue(value?: string | null) {
 
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function simplifyStatus(status: string) {
-  if (status === "CANCELLED") return "CANCELLED";
-  if (status === "COMPLETED") return "COMPLETED";
-  if (status === "PENDING") return "PENDING";
-  return "CONFIRMED";
-}
-
-function cloneOrderItems(items: OrderItem[] = []) {
-  return items.map((item, index) => ({
-    id: item.id,
-    key: `${item.dailyMenuItemId ?? item.menuItemId ?? "item"}-${index}`,
-    menuItemId: item.menuItemId ?? null,
-    dailyMenuItemId: item.dailyMenuItemId ?? null,
-    itemNameSnapshot: item.itemNameSnapshot,
-    unitPrice: Number(item.unitPrice || 0),
-    quantity: Number(item.quantity || 0),
-    status: item.status || "WAITING",
-    lineTotal: Number(item.lineTotal || 0),
-  }));
-}
-
-function normalizeDraftItems(items: Array<Pick<EditableOrderItem, "dailyMenuItemId" | "menuItemId" | "quantity">>) {
-  return items.map((item) => ({
-    dailyMenuItemId: item.dailyMenuItemId ?? null,
-    menuItemId: item.menuItemId ?? null,
-    quantity: item.quantity,
-  }));
 }
 
 const orders = ref<OrderRecord[]>([]);
@@ -768,17 +473,8 @@ const canSubmitCreateOrder = computed(
   () => Boolean(manualMenu.value && createOrderDialog.lines.length && createOrderDialog.guestName.trim())
 );
 
-const itemDrafts = reactive<Record<number, EditableOrderItem[]>>({});
-const itemAddSelections = reactive<Record<number, string>>({});
 // poolId → remainingQuantity, updated from API load + socket events
 const stockRemainingMap = reactive<Record<number, number>>({});
-
-const removeItemDialog = reactive({
-  visible: false,
-  orderId: 0,
-  itemIndex: -1,
-  itemName: "",
-});
 
 const completeDialog = reactive<{
   visible: boolean;
@@ -874,75 +570,6 @@ const scheduleBuckets = computed(() => {
   return Array.from(buckets.values()).sort((a, b) => a.key.localeCompare(b.key));
 });
 
-function getOrderStatusLabel(status: string) {
-  const simpleStatus = simplifyStatus(status);
-  if (simpleStatus === "PENDING") return "Chờ xác nhận";
-  if (simpleStatus === "CONFIRMED") return "Đang xử lý";
-  if (simpleStatus === "COMPLETED") return "Hoàn tất";
-  return "Đã hủy";
-}
-
-function getItemStatusLabel(status?: string | null) {
-  if (status === "READY") return "Lên món";
-  if (status === "COOKING") return "Đang làm";
-  if (status === "CANCELLED") return "Đã hủy";
-  return "Chờ";
-}
-
-function getSimpleStatusClass(status: string) {
-  return `is-${simplifyStatus(status).toLowerCase()}`;
-}
-
-function getItemStatusClass(status?: string | null) {
-  return `is-${String(status || "WAITING").toLowerCase()}`;
-}
-
-function getOrderSurfaceClass(status: string) {
-  return `is-status-${simplifyStatus(status).toLowerCase()}`;
-}
-
-function getPaymentMethodLabel(method: string) {
-  return paymentMethodLabels[method] || method;
-}
-
-function shouldShowPaymentMethod(order: OrderRecord) {
-  return simplifyStatus(order.status) === "COMPLETED" && order.paymentStatus === "PAID" && !!order.paymentMethod;
-}
-
-function getCustomerName(order: OrderRecord) {
-  return order.customer?.fullName || order.guestName || "Khách lẻ";
-}
-
-function getCustomerPhone(order: OrderRecord) {
-  return order.guestPhone || order.customer?.phone || "Không có SĐT";
-}
-
-function getOrderInfoTooltip(order: OrderRecord) {
-  return `ID đơn: ${order.orderNumber}\nGiờ đặt: ${formatOrderTime(order.createdAt)}`;
-}
-
-function getQueueTime(order: OrderRecord) {
-  return order.arrivalAt ? formatOrderTime(order.arrivalAt) : "Chưa hẹn";
-}
-
-function getProgressText(order: OrderRecord) {
-  const progress = order.itemProgress;
-  if (!progress?.total) {
-    return "Chưa có món";
-  }
-
-  return `${progress.ready}/${progress.total} món sẵn sàng`;
-}
-
-function getProgressPercent(order: OrderRecord, key: "waiting" | "cooking" | "ready") {
-  const total = Number(order.itemProgress?.total || 0);
-  if (!total) {
-    return 0;
-  }
-
-  return (Number(order.itemProgress?.[key] || 0) / total) * 100;
-}
-
 function getErrorMessage(error: any, fallback: string) {
   return error?.response?.data?.message || error?.message || fallback;
 }
@@ -951,79 +578,11 @@ function isBusy(order: OrderRecord) {
   return isLoading.value || updatingOrderId.value === order.id || savingOrderId.value === order.id;
 }
 
-function canConfirmOrder(order: OrderRecord) {
-  return simplifyStatus(order.status) === "PENDING";
-}
-
-function canEditItems(order: OrderRecord) {
-  return simplifyStatus(order.status) === "CONFIRMED";
-}
-
-function canCompleteOrder(order: OrderRecord) {
-  return simplifyStatus(order.status) === "CONFIRMED";
-}
-
-function canCancelOrder(order: OrderRecord) {
-  const s = simplifyStatus(order.status);
-  return s === "PENDING" || s === "CONFIRMED";
-}
-
-function canUpdateItemStatus(order: OrderRecord, item: EditableOrderItem) {
-  return (
-    canEditItems(order) &&
-    !hasDraftChanged(order) &&
-    !isBusy(order) &&
-    typeof item.id === "number" &&
-    item.id > 0
-  );
-}
-
-function isReadyToComplete(order: OrderRecord) {
-  const progress = order.itemProgress;
-  if (!progress?.total) {
-    return false;
-  }
-
-  return progress.waiting === 0 && progress.cooking === 0;
-}
-
 function clearSearchDebounce() {
   if (typeof searchDebounceId === "number") {
     window.clearTimeout(searchDebounceId);
     searchDebounceId = undefined;
   }
-}
-
-function closeRemoveItemDialog() {
-  removeItemDialog.visible = false;
-  removeItemDialog.orderId = 0;
-  removeItemDialog.itemIndex = -1;
-  removeItemDialog.itemName = "";
-}
-
-function openRemoveItemDialog(order: OrderRecord, index: number) {
-  const current = getEditableItems(order)[index];
-  if (!current) {
-    return;
-  }
-
-  removeItemDialog.visible = true;
-  removeItemDialog.orderId = order.id;
-  removeItemDialog.itemIndex = index;
-  removeItemDialog.itemName = current.itemNameSnapshot;
-}
-
-function confirmRemoveItem() {
-  if (!removeItemDialog.visible) {
-    return;
-  }
-
-  const order = orders.value.find((item) => item.id === removeItemDialog.orderId);
-  if (order) {
-    removeDraftItem(order, removeItemDialog.itemIndex);
-  }
-
-  closeRemoveItemDialog();
 }
 
 function closeCompleteDialog() {
@@ -1184,32 +743,6 @@ async function confirmCancelOrder() {
   await changeOrderStatus(order, "CANCELLED", { internalNote });
 }
 
-function discardDraft(orderId: number) {
-  delete itemDrafts[orderId];
-  delete itemAddSelections[orderId];
-}
-
-function ensureDraft(order: OrderRecord) {
-  if (!itemDrafts[order.id]) {
-    itemDrafts[order.id] = cloneOrderItems(order.items || []);
-  }
-}
-
-function getEditableItems(order: OrderRecord) {
-  return itemDrafts[order.id] || cloneOrderItems(order.items || []);
-}
-
-function hasDraftChanged(order: OrderRecord) {
-  if (!itemDrafts[order.id]) {
-    return false;
-  }
-
-  return (
-    JSON.stringify(normalizeDraftItems(itemDrafts[order.id])) !==
-    JSON.stringify(normalizeDraftItems(cloneOrderItems(order.items || [])))
-  );
-}
-
 function getMenuForOrder(order: OrderRecord) {
   return dailyMenus.value.find((menu) => menu.id === order.dailyMenuId) || dailyMenus.value[0] || null;
 }
@@ -1258,83 +791,6 @@ function handleStockUpdate(pools: Array<{ id: number; remainingQuantity: number 
   }
 }
 
-function getItemAddSelection(orderId: number) {
-  if (typeof itemAddSelections[orderId] !== "string") {
-    itemAddSelections[orderId] = "";
-  }
-
-  return itemAddSelections[orderId];
-}
-
-function handleItemAddSelection(orderId: number, event: Event) {
-  itemAddSelections[orderId] = (event.target as HTMLSelectElement)?.value || "";
-}
-
-function changeDraftQuantity(order: OrderRecord, index: number, delta: number) {
-  ensureDraft(order);
-  const current = itemDrafts[order.id][index];
-  if (!current) {
-    return;
-  }
-
-  const nextQuantity = current.quantity + delta;
-  if (nextQuantity <= 0) {
-    openRemoveItemDialog(order, index);
-    return;
-  }
-
-  itemDrafts[order.id][index] = {
-    ...current,
-    quantity: nextQuantity,
-    lineTotal: nextQuantity * current.unitPrice,
-  };
-}
-
-function removeDraftItem(order: OrderRecord, index: number) {
-  ensureDraft(order);
-  itemDrafts[order.id] = itemDrafts[order.id].filter((_, currentIndex) => currentIndex !== index);
-}
-
-function addDraftItem(order: OrderRecord) {
-  ensureDraft(order);
-  const selectedId = Number(itemAddSelections[order.id] || 0);
-  if (!selectedId) {
-    return;
-  }
-
-  const option = getAddableOptions(order).find((item) => item.id === selectedId);
-  if (!option) {
-    return;
-  }
-
-  const draft = [...itemDrafts[order.id]];
-  const existingIndex = draft.findIndex((item) => item.dailyMenuItemId === option.id);
-
-  if (existingIndex >= 0) {
-    const current = draft[existingIndex];
-    draft[existingIndex] = {
-      ...current,
-      quantity: current.quantity + 1,
-      lineTotal: (current.quantity + 1) * current.unitPrice,
-    };
-  } else {
-    draft.push({
-      id: null,
-      key: `new-${option.id}`,
-      menuItemId: option.menuItem.id,
-      dailyMenuItemId: option.id,
-      itemNameSnapshot: option.menuItem.name,
-      unitPrice: option.sellingPrice,
-      quantity: 1,
-      status: "WAITING",
-      lineTotal: option.sellingPrice,
-    });
-  }
-
-  itemDrafts[order.id] = draft;
-  itemAddSelections[order.id] = "";
-}
-
 function sortOrdersByQueue(a: OrderRecord, b: OrderRecord) {
   const aTime = getOrderDateValue(a.arrivalAt || a.createdAt)?.getTime() ?? 0;
   const bTime = getOrderDateValue(b.arrivalAt || b.createdAt)?.getTime() ?? 0;
@@ -1370,9 +826,6 @@ async function loadOrders() {
 
     const nextOrders = ordersResponse.data as OrderRecord[];
     orders.value = [...nextOrders].sort(sortOrdersByQueue);
-
-    Object.keys(itemDrafts).forEach((key) => delete itemDrafts[Number(key)]);
-    Object.keys(itemAddSelections).forEach((key) => delete itemAddSelections[Number(key)]);
   } catch (error) {
     errorMessage.value = getErrorMessage(error, "Không tải được danh sách đơn hàng.");
   } finally {
@@ -1380,13 +833,11 @@ async function loadOrders() {
   }
 }
 
-async function saveOrderItems(order: OrderRecord) {
-  const draft = itemDrafts[order.id];
-  if (!draft || !hasDraftChanged(order)) {
-    return;
-  }
-
-  if (!draft.length) {
+async function saveOrderItems(
+  order: OrderRecord,
+  items: Array<{ dailyMenuItemId?: number; menuItemId?: number; quantity: number }>
+) {
+  if (!items.length) {
     errorMessage.value = "Nếu muốn bỏ hết món, hãy hủy đơn thay vì lưu đơn rỗng.";
     return;
   }
@@ -1395,14 +846,7 @@ async function saveOrderItems(order: OrderRecord) {
   errorMessage.value = "";
 
   try {
-    await api.put(`/orders/${order.id}`, {
-      items: draft.map((item) => ({
-        menuItemId: item.menuItemId ?? undefined,
-        dailyMenuItemId: item.dailyMenuItemId ?? undefined,
-        quantity: item.quantity,
-      })),
-    });
-    discardDraft(order.id);
+    await api.put(`/orders/${order.id}`, { items });
     await loadOrders();
   } catch (error) {
     errorMessage.value = getErrorMessage(error, "Không lưu được thay đổi món.");
@@ -1421,7 +865,6 @@ async function changeOrderStatus(
 
   try {
     await api.put(`/orders/${order.id}/status`, { status, ...extraData });
-    discardDraft(order.id);
     await loadOrders();
   } catch (error) {
     errorMessage.value = getErrorMessage(error, "Không cập nhật được trạng thái đơn hàng.");
@@ -1437,21 +880,16 @@ async function completeOrder(order: OrderRecord, paymentMethod: string) {
   });
 }
 
-async function updateItemStatus(order: OrderRecord, item: EditableOrderItem, status: string) {
-  if (!canUpdateItemStatus(order, item) || !item.id) {
-    return;
-  }
-
+async function updateItemStatus(order: OrderRecord, itemId: number, status: string) {
   updatingOrderId.value = order.id;
   errorMessage.value = "";
 
   try {
-    const { data } = await api.put(`/orders/${order.id}/items/${item.id}/status`, { status });
+    const { data } = await api.put(`/orders/${order.id}/items/${itemId}/status`, { status });
     const nextOrder = data as OrderRecord;
     orders.value = orders.value
       .map((entry) => (entry.id === order.id ? nextOrder : entry))
       .sort(sortOrdersByQueue);
-    discardDraft(order.id);
   } catch (error) {
     errorMessage.value = getErrorMessage(error, "Không cập nhật được trạng thái món.");
   } finally {
@@ -1771,402 +1209,6 @@ onBeforeUnmount(() => {
   display: grid;
 }
 
-.order-card {
-  --order-status-surface: rgba(255, 253, 249, 0.96);
-  display: grid;
-  gap: 14px;
-  padding: 18px 20px;
-  margin-bottom: 6px;
-  background: var(--order-status-surface);
-}
-
-.order-card:last-child {
-  margin-bottom: 0;
-}
-
-.order-card.is-status-pending {
-  --order-status-surface: rgba(203, 165, 81, 0.12);
-}
-
-.order-card.is-status-confirmed {
-  --order-status-surface: rgba(201, 126, 71, 0.1);
-}
-
-.order-card.is-status-completed {
-  --order-status-surface: rgba(66, 133, 104, 0.11);
-}
-
-.order-card.is-status-cancelled {
-  --order-status-surface: rgba(148, 88, 88, 0.1);
-}
-
-.order-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.order-head-main {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.order-head-side {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  text-align: right;
-}
-
-.order-info-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgba(126, 86, 65, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--muted);
-  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-}
-
-.order-info-trigger:hover,
-.order-info-trigger:focus-visible {
-  color: var(--ember-strong);
-  border-color: rgba(201, 88, 44, 0.32);
-  background: rgba(255, 247, 241, 0.92);
-  outline: none;
-}
-
-.order-info-trigger i {
-  font-size: 0.95rem;
-}
-
-.order-contact-line {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.order-contact-line {
-  gap: 6px 10px;
-}
-
-.order-status-line {
-  display: grid;
-  align-items: center;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  width: 100%;
-  min-width: 0;
-}
-
-.order-customer-name {
-  font-weight: 700;
-}
-
-.order-customer-phone {
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.order-arrival-chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px 0 0;
-  color: var(--ember-strong);
-  font-size: 0.8rem;
-  font-weight: 700;
-  white-space: nowrap;
-  justify-self: start;
-  z-index: 0;
-}
-
-.order-arrival-chip::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  left: -10px;
-  border-radius: 999px;
-  background: rgba(246, 233, 220, 0.9);
-  z-index: -1;
-}
-
-.order-total {
-  font-weight: 800;
-  color: var(--ember-strong);
-}
-
-.order-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.order-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 800;
-  white-space: nowrap;
-  flex-shrink: 0;
-  justify-self: end;
-}
-
-.order-pill.is-pending {
-  background: rgba(203, 165, 81, 0.18);
-  color: #8b6517;
-}
-
-.order-pill.is-confirmed {
-  background: rgba(201, 126, 71, 0.16);
-  color: #8a451f;
-}
-
-.order-pill.is-completed {
-  background: rgba(66, 133, 104, 0.15);
-  color: var(--green);
-}
-
-.order-pill.is-cancelled {
-  background: rgba(148, 88, 88, 0.14);
-  color: #8f2f15;
-}
-
-.order-pill.is-unpaid {
-  background: rgba(201, 87, 43, 0.12);
-  color: var(--ember-strong);
-}
-
-.order-pill.is-partial {
-  background: rgba(185, 139, 47, 0.16);
-  color: #8b6517;
-}
-
-.order-pill.is-paid {
-  background: rgba(34, 105, 85, 0.14);
-  color: var(--green);
-}
-
-.order-pill.is-refunded {
-  background: rgba(35, 19, 15, 0.08);
-  color: var(--text);
-}
-
-.order-pill.is-muted {
-  background: rgba(35, 19, 15, 0.06);
-  color: var(--muted);
-}
-
-.order-progress {
-  display: grid;
-  gap: 8px;
-}
-
-.order-progress-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.order-progress-track {
-  display: flex;
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(35, 19, 15, 0.08);
-}
-
-.order-progress-segment {
-  height: 100%;
-}
-
-.order-progress-segment.is-waiting {
-  background: rgba(203, 165, 81, 0.7);
-}
-
-.order-progress-segment.is-cooking {
-  background: rgba(201, 126, 71, 0.7);
-}
-
-.order-progress-segment.is-ready {
-  background: rgba(66, 133, 104, 0.78);
-}
-
-.order-progress-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.order-item-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid rgba(230, 209, 192, 0.72);
-}
-
-.order-item-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px dashed rgba(230, 209, 192, 0.72);
-}
-
-.order-item-row:last-child {
-  border-bottom: none;
-}
-
-.order-item-row.is-empty {
-  justify-content: flex-start;
-}
-
-.order-item-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.order-item-copy {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.order-item-name {
-  font-weight: 600;
-}
-
-.order-item-meta {
-  color: var(--muted);
-  font-size: 0.84rem;
-}
-
-.order-item-statuses {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.order-item-status {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: rgba(35, 19, 15, 0.06);
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.order-item-status.is-waiting {
-  background: rgba(203, 165, 81, 0.12);
-  color: #8b6517;
-}
-
-.order-item-status.is-cooking {
-  background: rgba(201, 126, 71, 0.13);
-  color: #8a451f;
-}
-
-.order-item-status.is-ready {
-  background: rgba(66, 133, 104, 0.14);
-  color: var(--green);
-}
-
-.order-item-status.is-cancelled {
-  background: rgba(148, 88, 88, 0.14);
-  color: #8f2f15;
-}
-
-.order-item-status.is-active {
-  border-color: currentColor;
-}
-
-.order-item-total {
-  font-weight: 800;
-  color: var(--ember-strong);
-  white-space: nowrap;
-  text-align: right;
-}
-
-.order-item-editor {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-  justify-content: flex-end;
-}
-
-.order-item-qty {
-  min-width: 40px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
-  text-align: center;
-  font-weight: 800;
-  line-height: 38px;
-  font-variant-numeric: tabular-nums;
-}
-
-.order-qty-btn {
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(35, 19, 15, 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 234, 226, 0.94));
-  box-shadow:
-    0 10px 18px rgba(35, 19, 15, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
-  color: var(--text);
-}
-
-.order-qty-btn:hover {
-  transform: translateY(-1px);
-}
-
-.order-qty-btn:active {
-  transform: translateY(1px);
-  box-shadow:
-    0 5px 10px rgba(35, 19, 15, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
-.order-editor-panel {
-  display: grid;
-  gap: 12px;
-}
-
-.order-add-row,
-.order-editor-actions,
-.order-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
 .order-add-row {
   display: grid;
   gap: 10px;
@@ -2198,24 +1240,6 @@ onBeforeUnmount(() => {
   border-radius: 16px;
   font-size: 1.2rem;
   line-height: 1;
-}
-
-.order-item-qty-read {
-  min-width: 40px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  flex: 0 0 auto;
-  text-align: center;
-  font-weight: 800;
-  line-height: 38px;
-  font-variant-numeric: tabular-nums;
-}
-
-.order-editor-note {
-  width: 100%;
-  color: var(--muted);
-  font-size: 0.85rem;
 }
 
 .orders-modal-backdrop {
@@ -2441,54 +1465,6 @@ onBeforeUnmount(() => {
     background: rgba(255, 253, 249, 0.96);
     border-top: 1px solid rgba(230, 209, 192, 0.9);
     border-bottom: 1px solid rgba(230, 209, 192, 0.9);
-  }
-
-  .order-card {
-    padding: 16px;
-  }
-
-  .order-card-head {
-    gap: 12px;
-  }
-
-  .order-head-side {
-    min-width: 96px;
-  }
-
-  .order-progress-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .order-item-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-    gap: 10px;
-  }
-
-  .order-item-main {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
-  }
-
-  .order-item-total {
-    text-align: left;
-  }
-
-  .order-item-editor {
-    width: auto;
-    align-self: center;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
-  .order-qty-btn,
-  .order-item-qty,
-  .order-item-qty-read {
-    min-width: 36px;
-    height: 36px;
-    line-height: 36px;
   }
 
   .order-add-control {

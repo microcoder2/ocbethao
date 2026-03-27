@@ -1,15 +1,18 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Path,
   Post,
   Put,
   Query,
+  Request,
   Route,
   Security,
   Tags,
 } from "tsoa";
+import type { Request as ExRequest } from "express";
 import bcrypt from "bcryptjs";
 import { CustomerType, Prisma, Role } from "@prisma/client";
 import { prisma } from "../utils/prisma";
@@ -150,5 +153,48 @@ export class UsersController extends Controller {
     });
 
     return serializeUser(updated);
+  }
+
+  @Delete("{id}")
+  @Security("bearerAuth", ["ADMIN"])
+  public async deleteUser(@Request() req: ExRequest, @Path() id: number) {
+    const authUser = (req as any).user;
+    if (authUser?.id === id) {
+      this.setStatus(400);
+      return { message: "Không thể tự xóa tài khoản đang đăng nhập." };
+    }
+
+    const targetUser = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        role: true,
+      },
+    });
+
+    if (!targetUser) {
+      this.setStatus(404);
+      return { message: "Không tìm thấy user." };
+    }
+
+    if (targetUser.role === Role.ADMIN) {
+      const adminCount = await prisma.user.count({
+        where: { role: Role.ADMIN },
+      });
+
+      if (adminCount <= 1) {
+        this.setStatus(400);
+        return { message: "Không thể xóa admin cuối cùng." };
+      }
+    }
+
+    await prisma.user.delete({
+      where: { id },
+    });
+
+    return {
+      id,
+      message: "User deleted",
+    };
   }
 }

@@ -7,10 +7,11 @@ export type AppMenuItem = {
 const MENU: Record<string, AppMenuItem[]> = {
   ADMIN: [
     { label: "Tổng Quan", to: "/admin/dashboard", icon: "bi-grid-1x2-fill" },
-    { label: "Đơn Hàng", to: "/admin/orders", icon: "bi-receipt-cutoff" },
-    { label: "Menu Ngày", to: "/admin/daily-menus", icon: "bi-calendar2-week-fill" },
-    { label: "Ngân hàng món", to: "/admin/menu-items", icon: "bi-egg-fried" },
-    { label: "Khách hàng", to: "/admin/users", icon: "bi-people-fill" },
+    { label: "Quản Lý Đơn", to: "/admin/orders", icon: "bi-receipt-cutoff" },
+    { label: "Nhập Kho Hải Sản", to: "/admin/stock", icon: "bi-box-seam-fill" },
+    { label: "Tạo Menu Ngày", to: "/admin/daily-menus", icon: "bi-calendar2-week-fill" },
+    { label: "Ngân Hàng Món", to: "/admin/menu-items", icon: "bi-egg-fried" },
+    { label: "Tập Khách Hàng", to: "/admin/users", icon: "bi-people-fill" },
   ],
   STAFF: [
     { label: "Console", to: "/staff/console", icon: "bi-lightning-charge-fill" },

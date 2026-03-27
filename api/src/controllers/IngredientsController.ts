@@ -12,6 +12,7 @@ import {
 } from "tsoa";
 import { prisma } from "../utils/prisma";
 import { serializeIngredient } from "../utils/mappers";
+import { deletePublicImage } from "../utils/uploads";
 
 class IngredientBody {
   name!: string;
@@ -78,6 +79,12 @@ export class IngredientsController extends Controller {
   @Put("{id}")
   @Security("bearerAuth", ["ADMIN"])
   public async updateIngredient(@Path() id: number, @Body() body: IngredientBody) {
+    const current = await prisma.ingredient.findUniqueOrThrow({ where: { id } });
+
+    if (body.imageUrl !== current.imageUrl && current.imageUrl) {
+      deletePublicImage(current.imageUrl);
+    }
+
     const updated = await prisma.ingredient.update({
       where: { id },
       data: {

@@ -47,6 +47,11 @@ const routes: RouteRecordRaw[] = [
         meta: { title: "Don hang" },
       },
       {
+        path: "admin/stock",
+        component: () => import("../views/admin/Stock.vue"),
+        meta: { title: "Nhập kho hải sản" },
+      },
+      {
         path: "admin/users",
         component: () => import("../views/admin/Users.vue"),
         meta: { title: "Nguoi dung" },
