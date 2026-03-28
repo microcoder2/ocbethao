@@ -1,352 +1,211 @@
 <template>
-  <div class="admin-daily-menu d-grid gap-4">
-    <section class="page-panel admin-daily-menu__hero">
-      <div class="admin-daily-menu__hero-head">
-        <div class="admin-daily-menu__hero-copy">
-          <div class="admin-daily-menu__eyebrow">Menu thông minh</div>
-          <h2 class="admin-daily-menu__title">{{ form.id ? "Chỉnh menu ngày" : "Tạo menu ngày" }}</h2>
-          <p class="admin-daily-menu__description">
-            Nhập nhanh tag món chính trước, hệ thống sẽ giữ nguồn hàng theo tag và kéo các món liên quan lên đầu.
-          </p>
-        </div>
+  <div class="dm-shell">
 
-        <div class="admin-daily-menu__hero-actions">
-          <button type="button" class="btn btn-outline-secondary" @click="resetForm">Mới</button>
+    <!-- ── Kho hôm nay (+ header controls) ── -->
+    <div class="dm-panel">
+      <div class="dm-bar">
+        <div class="dm-bar-header">
+          <span class="dm-panel-title">Kho hôm nay</span>
+          <label class="dm-toggle-group" title="Bật/tắt tất cả nguyên liệu" @click="panelRef?.toggleAll()">
+            <span class="dm-toggle-label">Tất cả</span>
+            <span class="dm-toggle" :class="{ on: panelRef?.allActive }"><span class="dm-toggle-knob"></span></span>
+          </label>
+          <button class="dm-img-toggle-btn" :class="{ on: panelRef?.showImg }" title="Ẩn/hiện ảnh nguyên liệu" @click="panelRef?.toggleImg()">
+            <i class="bi bi-image"></i>
+          </button>
+          <div class="dm-bar-actions">
+            <button class="dm-btn dm-btn--sm dm-btn--ember" :disabled="saving" @click="saveMenu" title="Lưu nháp">
+              <i :class="saving ? 'bi bi-hourglass-split' : 'bi bi-floppy'"></i>
+              <span class="dm-btn-label">Lưu nháp</span>
+            </button>
+            <button class="dm-btn dm-btn--sm dm-btn--ember" :disabled="saving" @click="saveAndPublish">
+              <i class="bi bi-send-check"></i>
+              <span class="dm-btn-label">Duyệt & Đăng</span>
+              <span class="dm-btn-short">Đăng</span>
+            </button>
+            <button class="dm-collapse-btn" :aria-expanded="stockOpen" @click="stockOpen = !stockOpen">
+              <i :class="['bi', stockOpen ? 'bi-chevron-up' : 'bi-chevron-down']"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div v-if="errorMessage" class="dm-error">{{ errorMessage }}</div>
+      <div v-show="stockOpen" class="dm-stock-body">
+        <div class="dm-bar-fields">
+          <input v-model="form.title" class="dm-title-input" placeholder="Tên menu..." />
+          <label class="dm-date-wrap">
+            <i class="bi bi-calendar3 dm-date-icon"></i>
+            <input v-model="form.serviceDate" type="date" class="dm-date-input" />
+          </label>
+          <span class="dm-status-pill" :class="`dm-status--${form.status.toLowerCase()}`">
+            {{ formatStatusLabel(form.status) }}
+          </span>
+          <span v-if="enabledDraftCount > 0" class="dm-meta-count">{{ enabledDraftCount }} món bật</span>
+        </div>
+        <DailyStockPanel ref="panelRef" @updated="onStockUpdated" />
+      </div>
+    </div>
+
+    <!-- ── Món bán hôm nay ── -->
+    <div class="dm-panel">
+      <div class="dm-panel-head">
+        <div class="dm-panel-title-group">
+          <span class="dm-panel-title">Món bán hôm nay</span>
+          <span class="dm-muted">{{ enabledDraftCount }}/{{ draftItems.length }}</span>
+        </div>
+        <button
+          v-if="itemsOpen && suggestedDraftItems.length > 0"
+          class="dm-btn dm-btn--sm dm-btn--ember"
+          @click="enableSuggestedItems"
+        >
+          <i class="bi bi-check2-all"></i> Bật {{ suggestedDraftItems.length }} gợi ý
+        </button>
+        <button class="dm-collapse-btn" :aria-expanded="itemsOpen" @click="itemsOpen = !itemsOpen">
+          <i :class="['bi', itemsOpen ? 'bi-chevron-up' : 'bi-chevron-down']"></i>
+        </button>
+      </div>
+
+      <template v-if="itemsOpen">
+      <div class="dm-toolbar">
+        <div class="dm-search-wrap">
+          <i class="bi bi-search dm-search-icon"></i>
+          <input v-model="itemSearch" class="dm-search" placeholder="Tìm tên, nhóm, nguyên liệu..." autocomplete="off" />
+        </div>
+        <div class="dm-pills">
           <button
-            type="button"
-            class="btn btn-outline-dark"
-            :disabled="suggestedDraftItems.length === 0"
-            @click="enableSuggestedItems"
+            v-for="f in itemFilters"
+            :key="f.value"
+            class="dm-pill"
+            :class="{ 'dm-pill--active': itemFilter === f.value }"
+            @click="itemFilter = f.value"
           >
-            Bật món gợi ý
+            {{ f.label }}
+            <span v-if="f.value === 'suggested' && suggestedDraftItems.length" class="dm-pill-count">{{ suggestedDraftItems.length }}</span>
+            <span v-if="f.value === 'enabled' && enabledDraftCount" class="dm-pill-count">{{ enabledDraftCount }}</span>
           </button>
         </div>
       </div>
 
-      <div v-if="errorMessage" class="alert alert-danger py-2 mb-0">{{ errorMessage }}</div>
-
-      <div class="admin-daily-menu__meta-grid">
-        <label class="admin-field admin-field--full">
-          <span>Tên menu</span>
-          <input v-model="form.title" class="form-control" placeholder="Ví dụ: Hải sản tươi hôm nay" />
-        </label>
-
-        <label class="admin-field">
-          <span>Ngày bán</span>
-          <input v-model="form.serviceDate" type="date" class="form-control" />
-        </label>
-
-        <label class="admin-field">
-          <span>Trạng thái</span>
-          <select v-model="form.status" class="form-select">
-            <option v-for="option in statusOptions" :key="option" :value="option">
-              {{ formatStatusLabel(option) }}
-            </option>
-          </select>
-        </label>
-
-        <label class="admin-field admin-field--full">
-          <span>Banner trong ngày</span>
-          <textarea
-            v-model="form.bannerText"
-            rows="2"
-            class="form-control"
-            placeholder="Ví dụ: Sò điệp đẹp, ốc tỏi mới về, ưu tiên lên món nhanh."
-          ></textarea>
-        </label>
-
-        <label class="admin-field admin-field--full">
-          <span>Ghi chú ca</span>
-          <textarea
-            v-model="form.note"
-            rows="2"
-            class="form-control"
-            placeholder="Ghi chú bếp, size đẹp, món cần đẩy..."
-          ></textarea>
-        </label>
-      </div>
-
-      <div class="admin-daily-menu__quick-box">
-        <div class="admin-daily-menu__section-label"># Tag món chính với số lượng</div>
-        <textarea
-          v-model="quickTagInput"
-          rows="3"
-          class="form-control"
-          placeholder="Ví dụ: sò lông(4), hào(10 con), ốc tỏi size khủng(3), ốc tỏi vừa(10), sò điệp(5)"
-        ></textarea>
-
-        <div class="admin-daily-menu__quick-actions">
-          <button type="button" class="btn btn-ember" @click="applyQuickTags">Tách tag</button>
-          <button type="button" class="btn btn-outline-dark" @click="addEmptyStockPool">Thêm tag tay</button>
-          <span class="small text-muted" v-if="loading">Đang tải dữ liệu...</span>
-        </div>
-
-        <div class="small text-muted">
-          Mỗi tag sẽ trở thành một pool nguồn hàng trong ngày. Nếu hệ thống chưa khớp được nguyên liệu, bạn chỉ cần chọn lại ở bên dưới.
-        </div>
-      </div>
-
-      <div v-if="stockPools.length" class="admin-daily-menu__tag-list">
+      <div v-if="loading" class="dm-empty"><i class="bi bi-hourglass-split"></i> Đang tải...</div>
+      <div v-else-if="displayedDraftItems.length === 0" class="dm-empty">Không có món nào phù hợp.</div>
+      <div v-else class="dm-items">
         <div
-          v-for="pool in stockPools"
-          :key="pool.key"
-          class="smart-tag"
-          :class="{ 'smart-tag--warning': !pool.ingredientId }"
+          v-for="row in displayedDraftItems"
+          :key="row.menuItemId"
+          class="dm-item"
+          :class="{
+            'dm-item--on': row.enabled,
+            'dm-item--suggested': isSuggestedRow(row) && !row.enabled,
+          }"
         >
-          <span>#{{ formatPoolTag(pool) }}</span>
-          <small v-if="!pool.ingredientId">Cần chọn nguồn</small>
+          <!-- Toggle -->
+          <label class="dm-item-toggle">
+            <input type="checkbox" v-model="row.enabled" @change="toggleOffer(row)" />
+          </label>
+
+          <!-- Thumb -->
+          <div class="dm-item-thumb">
+            <img v-if="row.imageUrl" :src="resolveImg(row.imageUrl)" class="dm-thumb" @error="row.imageUrl = ''" />
+            <div v-else class="dm-thumb dm-thumb--blank"><i class="bi bi-egg-fried"></i></div>
+          </div>
+
+          <!-- Info -->
+          <div class="dm-item-info">
+            <div class="dm-item-name">{{ row.name }}</div>
+            <div class="dm-item-meta">
+              <span v-if="row.categoryName" class="dm-tag">{{ row.categoryName }}</span>
+              <span v-if="row.defaultIngredientName" class="dm-tag dm-tag--ing">
+                <i class="bi bi-box"></i> {{ row.defaultIngredientName }}
+              </span>
+              <span v-if="isSuggestedRow(row)" class="dm-tag dm-tag--stock">Có kho ✓</span>
+              <span v-else-if="row.defaultIngredientId" class="dm-tag dm-tag--nostock">Thiếu kho</span>
+            </div>
+          </div>
+
+          <!-- Price -->
+          <div class="dm-item-price-wrap">
+            <span v-if="!row.enabled" class="dm-price-display">{{ formatMoneyShort(row.overridePrice) }}</span>
+            <input
+              v-else
+              v-model.number="row.overridePrice"
+              type="number"
+              min="0"
+              step="1000"
+              class="dm-price-input"
+              @click.stop
+            />
+          </div>
+
+          <!-- Pool selector (only when multiple pools) -->
+          <div v-if="row.enabled && stockPools.length > 1" class="dm-item-pool">
+            <select v-model="row.stockPoolRef" class="dm-pool-select" @click.stop>
+              <option value="">— kho —</option>
+              <option v-for="pool in stockPools" :key="pool.key" :value="getPoolRef(pool)">
+                {{ getPoolDisplayName(pool) }}
+              </option>
+            </select>
+          </div>
         </div>
       </div>
-    </section>
+      </template>
+    </div>
 
-    <section class="page-panel">
-      <div class="section-head">
-        <div>
-          <div class="panel-title mb-1">Nguồn hàng chính</div>
-          <div class="small text-muted">
-            {{ stockPools.length ? `Đã có ${stockPools.length} tag chính.` : "Chưa có tag món chính." }}
-            <template v-if="unresolvedPoolCount">
-              Còn {{ unresolvedPoolCount }} tag cần gắn nguyên liệu trước khi lưu.
+    <!-- ── Lịch sử menu ── -->
+    <div class="dm-panel">
+      <div class="dm-panel-head">
+        <span class="dm-panel-title">Menu đã tạo</span>
+      </div>
+      <div v-if="menus.length === 0" class="dm-empty">Chưa có menu nào được tạo.</div>
+      <div v-else class="dm-history">
+        <div
+          v-for="menu in menus"
+          :key="menu.id"
+          class="dm-history-card"
+          :class="{ 'dm-history-card--active': form.id === menu.id }"
+        >
+          <div class="dm-history-info">
+            <div class="dm-history-date">{{ formatServiceDate(menu.serviceDate) }}</div>
+            <div class="dm-history-title">{{ menu.title }}</div>
+            <div class="dm-history-meta">
+              <span class="dm-tag">{{ menu.stockPools?.length || 0 }} kho</span>
+              <span class="dm-tag">{{ menu.items?.length || 0 }} món</span>
+            </div>
+          </div>
+          <div class="dm-history-actions">
+            <span class="dm-status-pill" :class="`dm-status--${menu.status.toLowerCase()}`">
+              {{ formatStatusLabel(menu.status) }}
+            </span>
+            <template v-if="deletingMenuId === menu.id">
+              <button class="dm-btn dm-btn--sm" @click="deletingMenuId = null">Hủy</button>
+              <button class="dm-btn dm-btn--sm dm-btn--danger" @click="deleteMenu(menu.id)">Xóa?</button>
+            </template>
+            <template v-else>
+              <button class="dm-btn dm-btn--sm" @click="editMenu(menu)">Sửa</button>
+              <button
+                v-if="menu.status !== 'PUBLISHED'"
+                class="dm-btn dm-btn--sm btn-ember"
+                @click="publishMenu(menu.id)"
+              >
+                Đăng
+              </button>
+              <button class="dm-btn dm-btn--sm dm-btn--ghost" title="Xóa" @click="deletingMenuId = menu.id">
+                <i class="bi bi-trash3"></i>
+              </button>
             </template>
           </div>
         </div>
       </div>
+    </div>
 
-      <div v-if="stockPools.length === 0" class="empty-state">
-        Nhập chuỗi tag phía trên hoặc bấm "Thêm tag tay" để bắt đầu.
-      </div>
-
-      <div v-else class="pool-list">
-        <article v-for="pool in stockPools" :key="pool.key" class="pool-card">
-          <div class="pool-card__top">
-            <div class="smart-tag smart-tag--soft">
-              <span>#{{ formatPoolTag(pool) }}</span>
-            </div>
-            <button type="button" class="btn btn-sm btn-outline-danger" @click="removeStockPool(pool.key)">Xóa</button>
-          </div>
-
-          <div class="pool-card__grid">
-            <label class="admin-field">
-              <span>Nguyên liệu</span>
-              <select v-model.number="pool.ingredientId" class="form-select" @change="syncPoolLabel(pool)">
-                <option :value="0">Chọn nguồn hàng</option>
-                <option v-for="ingredient in ingredients" :key="ingredient.id" :value="ingredient.id">
-                  {{ ingredient.name }}
-                </option>
-              </select>
-            </label>
-
-            <label class="admin-field">
-              <span>Tag hiển thị</span>
-              <input v-model="pool.label" class="form-control" placeholder="Ví dụ: Sò lông" />
-            </label>
-
-            <label class="admin-field">
-              <span>Số lượng</span>
-              <input v-model.number="pool.quantity" type="number" min="0" step="0.25" class="form-control" />
-            </label>
-
-            <label class="admin-field">
-              <span>Ghi chú ngắn</span>
-              <input v-model="pool.note" class="form-control" placeholder="Ví dụ: con, size khủng, size vừa" />
-            </label>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="page-panel">
-      <div class="section-head">
-        <div>
-          <div class="panel-title mb-1">Món bán hôm nay</div>
-          <div class="small text-muted">
-            {{ enabledDraftCount }}/{{ draftItems.length }} món đang bật.
-            {{ suggestedDraftItems.length }} món khớp với tag nguồn hàng chính.
-          </div>
-        </div>
-
-        <button
-          type="button"
-          class="btn btn-outline-dark"
-          :disabled="suggestedDraftItems.length === 0"
-          @click="enableSuggestedItems"
-        >
-          Bật nhanh món gợi ý
-        </button>
-      </div>
-
-      <div class="offer-toolbar">
-        <input
-          v-model="itemSearch"
-          class="form-control"
-          placeholder="Tìm món theo tên, nhóm hoặc nguyên liệu..."
-        />
-
-        <div class="offer-filter">
-          <button
-            v-for="filter in itemFilters"
-            :key="filter.value"
-            type="button"
-            class="filter-pill"
-            :class="{ 'is-active': itemFilter === filter.value }"
-            @click="itemFilter = filter.value"
-          >
-            {{ filter.label }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="displayedDraftItems.length === 0" class="empty-state">
-        Không có món nào phù hợp bộ lọc hiện tại.
-      </div>
-
-      <div v-else class="offer-list">
-        <article
-          v-for="row in displayedDraftItems"
-          :key="row.menuItemId"
-          class="offer-card"
-          :class="{ 'is-enabled': row.enabled, 'is-suggested': isSuggestedRow(row) }"
-        >
-          <label class="offer-card__toggle">
-            <input v-model="row.enabled" type="checkbox" class="form-check-input mt-1" @change="toggleOffer(row)" />
-
-            <div class="offer-card__main">
-              <div class="offer-card__title-row">
-                <div class="offer-card__name">{{ row.name }}</div>
-                <span v-if="isSuggestedRow(row)" class="tag">Khớp tag chính</span>
-              </div>
-              <div class="offer-card__meta">
-                {{ row.categoryName || "Chưa phân nhóm" }} · {{ row.defaultIngredientName || "Chưa có nguồn mặc định" }}
-              </div>
-              <div class="offer-card__price">Giá ngày {{ formatMoney(row.overridePrice) }}</div>
-            </div>
-          </label>
-
-          <p v-if="row.description" class="offer-card__description">{{ row.description }}</p>
-
-          <div class="offer-card__grid">
-            <label class="admin-field">
-              <span>Pool áp dụng</span>
-              <select v-model="row.stockPoolRef" class="form-select" :disabled="!row.enabled">
-                <option value="">Chọn pool nguồn hàng</option>
-                <option v-for="pool in stockPools" :key="pool.key" :value="getPoolRef(pool)">
-                  {{ getPoolDisplayName(pool) }}
-                </option>
-              </select>
-            </label>
-
-            <label class="admin-field">
-              <span>Định lượng</span>
-              <input
-                v-model.number="row.consumeQuantity"
-                type="number"
-                min="0"
-                step="0.25"
-                class="form-control"
-                :disabled="!row.enabled"
-              />
-            </label>
-
-            <label class="admin-field">
-              <span>Giá ngày</span>
-              <input
-                v-model.number="row.overridePrice"
-                type="number"
-                min="0"
-                class="form-control"
-                :disabled="!row.enabled"
-              />
-            </label>
-
-            <label class="admin-field">
-              <span>Tag món</span>
-              <input
-                v-model="row.highlightLabel"
-                class="form-control"
-                placeholder="Ví dụ: Bán chạy"
-                :disabled="!row.enabled"
-              />
-            </label>
-          </div>
-
-          <div class="offer-card__actions">
-            <button
-              type="button"
-              class="btn btn-sm btn-outline-dark"
-              :disabled="!row.defaultIngredientId"
-              @click="assignSuggestedPool(row)"
-            >
-              Gắn pool gợi ý
-            </button>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="page-panel">
-      <div class="section-head">
-        <div>
-          <div class="panel-title mb-1">Menu đã tạo</div>
-          <div class="small text-muted">Chạm vào một menu để nạp lại cấu hình và chỉnh sửa nhanh.</div>
-        </div>
-      </div>
-
-      <div v-if="menus.length === 0" class="empty-state">
-        Chưa có menu ngày nào được tạo.
-      </div>
-
-      <div v-else class="history-list">
-        <article v-for="menu in menus" :key="menu.id" class="history-card">
-          <div class="history-card__top">
-            <div>
-              <div class="history-card__date">{{ formatServiceDate(menu.serviceDate) }}</div>
-              <div class="history-card__title">{{ menu.title }}</div>
-            </div>
-
-            <span class="status-pill" :class="`status-pill--${menu.status.toLowerCase()}`">
-              {{ formatStatusLabel(menu.status) }}
-            </span>
-          </div>
-
-          <div class="history-card__stats">
-            <span class="tag">{{ menu.stockPools?.length || 0 }} tag chính</span>
-            <span class="tag">{{ menu.items?.length || 0 }} món bán</span>
-          </div>
-
-          <div class="history-card__actions">
-            <button type="button" class="btn btn-sm btn-outline-dark" @click="editMenu(menu)">Sửa</button>
-            <button
-              v-if="menu.status !== 'PUBLISHED'"
-              type="button"
-              class="btn btn-sm btn-ember"
-              @click="publishMenu(menu.id)"
-            >
-              Publish
-            </button>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="admin-daily-menu__bottom-bar">
-      <div class="admin-daily-menu__bottom-copy">
-        <strong>{{ stockPools.length }}</strong> tag chính · <strong>{{ enabledDraftCount }}</strong> món đang bật
-      </div>
-
-      <div class="admin-daily-menu__bottom-actions">
-        <button type="button" class="btn btn-outline-secondary" @click="resetForm">Mới</button>
-        <button type="button" class="btn btn-ember" :disabled="saving" @click="saveMenu">
-          {{ saving ? "Đang lưu..." : form.id ? "Cập nhật menu" : "Lưu menu" }}
-        </button>
-      </div>
-    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { api } from "../../api";
-import { formatMoney } from "../../utils/format";
+import { formatMoneyShort } from "../../utils/format";
+import { API_BASE_URL } from "../../config";
+import DailyStockPanel, { type PoolSummary } from "../../components/admin/DailyStockPanel.vue";
 
 type DailyMenuStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 type ItemFilter = "suggested" | "enabled" | "all";
@@ -371,10 +230,8 @@ interface MenuItemRecord {
   currentPrice?: number | null;
   basePrice?: number | null;
   isFeatured?: boolean;
-  category?: {
-    id?: number;
-    name?: string | null;
-  } | null;
+  imageUrl?: string | null;
+  category?: { id?: number; name?: string | null } | null;
   ingredientPresets?: IngredientPresetRecord[];
 }
 
@@ -395,6 +252,7 @@ interface DraftItem {
   name: string;
   description: string;
   categoryName: string;
+  imageUrl: string;
   enabled: boolean;
   overridePrice: number;
   highlightLabel: string;
@@ -416,24 +274,27 @@ interface MenuRecord {
   items?: any[];
 }
 
-const statusOptions: DailyMenuStatus[] = ["DRAFT", "PUBLISHED", "ARCHIVED"];
 const itemFilters: Array<{ value: ItemFilter; label: string }> = [
-  { value: "suggested", label: "Khớp tag chính" },
-  { value: "enabled", label: "Đang bật" },
-  { value: "all", label: "Tất cả món" },
+  { value: "suggested", label: "Gợi ý" },
+  { value: "enabled",   label: "Đang bật" },
+  { value: "all",       label: "Tất cả" },
 ];
 
-const menuItems = ref<MenuItemRecord[]>([]);
+// ── state ──────────────────────────────────────────────────────────────────
+const menuItems   = ref<MenuItemRecord[]>([]);
 const ingredients = ref<IngredientRecord[]>([]);
-const menus = ref<MenuRecord[]>([]);
-const draftItems = ref<DraftItem[]>([]);
-const stockPools = ref<StockPoolDraft[]>([]);
-const loading = ref(false);
-const saving = ref(false);
+const menus       = ref<MenuRecord[]>([]);
+const draftItems  = ref<DraftItem[]>([]);
+const stockPools  = ref<StockPoolDraft[]>([]);
+const loading     = ref(false);
+const saving      = ref(false);
 const errorMessage = ref("");
-const quickTagInput = ref("");
-const itemSearch = ref("");
-const itemFilter = ref<ItemFilter>("suggested");
+const itemSearch     = ref("");
+const itemFilter     = ref<ItemFilter>("suggested");
+const deletingMenuId = ref<number | null>(null);
+const stockOpen      = ref(true);
+const itemsOpen      = ref(true);
+const panelRef       = ref<InstanceType<typeof DailyStockPanel>>();
 
 const form = reactive<{
   id: number | null;
@@ -444,71 +305,46 @@ const form = reactive<{
   status: DailyMenuStatus;
 }>({
   id: null,
-  title: "Hải sản tươi hôm nay",
+  title: defaultMenuTitle(),
   serviceDate: getTodayInputValue(),
   bannerText: "",
   note: "",
   status: "DRAFT",
 });
 
-const selectedIngredientIds = computed(
-  () =>
-    new Set(
-      stockPools.value
-        .map((pool) => Number(pool.ingredientId || 0))
-        .filter((ingredientId) => ingredientId > 0)
-    )
+// ── computed ───────────────────────────────────────────────────────────────
+const selectedIngredientIds = computed(() =>
+  new Set(stockPools.value.filter(p => p.isAvailable).map(p => Number(p.ingredientId || 0)).filter(id => id > 0))
 );
 
-const unresolvedPoolCount = computed(
-  () => stockPools.value.filter((pool) => !pool.ingredientId).length
-);
+const enabledDraftCount = computed(() => draftItems.value.filter(i => i.enabled).length);
 
-const enabledDraftCount = computed(() => draftItems.value.filter((item) => item.enabled).length);
-
-const suggestedDraftItems = computed(() =>
-  draftItems.value.filter((row) => isSuggestedRow(row))
-);
+const suggestedDraftItems = computed(() => draftItems.value.filter(isSuggestedRow));
 
 const displayedDraftItems = computed(() => {
   const keyword = normalizeText(itemSearch.value);
-
   return [...draftItems.value]
-    .filter((row) => {
-      if (itemFilter.value === "suggested" && !isSuggestedRow(row)) {
-        return false;
-      }
-      if (itemFilter.value === "enabled" && !row.enabled) {
-        return false;
-      }
-
-      if (!keyword) {
-        return true;
-      }
-
-      const haystack = normalizeText(
-        [row.name, row.categoryName, row.defaultIngredientName, row.description, row.highlightLabel].join(" ")
-      );
-      return haystack.includes(keyword);
+    .filter(row => {
+      if (itemFilter.value === "suggested" && !isSuggestedRow(row)) return false;
+      if (itemFilter.value === "enabled"   && !row.enabled)          return false;
+      if (!keyword) return true;
+      return normalizeText([row.name, row.categoryName, row.defaultIngredientName].join(" ")).includes(keyword);
     })
-    .sort((left, right) => {
-      const leftScore =
-        Number(left.enabled) * 100 + Number(isSuggestedRow(left)) * 10 + Number(left.defaultIngredientId > 0);
-      const rightScore =
-        Number(right.enabled) * 100 + Number(isSuggestedRow(right)) * 10 + Number(right.defaultIngredientId > 0);
-
-      if (rightScore !== leftScore) {
-        return rightScore - leftScore;
-      }
-
-      return left.name.localeCompare(right.name, "vi");
+    .sort((a, b) => {
+      const sa = Number(a.enabled) * 100 + Number(isSuggestedRow(a)) * 10;
+      const sb = Number(b.enabled) * 100 + Number(isSuggestedRow(b)) * 10;
+      return sb !== sa ? sb - sa : a.name.localeCompare(b.name, "vi");
     });
 });
 
+// ── helpers ────────────────────────────────────────────────────────────────
 function getTodayInputValue() {
   const now = new Date();
-  const offset = now.getTimezoneOffset() * 60_000;
-  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+
+function defaultMenuTitle() {
+  return `Menu món ngày ${new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date())}`;
 }
 
 function getErrorMessage(error: any, fallback: string) {
@@ -521,66 +357,34 @@ function makePoolKey() {
 
 function normalizeText(value: string) {
   return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .replace(/[^a-zA-Z0-9]+/g, " ")
-    .trim()
-    .toLowerCase();
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d").replace(/Đ/g, "D")
+    .replace(/[^a-zA-Z0-9]+/g, " ").trim().toLowerCase();
 }
 
-function formatNumber(value: number) {
-  const normalized = Number(value || 0);
-  if (Number.isInteger(normalized)) {
-    return String(normalized);
-  }
-  return normalized.toFixed(2).replace(/\.?0+$/, "");
-}
-
-function formatPoolQuantity(pool: StockPoolDraft) {
-  const quantity = formatNumber(pool.quantity);
-  return pool.note ? `${quantity} ${pool.note}`.trim() : quantity;
-}
-
-function formatPoolTag(pool: StockPoolDraft) {
-  const label = pool.label || getIngredientName(pool.ingredientId) || "tag mới";
-  return `${label}(${formatPoolQuantity(pool)})`;
-}
 
 function formatStatusLabel(status: DailyMenuStatus) {
-  switch (status) {
-    case "DRAFT":
-      return "Nháp";
-    case "PUBLISHED":
-      return "Đang bán";
-    case "ARCHIVED":
-      return "Lưu trữ";
-    default:
-      return status;
-  }
+  if (status === "DRAFT")     return "Nháp";
+  if (status === "PUBLISHED") return "Đang bán";
+  if (status === "ARCHIVED")  return "Lưu trữ";
+  return status;
 }
 
 function formatServiceDate(value?: string | null) {
-  if (!value) {
-    return "--";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return String(value).slice(0, 10);
-  }
-
+  if (!value) return "--";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
   return new Intl.DateTimeFormat("vi-VN", {
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
+    weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
+  }).format(d);
 }
 
-function getIngredientName(ingredientId: number) {
-  return ingredients.value.find((ingredient) => ingredient.id === ingredientId)?.name || "";
+function resolveImg(url: string) {
+  return url.startsWith("/") ? API_BASE_URL + url : url;
+}
+
+function getIngredientName(id: number) {
+  return ingredients.value.find(i => i.id === id)?.name || "";
 }
 
 function getPoolRef(pool: StockPoolDraft) {
@@ -591,202 +395,59 @@ function getPoolDisplayName(pool: StockPoolDraft) {
   return pool.label || getIngredientName(pool.ingredientId) || "Pool chưa đặt tên";
 }
 
-function addStockPool(ingredientId = 0, seed: Partial<StockPoolDraft> = {}) {
-  const ingredientName = getIngredientName(ingredientId);
-  const pool: StockPoolDraft = {
-    id: seed.id ?? null,
-    key: seed.key || makePoolKey(),
-    ingredientId,
-    label: seed.label ?? ingredientName,
-    quantity: Number(seed.quantity ?? 0),
-    soldQuantity: Number(seed.soldQuantity ?? 0),
-    isAvailable: seed.isAvailable ?? true,
-    note: seed.note ?? "",
-  };
-  stockPools.value = [...stockPools.value, pool];
-  return pool;
-}
-
-function addEmptyStockPool() {
-  addStockPool();
-}
-
-function syncPoolLabel(pool: StockPoolDraft) {
-  if (!pool.label.trim()) {
-    pool.label = getIngredientName(pool.ingredientId);
-  }
-}
-
-function removeStockPool(key: string) {
-  const pool = stockPools.value.find((candidate) => candidate.key === key);
-  if (!pool) {
-    return;
-  }
-
-  const refs = new Set([getPoolRef(pool), `key:${pool.key}`]);
-  stockPools.value = stockPools.value.filter((candidate) => candidate.key !== key);
-
+// ── stock panel integration ────────────────────────────────────────────────
+function applyStockSuggestions() {
+  const activeIngIds = new Set(
+    stockPools.value.filter(p => p.isAvailable).map(p => p.ingredientId)
+  );
   for (const row of draftItems.value) {
-    if (refs.has(row.stockPoolRef)) {
+    if (row.defaultIngredientId <= 0) continue;
+    if (activeIngIds.has(row.defaultIngredientId)) {
+      if (!row.enabled) {
+        row.enabled = true;
+        const pool = stockPools.value.find(p => p.ingredientId === row.defaultIngredientId);
+        if (pool) row.stockPoolRef = getPoolRef(pool);
+      }
+    } else if (row.enabled && row.id === null) {
+      // Auto-disable only items that were auto-enabled (not manually saved)
+      row.enabled = false;
       row.stockPoolRef = "";
     }
   }
-
-  quickTagInput.value = buildQuickTagInput();
 }
 
-function scoreIngredientMatch(keyword: string, ingredient: IngredientRecord) {
-  const source = normalizeText(ingredient.name || ingredient.slug || "");
-  if (!keyword || !source) {
-    return 0;
-  }
-
-  if (source === keyword) {
-    return 100;
-  }
-
-  const keywordTokens = keyword.split(" ").filter(Boolean);
-  const sourceTokens = source.split(" ").filter(Boolean);
-  const commonCount = keywordTokens.filter((token) => sourceTokens.includes(token)).length;
-
-  let score = 0;
-  if (source.includes(keyword) || keyword.includes(source)) {
-    score += 40;
-  }
-  score += commonCount * 12;
-  if (commonCount === keywordTokens.length && commonCount > 0) {
-    score += 18;
-  }
-  if (source.startsWith(keyword)) {
-    score += 10;
-  }
-
-  return score;
+function onStockUpdated(pools: PoolSummary[]) {
+  stockPools.value = pools.map(p => ({
+    id: null,
+    key: `ing-${p.ingredientId}`,
+    ingredientId: p.ingredientId,
+    label: p.label,
+    quantity: p.quantity,
+    soldQuantity: 0,
+    isAvailable: p.isAvailable,
+    note: p.note,
+  }));
+  applyStockSuggestions();
 }
 
-function findIngredientMatch(label: string) {
-  const keyword = normalizeText(label);
-  let bestMatch: IngredientRecord | null = null;
-  let bestScore = 0;
-
-  for (const ingredient of ingredients.value) {
-    const score = scoreIngredientMatch(keyword, ingredient);
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = ingredient;
-    }
-  }
-
-  return bestScore >= 24 ? bestMatch : null;
-}
-
-function parseQuickTag(rawValue: string) {
-  const cleaned = String(rawValue || "").replace(/^#+/, "").trim();
-  if (!cleaned) {
-    return null;
-  }
-
-  let label = cleaned;
-  let quantity = 1;
-  let note = "";
-
-  const pairMatch = cleaned.match(/^(.*?)(?:\(([^)]*)\))$/);
-  if (pairMatch) {
-    label = pairMatch[1].trim();
-    const inside = pairMatch[2].trim();
-    const numberMatch = inside.match(/\d+(?:[.,]\d+)?/);
-
-    if (numberMatch) {
-      quantity = Number(numberMatch[0].replace(",", "."));
-      note = inside.replace(numberMatch[0], "").trim();
-    } else if (inside) {
-      note = inside;
-    }
-  } else {
-    const trailingMatch = cleaned.match(/^(.*?)(\d+(?:[.,]\d+)?)\s*([^\d]*)$/);
-    if (trailingMatch) {
-      label = trailingMatch[1].trim();
-      quantity = Number(trailingMatch[2].replace(",", "."));
-      note = trailingMatch[3].trim();
-    }
-  }
-
-  if (!label) {
-    return null;
-  }
-
-  const ingredient = findIngredientMatch(label);
-  return {
-    label,
-    quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
-    note,
-    ingredientId: ingredient?.id || 0,
-  };
-}
-
-function buildQuickTagInput() {
-  return stockPools.value.map((pool) => formatPoolTag(pool)).join(", ");
-}
-
-function applyQuickTags() {
-  errorMessage.value = "";
-
-  const entries = quickTagInput.value
-    .split(/[,;\n]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-  if (entries.length === 0) {
-    return;
-  }
-
-  for (const entry of entries) {
-    const parsed = parseQuickTag(entry);
-    if (!parsed) {
-      continue;
-    }
-
-    const normalizedLabel = normalizeText(parsed.label);
-    const existing = stockPools.value.find((pool) => normalizeText(pool.label) === normalizedLabel);
-
-    if (existing) {
-      existing.quantity = Number(existing.quantity || 0) + parsed.quantity;
-      if (!existing.note && parsed.note) {
-        existing.note = parsed.note;
-      }
-      if (!existing.ingredientId && parsed.ingredientId) {
-        existing.ingredientId = parsed.ingredientId;
-      }
-      continue;
-    }
-
-    addStockPool(parsed.ingredientId, {
-      label: parsed.label,
-      quantity: parsed.quantity,
-      note: parsed.note,
-    });
-  }
-
-  quickTagInput.value = buildQuickTagInput();
-}
-
+// ── item management ────────────────────────────────────────────────────────
 function isSuggestedRow(row: DraftItem) {
   return row.defaultIngredientId > 0 && selectedIngredientIds.value.has(row.defaultIngredientId);
 }
 
 function resetDraftItems() {
-  draftItems.value = menuItems.value.map((item) => {
+  draftItems.value = menuItems.value.map(item => {
     const preset = item.ingredientPresets?.[0];
-
     return {
       id: null,
       menuItemId: item.id,
       name: item.name,
       description: item.description || "",
       categoryName: item.category?.name || "",
+      imageUrl: item.imageUrl || "",
       enabled: false,
       overridePrice: Number(item.currentPrice || item.basePrice || 0),
-      highlightLabel: item.isFeatured ? "Bán chạy" : "Hôm nay",
+      highlightLabel: item.isFeatured ? "Bán chạy" : "",
       isAvailable: true,
       stockPoolRef: "",
       consumeQuantity: Number(preset?.consumeQuantity || 1),
@@ -797,232 +458,151 @@ function resetDraftItems() {
 }
 
 function findPoolRefByIngredient(ingredientId: number) {
-  const matched = stockPools.value.find((pool) => pool.ingredientId === ingredientId);
-  return matched ? getPoolRef(matched) : "";
+  const m = stockPools.value.find(p => p.ingredientId === ingredientId);
+  return m ? getPoolRef(m) : "";
 }
 
 function toggleOffer(row: DraftItem) {
-  if (!row.enabled) {
-    row.stockPoolRef = "";
-    return;
-  }
-
+  if (!row.enabled) { row.stockPoolRef = ""; return; }
   if (!row.stockPoolRef && row.defaultIngredientId) {
     row.stockPoolRef = findPoolRefByIngredient(row.defaultIngredientId);
   }
 }
 
-function assignSuggestedPool(row: DraftItem) {
-  if (!row.defaultIngredientId) {
-    return;
-  }
-
-  let matched = stockPools.value.find((pool) => pool.ingredientId === row.defaultIngredientId);
-  if (!matched) {
-    matched = addStockPool(row.defaultIngredientId, {
-      label: row.defaultIngredientName || getIngredientName(row.defaultIngredientId),
-      quantity: row.consumeQuantity || 1,
-    });
-  }
-
-  row.enabled = true;
-  row.stockPoolRef = getPoolRef(matched);
-}
-
 function enableSuggestedItems() {
   for (const row of draftItems.value) {
-    if (!isSuggestedRow(row)) {
-      continue;
-    }
-
+    if (!isSuggestedRow(row)) continue;
     row.enabled = true;
-    if (!row.stockPoolRef) {
-      row.stockPoolRef = findPoolRefByIngredient(row.defaultIngredientId);
-    }
+    if (!row.stockPoolRef) row.stockPoolRef = findPoolRefByIngredient(row.defaultIngredientId);
   }
-
   itemFilter.value = "enabled";
 }
 
+// ── data loading ───────────────────────────────────────────────────────────
 async function loadData() {
-  loading.value = true;
-  errorMessage.value = "";
-
+  loading.value = true; errorMessage.value = "";
   try {
-    const [ingredientRes, itemRes, menuRes] = await Promise.all([
+    const [ingRes, itemRes, menuRes] = await Promise.all([
       api.get("/ingredients"),
       api.get("/menu-items"),
       api.get("/daily-menus"),
     ]);
-
-    ingredients.value = ingredientRes.data;
-    menuItems.value = itemRes.data;
-    menus.value = menuRes.data;
+    ingredients.value = ingRes.data;
+    menuItems.value   = itemRes.data;
+    menus.value       = menuRes.data;
     resetDraftItems();
+    applyStockSuggestions();
   } catch (error) {
-    errorMessage.value = getErrorMessage(error, "Không tải được dữ liệu menu ngày.");
+    errorMessage.value = getErrorMessage(error, "Không tải được dữ liệu.");
   } finally {
     loading.value = false;
   }
 }
 
 function buildDefaultTitle() {
-  const primaryTags = stockPools.value
-    .map((pool) => pool.label || getIngredientName(pool.ingredientId))
-    .filter(Boolean)
-    .slice(0, 3);
-
-  return primaryTags.length ? primaryTags.join(" · ") : "Hải sản tươi hôm nay";
+  const tags = stockPools.value.map(p => p.label || getIngredientName(p.ingredientId)).filter(Boolean).slice(0, 3);
+  return tags.length ? tags.join(" · ") : "Hải sản tươi hôm nay";
 }
 
 function resetForm() {
   errorMessage.value = "";
-  quickTagInput.value = "";
   itemSearch.value = "";
   itemFilter.value = "suggested";
-
   Object.assign(form, {
-    id: null,
-    title: "Hải sản tươi hôm nay",
-    serviceDate: getTodayInputValue(),
-    bannerText: "",
-    note: "",
-    status: "DRAFT",
+    id: null, title: defaultMenuTitle(),
+    serviceDate: getTodayInputValue(), bannerText: "", note: "", status: "DRAFT",
   });
-
   stockPools.value = [];
   resetDraftItems();
 }
 
 function editMenu(menu: MenuRecord) {
   errorMessage.value = "";
-  itemSearch.value = "";
-  itemFilter.value = "enabled";
-
+  itemSearch.value   = "";
+  itemFilter.value   = "enabled";
   Object.assign(form, {
-    id: menu.id,
-    title: menu.title,
+    id: menu.id, title: menu.title,
     serviceDate: String(menu.serviceDate || "").slice(0, 10),
-    bannerText: menu.bannerText || "",
-    note: menu.note || "",
-    status: menu.status,
+    bannerText: menu.bannerText || "", note: menu.note || "", status: menu.status,
   });
-
-  stockPools.value = (menu.stockPools || []).map((pool: any) => ({
-    id: pool.id,
-    key: makePoolKey(),
-    ingredientId: pool.ingredient?.id || 0,
-    label: pool.label || pool.ingredient?.name || "",
-    quantity: Number(pool.quantity || 0),
-    soldQuantity: Number(pool.soldQuantity || 0),
-    isAvailable: pool.isAvailable ?? true,
-    note: pool.note || "",
+  stockPools.value = (menu.stockPools || []).map((p: any) => ({
+    id: p.id, key: makePoolKey(),
+    ingredientId: p.ingredient?.id || 0,
+    label: p.label || p.ingredient?.name || "",
+    quantity: Number(p.quantity || 0),
+    soldQuantity: Number(p.soldQuantity || 0),
+    isAvailable: p.isAvailable ?? true,
+    note: p.note || "",
   }));
-
-  quickTagInput.value = buildQuickTagInput();
   resetDraftItems();
-
   for (const row of draftItems.value) {
-    const matched = (menu.items || []).find((item: any) => item.menuItem?.id === row.menuItemId);
-    if (!matched) {
-      continue;
-    }
-
-    row.id = matched.id;
-    row.enabled = true;
+    const matched = (menu.items || []).find((i: any) => i.menuItem?.id === row.menuItemId);
+    if (!matched) continue;
+    row.id            = matched.id;
+    row.enabled       = true;
     row.overridePrice = Number(matched.overridePrice || matched.sellingPrice || row.overridePrice);
     row.highlightLabel = matched.highlightLabel || "";
-    row.isAvailable = matched.isAvailable ?? true;
+    row.isAvailable   = matched.isAvailable ?? true;
     row.consumeQuantity = Number(matched.stockLinks?.[0]?.consumeQuantity || row.consumeQuantity);
-    row.stockPoolRef = matched.stockLinks?.[0]?.stockPool?.id
-      ? `id:${matched.stockLinks[0].stockPool.id}`
-      : "";
+    row.stockPoolRef  = matched.stockLinks?.[0]?.stockPool?.id ? `id:${matched.stockLinks[0].stockPool.id}` : "";
   }
 }
 
-function buildStockLinkPayload(stockPoolRef: string, consumeQuantity: number) {
-  if (!stockPoolRef) {
-    return null;
-  }
-
-  if (stockPoolRef.startsWith("id:")) {
-    return {
-      dailyStockPoolId: Number(stockPoolRef.slice(3)),
-      consumeQuantity,
-    };
-  }
-
-  if (stockPoolRef.startsWith("key:")) {
-    return {
-      stockPoolKey: stockPoolRef.slice(4),
-      consumeQuantity,
-    };
-  }
-
+function buildStockLinkPayload(ref: string, qty: number) {
+  if (!ref) return null;
+  if (ref.startsWith("id:"))  return { dailyStockPoolId: Number(ref.slice(3)), consumeQuantity: qty };
+  if (ref.startsWith("key:")) return { stockPoolKey: ref.slice(4), consumeQuantity: qty };
   return null;
 }
 
 function validateBeforeSave() {
-  if (stockPools.value.some((pool) => !pool.label.trim())) {
-    return "Có tag món chính chưa có tên hiển thị.";
-  }
-
-  const invalidPool = stockPools.value.find((pool) => !pool.ingredientId);
-  if (invalidPool) {
-    return `Tag "${invalidPool.label || "mới"}" chưa được chọn nguồn hàng.`;
-  }
-
-  const missingPoolItem = draftItems.value.find((item) => item.enabled && !item.stockPoolRef);
-  if (missingPoolItem) {
-    return `Món "${missingPoolItem.name}" chưa gắn pool nguồn hàng.`;
-  }
-
+  if (stockPools.value.some(p => !p.label.trim())) return "Có pool chưa có tên hiển thị.";
+  const inv = stockPools.value.find(p => !p.ingredientId);
+  if (inv) return `Pool "${inv.label || "mới"}" chưa được chọn nguyên liệu.`;
+  const mis = draftItems.value.find(i => i.enabled && !i.stockPoolRef);
+  if (mis) return `Món "${mis.name}" chưa gắn kho.`;
   return "";
+}
+
+function buildPayload() {
+  return {
+    title: form.title.trim() || buildDefaultTitle(),
+    serviceDate: form.serviceDate,
+    bannerText: form.bannerText,
+    note: form.note,
+    status: form.status,
+    stockPools: stockPools.value.map(p => ({
+      id: p.id || undefined, key: p.key,
+      ingredientId: p.ingredientId,
+      label: p.label || undefined,
+      quantity: Number(p.quantity || 0),
+      isAvailable: p.isAvailable,
+      note: p.note || undefined,
+    })),
+    items: draftItems.value.filter(i => i.enabled).map(i => ({
+      id: i.id || undefined,
+      menuItemId: i.menuItemId,
+      overridePrice: Number(i.overridePrice || 0),
+      highlightLabel: i.highlightLabel || "",
+      isAvailable: i.isAvailable,
+      stockLinks: [buildStockLinkPayload(i.stockPoolRef, Number(i.consumeQuantity || 1))].filter(Boolean),
+    })),
+  };
 }
 
 async function saveMenu() {
   errorMessage.value = validateBeforeSave();
-  if (errorMessage.value) {
-    return;
-  }
-
+  if (errorMessage.value) return;
   saving.value = true;
   try {
-    const payload = {
-      title: form.title.trim() || buildDefaultTitle(),
-      serviceDate: form.serviceDate,
-      bannerText: form.bannerText,
-      note: form.note,
-      status: form.status,
-      stockPools: stockPools.value.map((pool) => ({
-        id: pool.id || undefined,
-        key: pool.key,
-        ingredientId: pool.ingredientId,
-        label: pool.label || undefined,
-        quantity: Number(pool.quantity || 0),
-        isAvailable: pool.isAvailable,
-        note: pool.note || undefined,
-      })),
-      items: draftItems.value
-        .filter((item) => item.enabled)
-        .map((item) => ({
-          id: item.id || undefined,
-          menuItemId: item.menuItemId,
-          overridePrice: Number(item.overridePrice || 0),
-          highlightLabel: item.highlightLabel || "",
-          isAvailable: item.isAvailable,
-          stockLinks: [buildStockLinkPayload(item.stockPoolRef, Number(item.consumeQuantity || 1))].filter(Boolean),
-        })),
-    };
-
+    const payload = buildPayload();
     if (form.id) {
       await api.put(`/daily-menus/${form.id}`, payload);
     } else {
-      await api.post("/daily-menus", payload);
+      const { data } = await api.post("/daily-menus", payload);
+      form.id = data.id;
     }
-
     await loadData();
-    resetForm();
   } catch (error) {
     errorMessage.value = getErrorMessage(error, "Không lưu được menu ngày.");
   } finally {
@@ -1030,17 +610,51 @@ async function saveMenu() {
   }
 }
 
+async function deleteMenu(id: number) {
+  errorMessage.value = "";
+  try {
+    await api.delete(`/daily-menus/${id}`);
+    menus.value = menus.value.filter(m => m.id !== id);
+    if (form.id === id) resetForm();
+  } catch (error) {
+    errorMessage.value = getErrorMessage(error, "Không xóa được menu.");
+  } finally {
+    deletingMenuId.value = null;
+  }
+}
+
 async function publishMenu(id: number) {
   errorMessage.value = "";
-
   try {
     await api.post(`/daily-menus/${id}/publish`);
     await loadData();
-    if (form.id === id) {
-      form.status = "PUBLISHED";
-    }
+    if (form.id === id) form.status = "PUBLISHED";
   } catch (error) {
     errorMessage.value = getErrorMessage(error, "Không publish được menu.");
+  }
+}
+
+async function saveAndPublish() {
+  errorMessage.value = validateBeforeSave();
+  if (errorMessage.value) return;
+  saving.value = true;
+  try {
+    const payload = buildPayload();
+    let id = form.id;
+    if (id) {
+      await api.put(`/daily-menus/${id}`, payload);
+    } else {
+      const { data } = await api.post("/daily-menus", payload);
+      id = data.id;
+      form.id = id;
+    }
+    await api.post(`/daily-menus/${id}/publish`);
+    form.status = "PUBLISHED";
+    await loadData();
+  } catch (error) {
+    errorMessage.value = getErrorMessage(error, "Không lưu được.");
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -1051,309 +665,264 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.admin-daily-menu {
-  padding-bottom: 96px;
+/* ── shell ── */
+.dm-shell {
+  display: flex; flex-direction: column; gap: 16px;
+  margin-inline: -24px; margin-top: -24px;
+  padding: 16px 8px 48px;
 }
 
-.admin-daily-menu__hero {
-  display: grid;
-  gap: 20px;
-  background:
-    linear-gradient(135deg, rgba(var(--panel-rgb), 0.96), rgba(255, 244, 231, 0.94)),
-    radial-gradient(circle at top right, rgba(var(--ember-rgb), 0.08), transparent 34%);
+/* ── bar (merged header + panel head) ── */
+.dm-bar { display: flex; flex-direction: column; gap: 8px; }
+.dm-stock-body { display: flex; flex-direction: column; gap: 12px; }
+.dm-bar-header {
+  display: flex; align-items: center; gap: 8px;
+}
+.dm-bar-header .dm-meta-count { margin-right: auto; }
+.dm-bar-actions { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+.dm-bar-fields {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
 
-.admin-daily-menu__hero-head,
-.section-head,
-.history-card__top,
-.admin-daily-menu__bottom-bar,
-.admin-daily-menu__bottom-actions,
-.admin-daily-menu__quick-actions,
-.pool-card__top,
-.history-card__actions {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+.dm-title-input {
+  font-size: 0.9rem; font-weight: 600; color: var(--text);
+  background: rgba(var(--panel-rgb), 0.7); border: 1px solid var(--line);
+  border-radius: 8px; outline: none; padding: 4px 9px; font: inherit;
+  flex: 1; min-width: 140px; transition: border-color 0.15s;
+}
+.dm-title-input:focus { border-color: var(--ember); }
+.dm-title-input::placeholder { color: var(--muted); font-weight: 400; }
+
+.dm-date-wrap {
+  position: relative; display: inline-flex; align-items: center;
+  border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+  transition: border-color 0.15s;
+}
+.dm-date-wrap:focus-within { border-color: var(--ember); }
+/* desktop: hide custom icon, keep native indicator */
+.dm-date-icon { display: none; }
+.dm-date-input {
+  font-size: 0.8rem; padding: 3px 7px; border: none;
+  background: transparent; color: var(--text);
+  font: inherit; outline: none; cursor: pointer; border-radius: 8px;
+}
+/* mobile/touch: show custom icon, hide native indicator */
+@media (pointer: coarse) {
+  .dm-date-icon {
+    display: block; position: absolute; left: 7px;
+    font-size: 0.78rem; color: var(--muted); pointer-events: none;
+  }
+  .dm-date-input { padding-left: 24px; }
+  .dm-date-input::-webkit-calendar-picker-indicator { opacity: 0; }
+}
+.dm-btn-short { display: none; }
+.dm-thumb-toggle {
+  display: inline-flex; align-items: center; cursor: pointer;
+  color: var(--muted); font-size: 0.95rem; padding: 2px 4px;
+  border-radius: 6px; transition: color 0.15s;
+}
+.dm-thumb-toggle:hover { color: var(--text); }
+.dm-thumb-toggle-check { display: none; }
+.dm-thumb-toggle input:checked ~ i { color: var(--ember); }
+.dm-toggle {
+  flex-shrink: 0; width: 44px; height: 24px; border-radius: 999px; border: none;
+  background: var(--line); cursor: pointer; position: relative;
+  transition: background 0.2s; padding: 0;
+}
+.dm-toggle.on { background: linear-gradient(135deg, var(--ember), var(--ember-strong)); }
+.dm-toggle-knob {
+  position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; transition: transform 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+}
+.dm-toggle.on .dm-toggle-knob { transform: translateX(20px); }
+.dm-img-toggle-btn {
+  background: none; border: none; cursor: pointer; padding: 2px 4px;
+  font-size: 1rem; border-radius: 6px;
+  color: var(--muted); opacity: 0.4; transition: opacity 0.2s, color 0.2s;
+}
+.dm-img-toggle-btn.on { color: var(--ember); opacity: 1; }
+.dm-toggle-group {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;
+}
+.dm-toggle-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+
+.dm-collapse-btn {
+  border: none; background: transparent; color: var(--muted);
+  padding: 4px 6px; cursor: pointer; display: inline-flex; align-items: center;
+  border-radius: 6px; transition: color 0.15s;
+}
+.dm-collapse-btn:hover { color: var(--text); }
+.dm-meta-count { font-size: 0.78rem; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.dm-warn { color: var(--danger, #e55); font-weight: 600; }
+
+.dm-error {
+  font-size: 0.82rem; color: var(--danger, #e55);
+  padding: 8px 12px; background: rgba(220,50,50,0.08); border-radius: 10px;
 }
 
-.admin-daily-menu__hero-copy {
-  display: grid;
-  gap: 8px;
+/* ── status pill ── */
+.dm-status-pill {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 3px 9px; border-radius: 999px; display: inline-block;
 }
+.dm-status--draft     { background: rgba(var(--ember-rgb),0.1); color: var(--ember-strong); }
+.dm-status--published { background: rgba(80,180,100,0.15);      color: #2a9147; }
+.dm-status--archived  { background: rgba(0,0,0,0.06);           color: var(--muted); }
 
-.admin-daily-menu__eyebrow,
-.admin-field span {
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 0.76rem;
-  color: var(--muted);
+/* ── buttons ── */
+.dm-btn {
+  padding: 7px 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: transparent; color: var(--text); font-size: 0.85rem; font-weight: 600;
+  cursor: pointer; transition: background 0.12s; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
 }
-
-.admin-daily-menu__title {
-  margin: 0;
-  font-size: clamp(1.6rem, 4vw, 2.2rem);
-  line-height: 1.1;
+.dm-btn:hover { background: rgba(0,0,0,0.05); }
+.dm-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+.dm-btn--ember {
+  background: linear-gradient(135deg, var(--ember), var(--ember-strong));
+  color: #fff; border-color: transparent;
 }
+.dm-btn--ember:hover { opacity: 0.9; background: linear-gradient(135deg, var(--ember), var(--ember-strong)); }
+.dm-btn--sm { padding: 5px 11px; font-size: 0.8rem; border-radius: 8px; }
+.dm-btn--ghost { color: var(--muted); background: transparent; border-color: transparent; padding: 5px 7px; }
+.dm-btn--ghost:hover { color: var(--danger, #e05); border-color: rgba(var(--danger-rgb), 0.3); background: rgba(var(--danger-rgb), 0.06); }
+.dm-btn--danger { background: rgba(var(--danger-rgb), 0.9); color: #fff; border-color: transparent; font-weight: 700; }
+.dm-btn--danger:hover { background: var(--danger); }
 
-.admin-daily-menu__description {
-  margin: 0;
-  max-width: 60ch;
-  color: var(--muted);
-}
-
-.admin-daily-menu__hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.admin-daily-menu__meta-grid,
-.pool-card__grid,
-.offer-card__grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.admin-field {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.admin-field--full {
-  grid-column: 1 / -1;
-}
-
-.admin-daily-menu__quick-box {
-  display: grid;
-  gap: 12px;
+/* ── panel ── */
+.dm-panel {
+  background: var(--panel);
+  border-radius: 18px;
   padding: 16px;
-  border: 1px dashed rgba(var(--ember-rgb), 0.24);
-  border-radius: 22px;
-  background: rgba(255, 247, 241, 0.78);
+  display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+}
+.dm-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.dm-panel-title-group { display: flex; align-items: baseline; gap: 8px; }
+.dm-panel-title { font-size: 0.9rem; font-weight: 700; color: var(--text); text-transform: uppercase; letter-spacing: 0.06em; }
+.dm-muted { font-size: 0.78rem; color: var(--muted); }
+
+/* ── toolbar ── */
+.dm-toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+.dm-search-wrap { position: relative; flex: 1; min-width: 160px; }
+.dm-search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 0.8rem; }
+.dm-search {
+  width: 100%; padding: 8px 12px 8px 32px; border: 1px solid var(--line);
+  border-radius: 10px; background: transparent; color: var(--text);
+  font: inherit; font-size: 0.88rem; outline: none; box-sizing: border-box;
+}
+.dm-search:focus { border-color: var(--ember); }
+
+.dm-pills { display: flex; gap: 6px; }
+.dm-pill {
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font-size: 0.8rem; font-weight: 600;
+  cursor: pointer; transition: all 0.12s; display: inline-flex; align-items: center; gap: 5px;
+}
+.dm-pill:hover { border-color: var(--ember); color: var(--ember); }
+.dm-pill--active { background: rgba(var(--ember-rgb),0.1); border-color: var(--ember); color: var(--ember); }
+.dm-pill-count {
+  background: var(--ember); color: #fff;
+  font-size: 0.7rem; font-weight: 700; min-width: 18px; height: 18px;
+  border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px;
 }
 
-.admin-daily-menu__section-label {
-  font-size: 0.92rem;
-  font-weight: 700;
-  color: var(--ember-strong);
+/* ── item list ── */
+.dm-items { display: flex; flex-direction: column; gap: 1px; }
+
+.dm-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 12px;
+  transition: background 0.12s;
+  cursor: default;
+}
+.dm-item:hover { background: rgba(0,0,0,0.03); }
+.dm-item--on { background: rgba(var(--ember-rgb), 0.05); }
+.dm-item--on:hover { background: rgba(var(--ember-rgb), 0.08); }
+.dm-item--suggested { background: rgba(80,180,100,0.04); }
+
+.dm-item-toggle { display: flex; align-items: center; cursor: pointer; flex-shrink: 0; }
+.dm-item-toggle input[type="checkbox"] {
+  width: 18px; height: 18px; accent-color: var(--ember); cursor: pointer;
 }
 
-.admin-daily-menu__tag-list,
-.offer-filter,
-.history-card__stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.dm-item-thumb { flex-shrink: 0; }
+.dm-thumb {
+  width: 42px; height: 34px; object-fit: cover; border-radius: 8px;
+}
+.dm-thumb--blank {
+  width: 42px; height: 34px; border-radius: 8px;
+  background: rgba(var(--ember-rgb), 0.06);
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(var(--ember-rgb), 0.4); font-size: 1rem;
 }
 
-.smart-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--ember-rgb), 0.16);
-  background: rgba(255, 247, 241, 0.96);
-  color: var(--ember-strong);
-  font-weight: 700;
+.dm-item-info { flex: 1; min-width: 0; }
+.dm-item-name {
+  font-size: 0.88rem; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dm-item-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+
+.dm-tag {
+  font-size: 0.7rem; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+  background: rgba(0,0,0,0.06); color: var(--muted);
+}
+.dm-tag--ing   { background: rgba(var(--ember-rgb),0.08); color: var(--ember-strong); }
+.dm-tag--stock { background: rgba(80,180,100,0.14); color: #2a9147; }
+.dm-tag--nostock { background: rgba(200,50,50,0.1); color: #c04040; }
+
+.dm-item-price-wrap { flex-shrink: 0; text-align: right; min-width: 72px; }
+.dm-price-display { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.dm-price-input {
+  width: 80px; padding: 5px 8px; border: 1px solid var(--ember);
+  border-radius: 8px; background: rgba(var(--ember-rgb),0.05);
+  color: var(--text); font: inherit; font-size: 0.82rem;
+  outline: none; text-align: right;
+}
+.dm-price-input:focus { background: rgba(var(--ember-rgb),0.1); }
+
+.dm-item-pool { flex-shrink: 0; }
+.dm-pool-select {
+  padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: transparent; color: var(--text); font: inherit; font-size: 0.78rem;
+  outline: none; max-width: 120px;
 }
 
-.smart-tag small {
-  color: #8f2f15;
-  font-weight: 600;
+/* ── empty state ── */
+.dm-empty {
+  text-align: center; color: var(--muted); font-size: 0.88rem;
+  padding: 24px 0; display: flex; align-items: center; justify-content: center; gap: 8px;
 }
 
-.smart-tag--warning {
-  border-color: rgba(var(--gold-rgb), 0.4);
-  background: rgba(255, 248, 221, 0.95);
-  color: #7d5600;
+/* ── history ── */
+.dm-history { display: flex; flex-direction: column; gap: 8px; }
+.dm-history-card {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line);
+  transition: border-color 0.12s;
 }
+.dm-history-card:hover { border-color: rgba(var(--ember-rgb), 0.3); }
+.dm-history-card--active { border-color: var(--ember); background: rgba(var(--ember-rgb), 0.04); }
+.dm-history-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.dm-history-date { font-size: 0.72rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.dm-history-title { font-size: 0.9rem; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dm-history-meta { display: flex; gap: 5px; }
+.dm-history-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
-.smart-tag--soft {
-  width: fit-content;
-}
-
-.empty-state {
-  padding: 18px;
-  border-radius: 20px;
-  background: rgba(246, 233, 220, 0.55);
-  color: var(--muted);
-}
-
-.pool-list,
-.offer-list,
-.history-list {
-  display: grid;
-  gap: 14px;
-}
-
-.pool-card,
-.offer-card,
-.history-card {
-  border: 1px solid rgba(var(--line-rgb), 0.9);
-  border-radius: 22px;
-  padding: 16px;
-  background: rgba(var(--panel-rgb), 0.9);
-}
-
-.offer-card {
-  display: grid;
-  gap: 14px;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-}
-
-.offer-card.is-enabled {
-  border-color: rgba(var(--green-rgb), 0.26);
-  box-shadow: 0 14px 28px rgba(var(--green-rgb), 0.08);
-}
-
-.offer-card.is-suggested {
-  background:
-    linear-gradient(180deg, rgba(var(--panel-rgb), 0.95), rgba(247, 255, 251, 0.95)),
-    rgba(var(--panel-rgb), 0.9);
-}
-
-.offer-card__toggle {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.offer-card__main {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.offer-card__title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.offer-card__name,
-.history-card__title {
-  font-weight: 700;
-  font-size: 1.02rem;
-}
-
-.offer-card__meta,
-.offer-card__description,
-.offer-card__price,
-.history-card__date {
-  color: var(--muted);
-}
-
-.offer-card__description {
-  margin: 0;
-  font-size: 0.94rem;
-}
-
-.offer-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.filter-pill {
-  border: 1px solid rgba(var(--text-rgb), 0.1);
-  border-radius: 999px;
-  padding: 9px 14px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--text);
-  font-weight: 600;
-}
-
-.filter-pill.is-active {
-  border-color: rgba(var(--ember-rgb), 0.24);
-  background: rgba(255, 247, 241, 0.95);
-  color: var(--ember-strong);
-}
-
-.history-card__actions {
-  align-items: center;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.status-pill--draft {
-  background: rgba(var(--gold-rgb), 0.14);
-  color: #8d6510;
-}
-
-.status-pill--published {
-  background: rgba(var(--green-rgb), 0.14);
-  color: var(--green);
-}
-
-.status-pill--archived {
-  background: rgba(var(--text-rgb), 0.08);
-  color: var(--muted);
-}
-
-.admin-daily-menu__bottom-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 20;
-  padding: 16px 18px;
-  border: 1px solid rgba(var(--line-rgb), 0.92);
-  border-radius: 24px;
-  background: rgba(var(--panel-rgb), 0.94);
-  box-shadow: 0 18px 40px rgba(76, 33, 18, 0.08);
-  backdrop-filter: blur(14px);
-}
-
-.admin-daily-menu__bottom-copy {
-  color: var(--muted);
-}
-
-@media (max-width: 767px) {
-  .admin-daily-menu {
-    padding-bottom: 112px;
-  }
-
-  .admin-daily-menu__hero-head,
-  .section-head,
-  .history-card__top,
-  .admin-daily-menu__bottom-bar,
-  .admin-daily-menu__bottom-actions,
-  .admin-daily-menu__quick-actions,
-  .pool-card__top,
-  .history-card__actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .admin-daily-menu__meta-grid,
-  .pool-card__grid,
-  .offer-card__grid {
-    grid-template-columns: 1fr;
-  }
-
-  .admin-daily-menu__hero-actions,
-  .admin-daily-menu__bottom-actions {
-    display: grid;
-    gap: 10px;
-  }
-
-  .offer-card__title-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
+/* ── mobile ── */
+@media (max-width: 639px) {
+  .dm-shell { margin: -24px; padding: 0 0 48px; gap: 4px; }
+  .dm-panel  { padding: 12px; border-radius: 0; box-shadow: none; }
+  .dm-btn-label { display: none; }
+  .dm-btn-short { display: inline; }
+  .dm-toggle-label { display: none; }
+  .dm-item { padding: 8px; gap: 8px; }
+  .dm-thumb, .dm-thumb--blank { width: 36px; height: 30px; }
+  .dm-price-input { width: 68px; }
+  .dm-pool-select { display: none; }
 }
 </style>

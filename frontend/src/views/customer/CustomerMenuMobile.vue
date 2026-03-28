@@ -239,6 +239,7 @@ import { api } from "../../api";
 import { socket } from "../../socket";
 import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import { API_BASE_URL } from "../../config";
+import blankIngredientUrl from "../../assets/blank_ingredient.svg";
 import { getUser } from "../../utils/auth";
 import { formatMoney } from "../../utils/format";
 
@@ -654,10 +655,22 @@ function getCardMediaStyle(item: DailyMenuItemData, index: number) {
   const palette = paletteOverlays[index % paletteOverlays.length];
   const imageUrl = resolveImageUrl(item.menuItem?.imageUrl);
 
+  if (imageUrl) {
+    return {
+      backgroundColor: "rgba(var(--panel-rgb), 0.94)",
+      backgroundImage: `${palette}, url("${imageUrl}"), url("${blankIngredientUrl}")`,
+      backgroundPosition: "center, center, center, center",
+      backgroundSize: "auto, auto, cover, 54%",
+      backgroundRepeat: "no-repeat, no-repeat, no-repeat, no-repeat",
+    };
+  }
+
   return {
-    backgroundImage: imageUrl ? `${palette}, url("${imageUrl}")` : palette,
-    backgroundPosition: "center",
-    backgroundSize: "cover",
+    backgroundColor: "rgba(var(--panel-rgb), 0.94)",
+    backgroundImage: `${palette}, url("${blankIngredientUrl}")`,
+    backgroundPosition: "center, center, center",
+    backgroundSize: "auto, auto, 54%",
+    backgroundRepeat: "no-repeat, no-repeat, no-repeat",
   };
 }
 

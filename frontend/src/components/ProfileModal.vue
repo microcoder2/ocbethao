@@ -113,7 +113,7 @@
               <button
                 v-if="canEdit"
                 class="pm-btn pm-btn--save btn-ember"
-                :disabled="saving"
+                :disabled="!isDirty || saving"
                 @click="save"
               >
                 <i v-if="saving" class="bi bi-hourglass-split"></i>
@@ -155,6 +155,14 @@ const saveError = ref("");
 const pwError   = ref("");
 
 const canEdit = computed(() => !!user.value);
+
+const isDirty = computed(() => {
+  if (form.fullName.trim() !== (user.value?.fullName ?? "")) return true;
+  if (form.phone.trim()    !== (user.value?.phone    ?? "")) return true;
+  if (form.email.trim()    !== (user.value?.email    ?? "")) return true;
+  if (form.currentPassword || form.newPassword || form.confirmPassword) return true;
+  return false;
+});
 
 const roleLabel = computed(() => {
   const r = String(user.value?.role || "").toUpperCase();
@@ -357,7 +365,13 @@ async function save() {
   display: inline-flex; align-items: center; gap: 6px;
 }
 .pm-btn:hover { background: rgba(0,0,0,0.05); }
-.pm-btn--save { min-width: 110px; justify-content: center; border-color: transparent; }
+.pm-btn--save {
+  min-width: 110px; justify-content: center;
+  background: linear-gradient(135deg, var(--ember), var(--ember-strong));
+  color: #fff; border-color: transparent;
+}
+.pm-btn--save:hover:not(:disabled) { opacity: 0.9; }
+.pm-btn--save:disabled { opacity: 0.45; pointer-events: none; }
 .pm-btn:disabled { opacity: 0.6; cursor: default; }
 
 /* ── transition ── */

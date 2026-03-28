@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Path,
   Post,
@@ -500,5 +501,12 @@ export class DailyMenusController extends Controller {
       status: menu.status,
       message: "Daily menu published",
     };
+  }
+
+  @Delete("{id}")
+  @Security("bearerAuth", ["ADMIN"])
+  public async deleteDailyMenu(@Path() id: number) {
+    await prisma.dailyMenu.delete({ where: { id } });
+    return { message: "Deleted" };
   }
 }

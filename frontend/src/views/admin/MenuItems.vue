@@ -85,7 +85,10 @@
                 </template>
                 <span v-else class="mi-muted">—</span>
               </td>
-              <td class="mi-td mi-td--right mi-col-price">{{ formatMoney(item.currentPrice) }}</td>
+              <td class="mi-td mi-td--right mi-col-price">
+                <span class="mi-price-full">{{ formatMoney(item.currentPrice) }}</span>
+                <span class="mi-price-short">{{ formatMoneyShort(item.currentPrice) }}</span>
+              </td>
               <td class="mi-td mi-col-status">
                 <span class="mi-status" :class="`mi-status--${(item.status || '').toLowerCase()}`">
                   {{ item.status }}
@@ -367,7 +370,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted } from "vue";
 import { api } from "../../api";
-import { formatMoney } from "../../utils/format";
+import { formatMoney, formatMoneyShort } from "../../utils/format";
 import { API_BASE_URL } from "../../config";
 import blankIngredientSvg from "../../assets/blank_ingredient.svg?raw";
 import CropDialog from "../../components/admin/CropDialog.vue";
@@ -840,7 +843,13 @@ onMounted(loadData);
 
 <style scoped>
 /* ── shell ── */
-.mi-shell { display: flex; flex-direction: column; gap: 20px; }
+.mi-shell {
+  display: flex; flex-direction: column; gap: 20px;
+  margin-inline: -24px;
+  margin-top: -24px;
+  padding-inline: 8px;
+  padding-top: 12px;
+}
 
 /* ── header ── */
 .mi-header { display: flex; flex-direction: column; gap: 10px; }
@@ -942,6 +951,7 @@ onMounted(loadData);
 
 /* mobile-only meta: hidden on desktop */
 .mi-mobile-meta { display: none; }
+.mi-price-short { display: none; }
 
 .mi-thumb {
   width: 46px; height: 36px; object-fit: cover;
@@ -1219,8 +1229,9 @@ onMounted(loadData);
 }
 
 @media (max-width: 400px) {
-  /* very small: chỉ còn tên + actions */
-  .mi-col-price { display: none; }
+  .mi-th--img, .mi-td--img { display: none; }
+  .mi-price-full { display: none; }
+  .mi-price-short { display: inline; }
   .mi-row3 { grid-template-columns: 1fr; }
 }
 </style>

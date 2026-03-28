@@ -5,7 +5,7 @@
     </button>
 
     <div class="stock-card" :class="{ 'is-active': draft.active }">
-      <div class="stock-card-img-wrap" :title="ing.imageUrl ? 'Đổi ảnh' : 'Thêm ảnh'" @click="fileRef?.click()">
+      <div v-if="showImg" class="stock-card-img-wrap" :title="ing.imageUrl ? 'Đổi ảnh' : 'Thêm ảnh'" @click="fileRef?.click()">
         <img v-if="hasImg" :src="resolvedUrl" class="stock-card-img" @error="onImgError" />
         <div v-else class="stock-card-img stock-card-img--blank" v-html="blankIngredientSvg"></div>
         <div class="stock-card-img-overlay">
@@ -26,21 +26,15 @@
       </div>
 
       <div v-if="draft.active" class="stock-card-body">
-        <div class="stock-qty-row">
-          <button class="stock-qty-btn" @click="emit('qtyChange', -1)"><i class="bi bi-dash"></i></button>
-          <input
-            class="stock-qty-input"
-            type="number"
-            min="1"
-            :value="draft.quantity"
-            @input="emit('qtyInput', ($event.target as HTMLInputElement).value)"
-          />
-          <button class="stock-qty-btn" @click="emit('qtyChange', 1)"><i class="bi bi-plus"></i></button>
-        </div>
-        <button class="stock-save-btn btn-ember" :disabled="draft.saving" @click="emit('save')">
-          <i v-if="draft.saving" class="bi bi-hourglass-split"></i>
-          <span v-else>Lưu</span>
-        </button>
+        <button class="stock-qty-btn" @click="emit('qtyChange', -1)"><i class="bi bi-dash"></i></button>
+        <input
+          class="stock-qty-input"
+          type="number"
+          min="1"
+          :value="draft.quantity"
+          @input="emit('qtyInput', ($event.target as HTMLInputElement).value)"
+        />
+        <button class="stock-qty-btn" @click="emit('qtyChange', 1)"><i class="bi bi-plus"></i></button>
       </div>
     </div>
 
@@ -70,12 +64,11 @@ import blankIngredientSvg from "../../assets/blank_ingredient.svg?raw";
 type Ingredient = { id: number; name: string; slug: string; unit: string; imageUrl: string | null };
 type Draft      = { active: boolean; quantity: string; saving: boolean };
 
-const props = defineProps<{ ing: Ingredient; draft: Draft; uploadingImg: boolean }>();
+const props = defineProps<{ ing: Ingredient; draft: Draft; uploadingImg: boolean; showImg?: boolean }>();
 const emit  = defineEmits<{
   toggle:    [];
   qtyChange: [delta: number];
   qtyInput:  [value: string];
-  save:      [];
   imgPick:   [file: File];
   delete:    [];
 }>();
@@ -110,6 +103,8 @@ function confirmDelete() {
 /* ── wrapper (allows X button to overflow the card) ── */
 .stock-card-wrap {
   position: relative;
+  min-width: 0;
+  width: 100%;
 }
 
 /* ── X delete button ── */
@@ -177,8 +172,7 @@ function confirmDelete() {
 .stock-toggle-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.2s; box-shadow: 0 1px 4px rgba(0,0,0,0.18); }
 .stock-toggle.on .stock-toggle-knob { transform: translateX(20px); }
 
-.stock-card-body { display: flex; align-items: center; gap: 8px; }
-.stock-qty-row { display: flex; align-items: center; gap: 4px; flex: 1; }
+.stock-card-body { display: flex; align-items: center; gap: 4px; padding: 0 2px; }
 .stock-qty-btn {
   width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line);
   background: rgba(255,255,255,0.7); color: var(--text);

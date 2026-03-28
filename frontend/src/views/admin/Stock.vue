@@ -1,14 +1,14 @@
 <template>
   <div class="stock-shell">
     <div class="stock-header">
-      <h1 class="stock-title">hôm nay bé Thảo đi chợ có gì nè? 🛒</h1>
+      <h1 class="stock-title">Danh sách nguyên liệu</h1>
       <div class="stock-search-wrap">
         <i class="bi bi-search stock-search-icon"></i>
         <input
           v-model="search"
           class="stock-search"
           type="text"
-          placeholder="Tìm tên hoặc #tag..."
+          placeholder="Tìm tên nguyên liệu..."
           autocomplete="off"
         />
       </div>
@@ -21,30 +21,28 @@
     </div>
 
     <div v-else class="stock-grid">
-      <!-- ── add new card (always first) ── -->
+      <!-- ── add new card ── -->
       <div class="stock-card stock-card-new" :class="{ 'is-open': newForm.open }">
         <template v-if="!newForm.open">
           <button class="stock-new-trigger" @click="openNewForm">
             <i class="bi bi-plus-lg"></i>
-            <span>Thêm món mới</span>
+            <span>Thêm nguyên liệu</span>
           </button>
         </template>
         <template v-else>
           <div class="stock-new-form">
-            <div class="stock-new-img-wrap" @click="newImgRef!.click()">
-              <img v-if="newForm.imagePreview" :src="newForm.imagePreview" class="stock-new-img" />
-              <div v-else class="stock-new-img-placeholder">
-                <i class="bi bi-camera"></i>
-              </div>
-              <div class="stock-new-img-overlay">
+            <div class="stock-img-wrap" @click="newImgRef?.click()">
+              <img v-if="newForm.imagePreview" :src="newForm.imagePreview" class="stock-img" />
+              <div v-else class="stock-img-blank"><i class="bi bi-camera"></i></div>
+              <div class="stock-img-overlay">
                 <i v-if="newForm.imageUploading" class="bi bi-hourglass-split"></i>
                 <i v-else class="bi bi-camera-fill"></i>
               </div>
               <input ref="newImgRef" type="file" accept="image/*" class="stock-file-hidden" @change="handleNewImg" />
             </div>
             <div class="stock-new-field">
-              <label class="stock-new-label">Tên món</label>
-              <input ref="newNameRef" v-model="newForm.name" class="stock-new-input" type="text" placeholder="VD: Sò huyết" />
+              <label class="stock-new-label">Tên nguyên liệu</label>
+              <input ref="newNameRef" v-model="newForm.name" class="stock-new-input" type="text" placeholder="VD: Sò huyết" @keydown.enter="createIngredient" />
             </div>
             <div class="stock-new-field">
               <label class="stock-new-label">Đơn vị</label>
@@ -52,9 +50,13 @@
             </div>
             <div class="stock-new-actions">
               <button class="stock-new-cancel" @click="cancelNewForm">Hủy</button>
-              <button class="stock-save-btn btn-ember" :disabled="!newForm.name.trim() || newForm.saving" @click="createIngredient">
+              <button
+                class="stock-save-btn btn-ember"
+                :disabled="!newForm.name.trim() || newForm.saving"
+                @click="createIngredient"
+              >
                 <i v-if="newForm.saving" class="bi bi-hourglass-split"></i>
-                <span v-else>Tạo & Bật</span>
+                <span v-else>Tạo</span>
               </button>
             </div>
             <div v-if="newForm.error" class="stock-new-error">{{ newForm.error }}</div>
@@ -63,19 +65,68 @@
       </div>
 
       <!-- ── ingredient cards ── -->
-      <StockIngredientCard
-        v-for="ing in sortedIngredients"
+      <div
+        v-for="ing in filteredIngredients"
         :key="ing.id"
-        :ing="ing"
-        :draft="drafts[ing.id]"
-        :uploading-img="uploadingImgFor === ing.id"
-        @toggle="toggleIngredient(ing)"
-        @qty-change="changeQty(ing.id, $event)"
-        @qty-input="drafts[ing.id].quantity = $event"
-        @save="saveIngredient(ing)"
-        @img-pick="handleIngImg(ing, $event)"
-        @delete="deleteIngredient(ing)"
-      />
+        class="stock-card-wrap"
+      >
+        <div class="stock-card" :class="{ 'is-editing': editingId === ing.id }">
+
+          <!-- image -->
+          <div class="stock-img-wrap" :title="ing.imageUrl ? 'Đổi ảnh' : 'Thêm ảnh'" @click="handlePickImg(ing)">
+            <img v-if="ing.imageUrl && !imgErrors.has(ing.id)" :src="resolveImg(ing.imageUrl)" class="stock-img" @error="imgErrors.add(ing.id)" />
+            <div v-else class="stock-img-blank" v-html="blankIngredientSvg"></div>
+            <div class="stock-img-overlay">
+              <i v-if="uploadingImgFor === ing.id" class="bi bi-hourglass-split"></i>
+              <i v-else class="bi bi-camera-fill"></i>
+            </div>
+            <input :ref="el => fileRefs[ing.id] = el as HTMLInputElement" type="file" accept="image/*" class="stock-file-hidden" @change="e => onFileChange(e, ing)" />
+          </div>
+
+          <!-- normal view -->
+          <template v-if="editingId !== ing.id">
+            <div class="stock-card-info">
+              <span class="stock-card-name">{{ ing.name }}</span>
+              <span class="stock-card-unit">{{ ing.unit }}</span>
+            </div>
+            <div class="stock-card-actions">
+              <button class="stock-action-btn" @click="startEdit(ing)">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="stock-action-btn stock-action-btn--del" @click="deletingId = ing.id">
+                <i class="bi bi-trash3"></i>
+              </button>
+            </div>
+          </template>
+
+          <!-- edit view -->
+          <template v-else>
+            <div class="stock-edit-form">
+              <input v-model="editForm.name" class="stock-edit-input" type="text" placeholder="Tên nguyên liệu" @keydown.enter="saveEdit(ing)" @keydown.esc="editingId = null" />
+              <input v-model="editForm.unit" class="stock-edit-input stock-edit-input--sm" type="text" placeholder="Đơn vị" />
+              <div class="stock-edit-actions">
+                <button class="stock-new-cancel" @click="editingId = null">Hủy</button>
+                <button class="stock-save-btn btn-ember" :disabled="!editForm.name.trim() || editSaving" @click="saveEdit(ing)">
+                  <i v-if="editSaving" class="bi bi-hourglass-split"></i>
+                  <span v-else>Lưu</span>
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- delete confirm overlay -->
+        <Transition name="del-confirm">
+          <div v-if="deletingId === ing.id" class="stock-del-overlay">
+            <i class="bi bi-trash3 stock-del-icon"></i>
+            <p class="stock-del-text">Xóa <strong>{{ ing.name }}</strong>?</p>
+            <div class="stock-del-actions">
+              <button class="stock-del-no" @click="deletingId = null"><i class="bi bi-x-lg"></i></button>
+              <button class="stock-del-yes" @click="deleteIngredient(ing)"><i class="bi bi-check-lg"></i></button>
+            </div>
+          </div>
+        </Transition>
+      </div>
     </div>
   </div>
 
@@ -85,18 +136,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, reactive } from "vue";
 import { api } from "../../api";
+import { API_BASE_URL } from "../../config";
 import CropDialog from "../../components/admin/CropDialog.vue";
-import StockIngredientCard from "../../components/admin/StockIngredientCard.vue";
+import blankIngredientSvg from "../../assets/blank_ingredient.svg?raw";
 
-// ── types ──────────────────────────────────────────────────────
+// ── types ──────────────────────────────────────────────────────────────────
 
-type Ingredient    = { id: number; name: string; slug: string; unit: string; imageUrl: string | null };
-type StockPool     = { id: number; quantity: number; soldQuantity: number; isAvailable: boolean; label: string | null; ingredient: Ingredient | null };
-type DailyMenuItem = { id: number; menuItemId: number | null; isAvailable: boolean; overridePrice: number | null; highlightLabel: string | null };
-type DailyMenu     = { id: number; title: string; serviceDate: string; status: string; stockPools: StockPool[]; items: DailyMenuItem[] };
-type Draft         = { active: boolean; quantity: string; saving: boolean };
+type Ingredient = { id: number; name: string; slug: string; unit: string; imageUrl: string | null };
 
-// ── helpers ────────────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────────────
 
 function getErrorMessage(error: any, fallback: string) {
   return error?.response?.data?.message || error?.message || fallback;
@@ -117,16 +165,26 @@ function toSlug(name: string): string {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-// ── core state ─────────────────────────────────────────────────
+function resolveImg(url: string) {
+  return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
+}
+
+// ── state ──────────────────────────────────────────────────────────────────
 
 const ingredients     = ref<Ingredient[]>([]);
-const todayMenu       = ref<DailyMenu | null>(null);
 const search          = ref("");
 const loading         = ref(false);
 const errorMessage    = ref("");
-const drafts          = ref<Record<number, Draft>>({});
 const uploadingImgFor = ref<number | null>(null);
+const imgErrors       = ref(new Set<number>());
 
+// edit state
+const editingId   = ref<number | null>(null);
+const editSaving  = ref(false);
+const deletingId  = ref<number | null>(null);
+const editForm    = reactive({ name: "", unit: "" });
+
+// new form
 const newNameRef = ref<HTMLInputElement | null>(null);
 const newImgRef  = ref<HTMLInputElement | null>(null);
 const newForm = reactive({
@@ -135,7 +193,10 @@ const newForm = reactive({
   saving: false, error: "",
 });
 
-// ── crop bridge ────────────────────────────────────────────────
+// per-ingredient file input refs
+const fileRefs: Record<number, HTMLInputElement | null> = {};
+
+// ── crop ───────────────────────────────────────────────────────────────────
 
 const cropFile = ref<File | null>(null);
 let _cropCb: ((blob: Blob) => Promise<void>) | null = null;
@@ -152,33 +213,24 @@ async function onCropDone(blob: Blob) {
   await cb?.(blob);
 }
 
-// ── data loading ───────────────────────────────────────────────
+// ── computed ───────────────────────────────────────────────────────────────
 
-function todayDate() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+const filteredIngredients = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  if (!q) return ingredients.value;
+  return ingredients.value.filter(ing => ing.name.toLowerCase().includes(q) || ing.slug.includes(q));
+});
+
+// ── data loading ───────────────────────────────────────────────────────────
 
 async function loadData() {
   loading.value = true;
   errorMessage.value = "";
   try {
-    const [ingRes, menuRes] = await Promise.all([
-      api.get("/ingredients?activeOnly=true"),
-      api.get(`/daily-menus?date=${todayDate()}`),
-    ]);
-    ingredients.value = ingRes.data as Ingredient[];
-    const menus = menuRes.data as DailyMenu[];
-    todayMenu.value = menus.length > 0 ? menus[0] : null;
-
-    const init: Record<number, Draft> = {};
-    for (const ing of ingredients.value) {
-      const pool = todayMenu.value?.stockPools.find(p => p.ingredient?.id === ing.id);
-      init[ing.id] = { active: pool?.isAvailable ?? false, quantity: pool ? String(pool.quantity) : "1", saving: false };
-    }
-    drafts.value = init;
+    const { data } = await api.get("/ingredients");
+    ingredients.value = data as Ingredient[];
   } catch (e) {
-    errorMessage.value = getErrorMessage(e, "Không tải được dữ liệu.");
+    errorMessage.value = getErrorMessage(e, "Không tải được danh sách nguyên liệu.");
   } finally {
     loading.value = false;
   }
@@ -186,82 +238,7 @@ async function loadData() {
 
 onMounted(loadData);
 
-// ── ingredient list ────────────────────────────────────────────
-
-const sortedIngredients = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  let list = ingredients.value;
-  if (q) {
-    const tag = q.startsWith("#") ? q.slice(1) : q;
-    list = list.filter(ing => ing.name.toLowerCase().includes(tag) || ing.slug.includes(tag));
-  }
-  return [...list].sort((a, b) => (drafts.value[b.id]?.active ? 1 : 0) - (drafts.value[a.id]?.active ? 1 : 0));
-});
-
-function toggleIngredient(ing: Ingredient) {
-  const d = drafts.value[ing.id];
-  if (!d) return;
-  d.active = !d.active;
-  if (d.active && Number(d.quantity) <= 0) d.quantity = "1";
-}
-
-function changeQty(ingId: number, delta: number) {
-  const d = drafts.value[ingId];
-  if (!d) return;
-  d.quantity = String(Math.max(1, (Number(d.quantity) || 1) + delta));
-}
-
-async function saveIngredient(ing: Ingredient) {
-  const d = drafts.value[ing.id];
-  if (!d) return;
-  d.saving = true;
-  errorMessage.value = "";
-  try {
-    // Re-sync: menu may exist in DB from another session/tab
-    if (!todayMenu.value) {
-      const { data: check } = await api.get(`/daily-menus?date=${todayDate()}`);
-      const found = (check as DailyMenu[])[0] ?? null;
-      if (found) todayMenu.value = found;
-    }
-
-    const qty = Math.max(1, Number(d.quantity) || 1);
-    const existing = todayMenu.value?.stockPools ?? [];
-    const others = existing
-      .filter(p => p.ingredient?.id !== ing.id)
-      .map(p => ({ id: p.id, ingredientId: p.ingredient!.id, quantity: Number(p.quantity), isAvailable: p.isAvailable }));
-    const thisOne = existing.find(p => p.ingredient?.id === ing.id);
-    const pool: Record<string, unknown> = { ingredientId: ing.id, quantity: qty, isAvailable: d.active };
-    if (thisOne) pool.id = thisOne.id;
-
-    const body = {
-      title: todayMenu.value?.title ?? `Kho ${todayDate()}`,
-      serviceDate: todayMenu.value?.serviceDate ?? todayDate(),
-      stockPools: [...others, pool],
-      items: (todayMenu.value?.items ?? []).map(item => ({
-        id: item.id, menuItemId: item.menuItemId,
-        isAvailable: item.isAvailable, overridePrice: item.overridePrice, highlightLabel: item.highlightLabel,
-      })),
-    };
-
-    let updated: DailyMenu;
-    if (todayMenu.value) {
-      const { data } = await api.put(`/daily-menus/${todayMenu.value.id}`, body);
-      updated = data as DailyMenu;
-    } else {
-      const { data } = await api.post("/daily-menus", body);
-      updated = data as DailyMenu;
-    }
-    todayMenu.value = updated;
-    const newPool = updated.stockPools.find(p => p.ingredient?.id === ing.id);
-    if (newPool) { d.quantity = String(newPool.quantity); d.active = newPool.isAvailable; }
-  } catch (e) {
-    errorMessage.value = getErrorMessage(e, "Không lưu được.");
-  } finally {
-    d.saving = false;
-  }
-}
-
-// ── upload ─────────────────────────────────────────────────────
+// ── upload ─────────────────────────────────────────────────────────────────
 
 async function uploadBlob(blob: Blob): Promise<string> {
   const fd = new FormData();
@@ -270,9 +247,16 @@ async function uploadBlob(blob: Blob): Promise<string> {
   return (data as { url: string }).url;
 }
 
-// ── image handlers ─────────────────────────────────────────────
+// ── image handlers ─────────────────────────────────────────────────────────
 
-function handleIngImg(ing: Ingredient, file: File) {
+function handlePickImg(ing: Ingredient) {
+  fileRefs[ing.id]?.click();
+}
+
+function onFileChange(e: Event, ing: Ingredient) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  (e.target as HTMLInputElement).value = "";
   openCrop(file, async (blob) => {
     uploadingImgFor.value = ing.id;
     errorMessage.value = "";
@@ -280,6 +264,7 @@ function handleIngImg(ing: Ingredient, file: File) {
       const url = await uploadBlob(blob);
       await api.put(`/ingredients/${ing.id}`, { name: ing.name, slug: ing.slug, unit: ing.unit, imageUrl: url, isActive: true });
       ingredients.value = ingredients.value.map(i => i.id === ing.id ? { ...i, imageUrl: url } : i);
+      imgErrors.value.delete(ing.id);
     } catch (e) {
       errorMessage.value = getErrorMessage(e, "Không tải ảnh được.");
     } finally {
@@ -312,20 +297,44 @@ function handleNewImg(event: Event) {
   });
 }
 
-// ── delete ingredient ─────────────────────────────────────────
+// ── CRUD ───────────────────────────────────────────────────────────────────
 
 async function deleteIngredient(ing: Ingredient) {
   errorMessage.value = "";
+  deletingId.value = null;
   try {
     await api.delete(`/ingredients/${ing.id}`);
     ingredients.value = ingredients.value.filter(i => i.id !== ing.id);
-    delete drafts.value[ing.id];
   } catch (e) {
     errorMessage.value = getErrorMessage(e, "Không xóa được nguyên liệu.");
   }
 }
 
-// ── new ingredient form ────────────────────────────────────────
+function startEdit(ing: Ingredient) {
+  editingId.value = ing.id;
+  editForm.name = ing.name;
+  editForm.unit = ing.unit;
+}
+
+async function saveEdit(ing: Ingredient) {
+  const name = editForm.name.trim();
+  if (!name) return;
+  editSaving.value = true;
+  errorMessage.value = "";
+  try {
+    const slug = toSlug(name);
+    const unit = editForm.unit.trim() || ing.unit;
+    await api.put(`/ingredients/${ing.id}`, { name, slug, unit, imageUrl: ing.imageUrl, isActive: true });
+    ingredients.value = ingredients.value.map(i => i.id === ing.id ? { ...i, name, slug, unit } : i);
+    editingId.value = null;
+  } catch (e) {
+    errorMessage.value = getErrorMessage(e, "Không lưu được.");
+  } finally {
+    editSaving.value = false;
+  }
+}
+
+// ── new form ───────────────────────────────────────────────────────────────
 
 async function openNewForm() {
   newForm.open = true; newForm.name = ""; newForm.unit = "phần";
@@ -354,11 +363,8 @@ async function createIngredient() {
     const body: Record<string, unknown> = { name, slug, unit, isActive: true };
     if (newForm.imageUrl) body.imageUrl = newForm.imageUrl;
     const { data } = await api.post("/ingredients", body);
-    const created = data as Ingredient;
-    ingredients.value = [...ingredients.value, created];
-    drafts.value[created.id] = { active: true, quantity: "1", saving: false };
+    ingredients.value = [...ingredients.value, data as Ingredient];
     closeNewForm();
-    await saveIngredient(created);
   } catch (e) {
     newForm.error = getErrorMessage(e, "Không tạo được nguyên liệu.");
   } finally {
@@ -392,46 +398,37 @@ async function createIngredient() {
 }
 .stock-loading { color: var(--muted); padding: 24px 0; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; }
 
-.stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+.stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
 
-/* new card */
+/* ── add new card ── */
 .stock-card {
   background: rgba(var(--panel-rgb), 0.7); border: 1px solid var(--line); border-radius: 20px;
-  padding: 14px; display: flex; flex-direction: column; gap: 10px; opacity: 0.55;
-  transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s; position: relative; overflow: hidden;
+  overflow: hidden; display: flex; flex-direction: column;
+  transition: box-shadow 0.2s;
 }
-.stock-card-new { border-style: dashed; opacity: 0.75; justify-content: center; min-height: 80px; }
-.stock-card-new.is-open { opacity: 1; border-style: solid; border-color: rgba(var(--ember-rgb), 0.3); }
+.stock-card-new {
+  border-style: dashed;
+  min-height: 80px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.stock-card-new.is-open { border-style: solid; border-color: rgba(var(--ember-rgb), 0.3); padding: 14px; }
 
 .stock-new-trigger {
   display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; background: none; border: none; color: var(--muted);
-  font-size: 0.92rem; font-weight: 600; cursor: pointer; padding: 8px 0; transition: color 0.18s;
+  width: 100%; height: 100%; background: none; border: none; color: var(--muted);
+  font-size: 0.92rem; font-weight: 600; cursor: pointer; padding: 20px 12px; transition: color 0.18s;
 }
 .stock-new-trigger:hover { color: var(--ember); }
 .stock-new-trigger i { font-size: 1.1rem; }
 
 .stock-new-form { display: flex; flex-direction: column; gap: 10px; width: 100%; }
-.stock-new-img-wrap {
-  position: relative; width: 100%; aspect-ratio: 4/3; border-radius: 12px; overflow: hidden;
-  cursor: pointer; background: var(--surface,#f5f3ef); border: 1px dashed var(--line); flex-shrink: 0;
-}
-.stock-new-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.stock-new-img-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--line); font-size: 1.6rem; }
-.stock-new-img-overlay {
-  position: absolute; inset: 0; background: rgba(0,0,0,0.28);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 1rem; opacity: 0; transition: opacity 0.18s;
-}
-.stock-new-img-wrap:hover .stock-new-img-overlay { opacity: 1; }
-.stock-file-hidden { display: none; }
-
 .stock-new-field { display: flex; flex-direction: column; gap: 4px; }
-.stock-new-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.stock-new-label { font-size: 0.7rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .stock-new-input {
   border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px;
   font-size: 0.93rem; color: var(--text); background: rgba(255,255,255,0.85);
-  outline: none; width: 100%; box-sizing: border-box; transition: border-color 0.18s;
+  outline: none; width: 100%; box-sizing: border-box; font: inherit; transition: border-color 0.18s;
 }
 .stock-new-input--sm { width: 100px; }
 .stock-new-input:focus { border-color: var(--ember); }
@@ -439,15 +436,106 @@ async function createIngredient() {
 .stock-new-cancel {
   flex: 1; padding: 5px 10px; border-radius: 10px; border: 1px solid var(--line);
   background: transparent; color: var(--muted); font-size: 0.88rem; cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
 }
 .stock-new-cancel:hover { border-color: var(--text); color: var(--text); }
 .stock-new-actions .stock-save-btn { flex: 1; }
 .stock-new-error { font-size: 0.82rem; color: var(--ember-strong); }
 
+/* ── image area ── */
+.stock-img-wrap {
+  position: relative; width: 100%; aspect-ratio: 4/3;
+  overflow: hidden; cursor: pointer; background: var(--surface, #f5f3ef); flex-shrink: 0;
+}
+.stock-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.stock-img-blank {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  color: var(--ember); font-size: 1.4rem;
+}
+.stock-img-blank :deep(svg) { width: 55%; aspect-ratio: 4/3; display: block; }
+.stock-img-overlay {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.3);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 1.1rem; opacity: 0; transition: opacity 0.18s;
+}
+.stock-img-wrap:hover .stock-img-overlay { opacity: 1; }
+.stock-file-hidden { display: none; }
+
+/* ── card body ── */
+.stock-card-wrap { position: relative; }
+
+.stock-card-info {
+  padding: 10px 12px 4px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.stock-card-name { font-weight: 700; font-size: 0.97rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stock-card-unit { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+.stock-card-actions {
+  padding: 6px 10px 10px;
+  display: flex; gap: 6px; justify-content: flex-end;
+}
+.stock-action-btn {
+  width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); cursor: pointer; font-size: 0.8rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.stock-action-btn:hover { background: rgba(var(--ember-rgb), 0.08); border-color: rgba(var(--ember-rgb), 0.3); color: var(--ember); }
+.stock-action-btn--del:hover { background: rgba(var(--danger-rgb), 0.1); border-color: rgba(var(--danger-rgb), 0.3); color: var(--danger); }
+
+/* ── edit form (inline on card) ── */
+.stock-card.is-editing .stock-img-wrap { pointer-events: none; opacity: 0.7; }
+
+.stock-edit-form {
+  padding: 10px 12px 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.stock-edit-input {
+  border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px;
+  font: inherit; font-size: 0.9rem; color: var(--text);
+  background: rgba(255,255,255,0.85); outline: none;
+  width: 100%; box-sizing: border-box; transition: border-color 0.15s;
+}
+.stock-edit-input--sm { width: 100px; }
+.stock-edit-input:focus { border-color: var(--ember); }
+.stock-edit-actions { display: flex; gap: 8px; }
+.stock-edit-actions .stock-save-btn { flex: 1; }
+.stock-edit-actions .stock-new-cancel { flex: 1; }
+
+/* ── save button ── */
 .stock-save-btn {
   flex-shrink: 0; padding: 5px 14px; border-radius: 10px; font-size: 0.88rem;
   font-weight: 700; cursor: pointer; min-width: 48px;
-  display: inline-flex; align-items: center; justify-content: center;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
 }
-.stock-save-btn:disabled { opacity: 0.6; cursor: default; }
+.stock-save-btn:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
+
+/* ── delete confirm overlay ── */
+.stock-del-overlay {
+  position: absolute; inset: 0; z-index: 2;
+  background: rgba(18, 16, 13, 0.88); border-radius: 20px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 16px;
+}
+.stock-del-icon { font-size: 1.4rem; color: rgba(245,240,232,0.6); }
+.stock-del-text { margin: 0; font-size: 0.88rem; color: rgba(245,240,232,0.85); text-align: center; }
+.stock-del-text strong { color: #f5f0e8; }
+.stock-del-actions { display: flex; gap: 8px; width: 100%; }
+.stock-del-no {
+  flex: 1; padding: 6px 10px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.18); background: transparent;
+  color: rgba(245,240,232,0.65); font-size: 0.85rem; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.stock-del-no:hover { border-color: rgba(255,255,255,0.4); color: #f5f0e8; }
+.stock-del-yes {
+  flex: 1; padding: 6px 10px; border-radius: 10px; border: none;
+  background: rgba(var(--danger-rgb), 0.85); color: #fff;
+  font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: background 0.15s;
+}
+.stock-del-yes:hover { background: var(--danger); }
+
+.del-confirm-enter-active, .del-confirm-leave-active { transition: opacity 0.15s; }
+.del-confirm-enter-from, .del-confirm-leave-to { opacity: 0; }
 </style>

@@ -1,3 +1,7 @@
+export function formatMoneyShort(value: number | null | undefined): string {
+  return `${Math.round(Number(value || 0) / 1000)}k`;
+}
+
 export function formatMoney(value: number | null | undefined): string {
   return new Intl.NumberFormat("vi-VN", {
     style: "currency",
