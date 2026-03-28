@@ -767,7 +767,7 @@ onBeforeUnmount(() => {
 
 .customer-menu-page {
   --customer-surface: rgba(255, 251, 246, 0.92);
-  --customer-surface-strong: rgba(255, 253, 249, 0.98);
+  --customer-surface-strong: rgba(var(--panel-rgb), 0.98);
   --customer-ink: #21120e;
   --customer-muted: #6f5a50;
   --customer-line: rgba(120, 74, 54, 0.12);

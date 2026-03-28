@@ -119,7 +119,7 @@ function confirmDelete() {
   width: 22px; height: 22px;
   border-radius: 50%;
   border: 2px solid #fff;
-  background: rgba(180, 60, 30, 0.85);
+  background: rgba(var(--danger-rgb), 0.85);
   color: #fff;
   font-size: 0.6rem;
   display: flex; align-items: center; justify-content: center;
@@ -133,19 +133,19 @@ function confirmDelete() {
   opacity: 1;
 }
 .stock-card-del-btn:hover {
-  background: rgb(201, 40, 20);
+  background: var(--danger);
   transform: scale(1.15);
 }
 
 /* ── card ── */
 .stock-card {
-  background: rgba(255,253,249,0.7); border: 1px solid var(--line); border-radius: 20px;
+  background: rgba(var(--panel-rgb), 0.7); border: 1px solid var(--line); border-radius: 20px;
   padding: 14px; display: flex; flex-direction: column; gap: 10px; opacity: 0.55;
   transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s; position: relative; overflow: hidden;
 }
 .stock-card.is-active {
-  opacity: 1; border-color: rgba(201,87,43,0.38);
-  box-shadow: 0 6px 24px rgba(201,87,43,0.12); background: rgba(255,248,241,0.95);
+  opacity: 1; border-color: rgba(var(--ember-rgb), 0.38);
+  box-shadow: 0 6px 24px rgba(var(--ember-rgb), 0.12); background: rgba(var(--sidebar-fg-rgb), 0.95);
 }
 
 .stock-card-img-wrap {
@@ -179,7 +179,7 @@ function confirmDelete() {
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-size: 0.9rem; padding: 0; flex-shrink: 0;
 }
-.stock-qty-btn:hover { background: rgba(201,87,43,0.08); border-color: rgba(201,87,43,0.3); }
+.stock-qty-btn:hover { background: rgba(var(--ember-rgb), 0.08); border-color: rgba(var(--ember-rgb), 0.3); }
 .stock-qty-input {
   width: 52px; text-align: center; border: 1px solid var(--line); border-radius: 8px;
   padding: 4px 6px; font-size: 0.95rem; font-weight: 600; color: var(--text);
@@ -217,11 +217,11 @@ function confirmDelete() {
 .stock-del-no:hover { border-color: rgba(255,255,255,0.4); color: #f5f0e8; }
 .stock-del-yes {
   flex: 1; padding: 6px 10px; border-radius: 10px; border: none;
-  background: rgba(201,50,30,0.85); color: #fff;
+  background: rgba(var(--danger-rgb), 0.85); color: #fff;
   font-size: 0.85rem; font-weight: 700; cursor: pointer;
   transition: background 0.15s;
 }
-.stock-del-yes:hover { background: rgb(201,40,20); }
+.stock-del-yes:hover { background: var(--danger); }
 
 /* ── confirm transition ── */
 .del-confirm-enter-active, .del-confirm-leave-active { transition: opacity 0.15s; }

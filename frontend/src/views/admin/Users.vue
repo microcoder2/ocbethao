@@ -797,8 +797,8 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 20px;
   background:
-    radial-gradient(circle at top right, rgba(34, 105, 85, 0.12), transparent 28%),
-    linear-gradient(135deg, rgba(255, 253, 249, 0.96), rgba(243, 251, 247, 0.94));
+    radial-gradient(circle at top right, rgba(var(--green-rgb), 0.12), transparent 28%),
+    linear-gradient(135deg, rgba(var(--panel-rgb), 0.96), rgba(243, 251, 247, 0.94));
 }
 
 .users-hero__head,
@@ -856,8 +856,8 @@ onBeforeUnmount(() => {
 .users-stat-card {
   padding: 16px;
   border-radius: 22px;
-  border: 1px solid rgba(230, 209, 192, 0.9);
-  background: rgba(255, 253, 249, 0.88);
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  background: rgba(var(--panel-rgb), 0.88);
 }
 
 .users-stat-card__label {
@@ -924,10 +924,10 @@ onBeforeUnmount(() => {
 
 .user-create-card,
 .user-card {
-  border: 1px solid rgba(230, 209, 192, 0.9);
+  border: 1px solid rgba(var(--line-rgb), 0.9);
   border-radius: 24px;
   padding: 18px;
-  background: rgba(255, 253, 249, 0.92);
+  background: rgba(var(--panel-rgb), 0.92);
   box-shadow: var(--shadow);
 }
 
@@ -938,8 +938,8 @@ onBeforeUnmount(() => {
   min-height: 220px;
   border-style: dashed;
   background:
-    linear-gradient(180deg, rgba(255, 253, 249, 0.92), rgba(246, 249, 255, 0.96)),
-    rgba(255, 253, 249, 0.92);
+    linear-gradient(180deg, rgba(var(--panel-rgb), 0.92), rgba(246, 249, 255, 0.96)),
+    rgba(var(--panel-rgb), 0.92);
   color: var(--text);
   text-align: center;
 }
@@ -965,7 +965,7 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  background: linear-gradient(135deg, rgba(201, 87, 43, 0.18), rgba(34, 105, 85, 0.2));
+  background: linear-gradient(135deg, rgba(var(--ember-rgb), 0.18), rgba(var(--green-rgb), 0.2));
   color: var(--ember-strong);
   font-weight: 800;
 }
@@ -1014,27 +1014,27 @@ onBeforeUnmount(() => {
 }
 
 .user-status {
-  background: rgba(34, 105, 85, 0.14);
+  background: rgba(var(--green-rgb), 0.14);
   color: var(--green);
 }
 
 .user-status.is-inactive {
-  background: rgba(35, 19, 15, 0.08);
+  background: rgba(var(--text-rgb), 0.08);
   color: var(--muted);
 }
 
 .user-role--admin {
-  background: rgba(201, 87, 43, 0.14);
+  background: rgba(var(--ember-rgb), 0.14);
   color: var(--ember-strong);
 }
 
 .user-role--staff {
-  background: rgba(34, 105, 85, 0.14);
+  background: rgba(var(--green-rgb), 0.14);
   color: var(--green);
 }
 
 .user-role--customer {
-  background: rgba(185, 139, 47, 0.14);
+  background: rgba(var(--gold-rgb), 0.14);
   color: #8d6510;
 }
 
@@ -1067,19 +1067,19 @@ onBeforeUnmount(() => {
 }
 
 .user-chip--primary {
-  background: rgba(35, 19, 15, 0.92);
+  background: rgba(var(--text-rgb), 0.92);
   color: #fff8f1;
 }
 
 .user-chip--muted {
-  background: rgba(35, 19, 15, 0.08);
+  background: rgba(var(--text-rgb), 0.08);
   color: var(--muted);
 }
 
 .users-pagination {
   margin-top: 18px;
   padding-top: 18px;
-  border-top: 1px solid rgba(230, 209, 192, 0.9);
+  border-top: 1px solid rgba(var(--line-rgb), 0.9);
   align-items: center;
 }
 
@@ -1089,13 +1089,13 @@ onBeforeUnmount(() => {
 }
 
 .users-page-button {
-  border: 1px solid rgba(35, 19, 15, 0.12);
+  border: 1px solid rgba(var(--text-rgb), 0.12);
   background: rgba(255, 255, 255, 0.72);
   color: var(--text);
 }
 
 .users-page-button.is-active {
-  border-color: rgba(201, 87, 43, 0.24);
+  border-color: rgba(var(--ember-rgb), 0.24);
   background: rgba(255, 247, 241, 0.95);
   color: var(--ember-strong);
 }

@@ -488,7 +488,7 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 
 <style scoped>
 .order-card {
-  --order-status-surface: rgba(255, 253, 249, 0.96);
+  --order-status-surface: rgba(var(--panel-rgb), 0.96);
   display: grid;
   gap: 14px;
   padding: 18px 20px;
@@ -607,10 +607,10 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 .order-pill.is-confirmed { background: rgba(201, 126, 71, 0.16); color: #8a451f; }
 .order-pill.is-completed { background: rgba(66, 133, 104, 0.15); color: var(--green); }
 .order-pill.is-cancelled { background: rgba(148, 88, 88, 0.14);  color: #8f2f15; }
-.order-pill.is-unpaid    { background: rgba(201, 87, 43, 0.12);  color: var(--ember-strong); }
-.order-pill.is-paid      { background: rgba(34, 105, 85, 0.14);  color: var(--green); }
-.order-pill.is-refunded  { background: rgba(35, 19, 15, 0.08);   color: var(--text); }
-.order-pill.is-muted     { background: rgba(35, 19, 15, 0.06);   color: var(--muted); }
+.order-pill.is-unpaid    { background: rgba(var(--ember-rgb), 0.12);  color: var(--ember-strong); }
+.order-pill.is-paid      { background: rgba(var(--green-rgb), 0.14);  color: var(--green); }
+.order-pill.is-refunded  { background: rgba(var(--text-rgb), 0.08);   color: var(--text); }
+.order-pill.is-muted     { background: rgba(var(--text-rgb), 0.06);   color: var(--muted); }
 
 .order-progress { display: grid; gap: 8px; }
 
@@ -626,7 +626,7 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   height: 10px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(35, 19, 15, 0.08);
+  background: rgba(var(--text-rgb), 0.08);
 }
 
 .order-progress-segment { height: 100%; }
@@ -646,7 +646,7 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   margin: 0;
   padding: 0;
   list-style: none;
-  border-top: 1px solid rgba(230, 209, 192, 0.72);
+  border-top: 1px solid rgba(var(--line-rgb), 0.72);
 }
 
 .order-item-row {
@@ -655,7 +655,7 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 0;
-  border-bottom: 1px dashed rgba(230, 209, 192, 0.72);
+  border-bottom: 1px dashed rgba(var(--line-rgb), 0.72);
 }
 
 .order-item-row:last-child { border-bottom: none; }
@@ -688,7 +688,7 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   padding: 0 10px;
   border-radius: 999px;
   border: 1px solid transparent;
-  background: rgba(35, 19, 15, 0.06);
+  background: rgba(var(--text-rgb), 0.06);
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 700;
@@ -759,14 +759,14 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   height: 38px;
   padding: 0;
   border-radius: 999px;
-  border: 1px solid rgba(35, 19, 15, 0.08);
+  border: 1px solid rgba(var(--text-rgb), 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 234, 226, 0.94));
-  box-shadow: 0 10px 18px rgba(35, 19, 15, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 18px rgba(var(--text-rgb), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
   color: var(--text);
 }
 
 .order-qty-btn:hover  { transform: translateY(-1px); }
-.order-qty-btn:active { transform: translateY(1px); box-shadow: 0 5px 10px rgba(35, 19, 15, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92); }
+.order-qty-btn:active { transform: translateY(1px); box-shadow: 0 5px 10px rgba(var(--text-rgb), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92); }
 
 .order-editor-panel { display: grid; gap: 12px; }
 
@@ -835,7 +835,7 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(35, 19, 15, 0.38);
+  background: rgba(var(--text-rgb), 0.38);
   backdrop-filter: blur(3px);
   z-index: 2100;
 }
@@ -847,9 +847,9 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   gap: 16px;
   padding: 22px;
   border-radius: 24px;
-  border: 1px solid rgba(230, 209, 192, 0.9);
-  background: rgba(255, 253, 249, 0.98);
-  box-shadow: 0 24px 48px rgba(35, 19, 15, 0.24);
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  background: rgba(var(--panel-rgb), 0.98);
+  box-shadow: 0 24px 48px rgba(var(--text-rgb), 0.24);
 }
 
 .orders-modal-title  { font-size: 1.05rem; font-weight: 800; margin: 0; }

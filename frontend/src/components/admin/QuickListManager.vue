@@ -284,7 +284,7 @@ function doRemove(id: string | number) {
   border-radius: 999px;
   flex-shrink: 0;
 }
-.qlm-badge--on  { background: rgba(34,197,94,0.12); color: #166534; }
+.qlm-badge--on  { background: rgba(var(--success-rgb), 0.12); color: #166534; }
 .qlm-badge--off { background: rgba(0,0,0,0.07);     color: var(--muted); }
 
 /* ── edit fields inline ── */
@@ -340,14 +340,14 @@ function doRemove(id: string | number) {
   transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
 .qlm-icon-btn:hover {
-  background: rgba(201,87,43,0.08);
+  background: rgba(var(--ember-rgb), 0.08);
   color: var(--ember);
-  border-color: rgba(201,87,43,0.2);
+  border-color: rgba(var(--ember-rgb), 0.2);
 }
 .qlm-icon-btn--del:hover {
-  background: rgba(201,50,30,0.09);
-  color: rgb(201,50,30);
-  border-color: rgba(201,50,30,0.2);
+  background: rgba(var(--danger-rgb), 0.09);
+  color: var(--danger);
+  border-color: rgba(var(--danger-rgb), 0.2);
 }
 
 .qlm-btn {
@@ -375,11 +375,11 @@ function doRemove(id: string | number) {
 .qlm-btn--yes {
   width: 32px; height: 32px; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(34,197,94,0.1); color: #166534; border-color: rgba(34,197,94,0.3);
+  background: rgba(var(--success-rgb), 0.1); color: #166534; border-color: rgba(var(--success-rgb), 0.3);
   border-radius: 8px;
 }
-.qlm-btn--yes:hover  { background: rgba(34,197,94,0.2); border-color: rgba(34,197,94,0.45); }
-.qlm-btn--yes:active { background: rgba(34,197,94,0.3); }
+.qlm-btn--yes:hover  { background: rgba(var(--success-rgb), 0.2); border-color: rgba(var(--success-rgb), 0.45); }
+.qlm-btn--yes:active { background: rgba(var(--success-rgb), 0.3); }
 
 .qlm-btn--no {
   width: 32px; height: 32px; padding: 0;

@@ -1,5 +1,8 @@
 :root {
+  /* ── Base palette ── */
   --bg: #fff8f1;
+  --bg-light: #fff9f3;
+  --bg-deep: #fff1e3;
   --panel: #fffdf9;
   --panel-alt: #1f130f;
   --panel-soft: #f6e9dc;
@@ -11,13 +14,38 @@
   --green: #226955;
   --gold: #b98b2f;
   --shadow: 0 18px 40px rgba(76, 33, 18, 0.08);
+
+  /* ── RGB channels (dùng cho rgba() với opacity tuỳ ý) ── */
+  --ember-rgb: 201, 87, 43;
+  --text-rgb: 35, 19, 15;
+  --panel-rgb: 255, 253, 249;
+  --line-rgb: 230, 209, 192;
+  --green-rgb: 34, 105, 85;
+  --gold-rgb: 185, 139, 47;
+  --panel-alt-rgb: 31, 19, 15;
+
+  /* ── Sidebar ── */
+  --sidebar-fg: #fff8f1;
+  --sidebar-fg-rgb: 255, 248, 241;
+  --sidebar-bg-dark: #120908;
+  --sidebar-bg-dark-rgb: 18, 9, 8;
+  --sidebar-bg-mid: #30130e;
+  --sidebar-bg-mid-rgb: 48, 19, 14;
+  --sidebar-bg-deep: #4f2014;
+  --sidebar-bg-deep-rgb: 79, 32, 20;
+
+  /* ── Semantic ── */
+  --overlay: rgba(0, 0, 0, 0.45);
+  --danger: #c9321e;
+  --danger-rgb: 201, 50, 30;
+  --success-rgb: 34, 197, 94;
 }
 
 html {
   width: var(--app-width, 100vw);
   height: var(--app-height, 100svh);
   overscroll-behavior-y: none;
-  background: #fff9f3;
+  background: var(--bg-light);
   touch-action: manipulation;
   overflow: hidden;
 }
@@ -28,9 +56,9 @@ body {
   height: var(--app-height, 100svh);
   color: var(--text);
   background:
-    radial-gradient(circle at top left, rgba(201, 87, 43, 0.18), transparent 24%),
-    radial-gradient(circle at bottom right, rgba(34, 105, 85, 0.14), transparent 26%),
-    linear-gradient(180deg, #fff9f3 0%, #fff1e3 100%);
+    radial-gradient(circle at top left, rgba(var(--ember-rgb), 0.18), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(var(--green-rgb), 0.14), transparent 26%),
+    linear-gradient(180deg, var(--bg-light) 0%, var(--bg-deep) 100%);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   overflow-x: hidden;
   overflow-y: hidden;
@@ -88,7 +116,7 @@ label {
 .app-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--overlay);
   z-index: 1000;
 }
 
@@ -99,9 +127,9 @@ label {
   position: sticky;
   top: 0;
   background:
-    linear-gradient(180deg, rgba(18, 9, 8, 0.95), rgba(48, 19, 14, 0.95)),
+    linear-gradient(180deg, rgba(var(--sidebar-bg-dark-rgb), 0.95), rgba(var(--sidebar-bg-mid-rgb), 0.95)),
     url("data:image/svg+xml,%3Csvg width='160' height='160' viewBox='0 0 160 160' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='20' cy='20' r='1' fill='%23C9572B' fill-opacity='0.2'/%3E%3Ccircle cx='80' cy='60' r='1' fill='%23F6E9DC' fill-opacity='0.2'/%3E%3Ccircle cx='140' cy='100' r='1' fill='%23B98B2F' fill-opacity='0.2'/%3E%3C/svg%3E");
-  color: #fff8f1;
+  color: var(--sidebar-fg);
   z-index: 1001;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -143,7 +171,7 @@ label {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 0.72rem;
-  color: rgba(255, 248, 241, 0.54);
+  color: rgba(var(--sidebar-fg-rgb), 0.54);
 }
 
 .sidebar-link {
@@ -152,15 +180,15 @@ label {
   align-items: center;
   padding: 12px 14px;
   border-radius: 16px;
-  color: #fff8f1;
+  color: var(--sidebar-fg);
   text-decoration: none;
   transition: 0.2s ease;
 }
 
 .sidebar-link.router-link-active,
 .sidebar-link:hover {
-  background: rgba(255, 248, 241, 0.12);
-  color: #fff8f1;
+  background: rgba(var(--sidebar-fg-rgb), 0.12);
+  color: var(--sidebar-fg);
 }
 
 .topbar {
@@ -170,7 +198,7 @@ label {
   gap: 16px;
   padding: 18px 24px;
   border-bottom: 1px solid var(--line);
-  background: rgba(255, 253, 249, 0.9);
+  background: rgba(var(--panel-rgb), 0.9);
   backdrop-filter: blur(12px);
   position: sticky;
   top: 0;
@@ -213,20 +241,20 @@ label {
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  border: 1px solid rgba(35, 19, 15, 0.12);
-  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(var(--text-rgb), 0.12);
+  background: rgba(255, 255, 255, 0.7); /* white alpha – intentional */
   color: var(--text);
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 .topbar-icon-button:hover {
-  background: rgba(201, 87, 43, 0.1);
-  border-color: rgba(201, 87, 43, 0.24);
+  background: rgba(var(--ember-rgb), 0.1);
+  border-color: rgba(var(--ember-rgb), 0.24);
   color: var(--ember-strong);
 }
 
 .topbar-icon-button:focus-visible {
-  outline: 2px solid rgba(201, 87, 43, 0.28);
+  outline: 2px solid rgba(var(--ember-rgb), 0.28);
   outline-offset: 2px;
   box-shadow: none;
 }
@@ -241,8 +269,8 @@ label {
 }
 
 .page-panel {
-  background: rgba(255, 253, 249, 0.88);
-  border: 1px solid rgba(230, 209, 192, 0.9);
+  background: rgba(var(--panel-rgb), 0.88);
+  border: 1px solid rgba(var(--line-rgb), 0.9);
   border-radius: 24px;
   box-shadow: var(--shadow);
   padding: 20px;
@@ -288,7 +316,7 @@ label {
 }
 
 .table-card {
-  background: rgba(255, 253, 249, 0.95);
+  background: rgba(var(--panel-rgb), 0.95);
   border: 1px solid var(--line);
   border-radius: 24px;
   overflow: hidden;
@@ -333,9 +361,9 @@ label {
   flex-direction: column;
   justify-content: space-between;
   background:
-    linear-gradient(160deg, rgba(31, 19, 15, 0.92), rgba(79, 32, 20, 0.9)),
-    radial-gradient(circle at top left, rgba(185, 139, 47, 0.35), transparent 26%);
-  color: #fff8f1;
+    linear-gradient(160deg, rgba(var(--panel-alt-rgb), 0.92), rgba(var(--sidebar-bg-deep-rgb), 0.9)),
+    radial-gradient(circle at top left, rgba(var(--gold-rgb), 0.35), transparent 26%);
+  color: var(--sidebar-fg);
 }
 
 .login-card {
@@ -347,8 +375,8 @@ label {
 
 .login-panel {
   width: min(460px, 100%);
-  background: rgba(255, 253, 249, 0.92);
-  border: 1px solid rgba(230, 209, 192, 0.9);
+  background: rgba(var(--panel-rgb), 0.92);
+  border: 1px solid rgba(var(--line-rgb), 0.9);
   border-radius: 28px;
   box-shadow: var(--shadow);
   padding: 28px;
@@ -368,7 +396,7 @@ label {
 .menu-card {
   border-radius: 24px;
   overflow: hidden;
-  background: rgba(255, 253, 249, 0.94);
+  background: rgba(var(--panel-rgb), 0.94);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
 }
@@ -376,8 +404,8 @@ label {
 .menu-image {
   height: 180px;
   background:
-    linear-gradient(135deg, rgba(201, 87, 43, 0.28), rgba(31, 19, 15, 0.6)),
-    radial-gradient(circle at top right, rgba(255, 248, 241, 0.28), transparent 26%);
+    linear-gradient(135deg, rgba(var(--ember-rgb), 0.28), rgba(var(--panel-alt-rgb), 0.6)),
+    radial-gradient(circle at top right, rgba(var(--sidebar-fg-rgb), 0.28), transparent 26%);
 }
 
 .menu-body {

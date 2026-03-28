@@ -458,7 +458,7 @@ onMounted(loadOrders);
   top: -24px;
   z-index: 10;
   background: #fff;
-  border-bottom: 1px solid rgba(35, 19, 15, 0.1);
+  border-bottom: 1px solid rgba(var(--text-rgb), 0.1);
 }
 
 .cust-filter-tabs {
@@ -466,7 +466,7 @@ onMounted(loadOrders);
   overflow-x: auto;
   scrollbar-width: none;
   gap: 0;
-  border-bottom: 1px solid rgba(35, 19, 15, 0.06);
+  border-bottom: 1px solid rgba(var(--text-rgb), 0.06);
 }
 .cust-filter-tabs::-webkit-scrollbar { display: none; }
 
@@ -501,7 +501,7 @@ onMounted(loadOrders);
 .cust-date-input {
   flex: 1;
   height: 34px;
-  border: 1px solid rgba(35, 19, 15, 0.15);
+  border: 1px solid rgba(var(--text-rgb), 0.15);
   border-radius: 4px;
   padding: 0 8px;
   font-size: 0.85rem;
@@ -538,7 +538,7 @@ onMounted(loadOrders);
 
 .cust-card {
   padding: 14px 16px;
-  border-bottom: 1px solid rgba(35, 19, 15, 0.08);
+  border-bottom: 1px solid rgba(var(--text-rgb), 0.08);
   display: grid;
   gap: 10px;
   background: #fff;
@@ -631,7 +631,7 @@ onMounted(loadOrders);
 .cust-qty-btn {
   width: 26px;
   height: 26px;
-  border: 1px solid rgba(35, 19, 15, 0.18);
+  border: 1px solid rgba(var(--text-rgb), 0.18);
   background: none;
   border-radius: 2px;
   font-size: 0.95rem;
@@ -674,7 +674,7 @@ onMounted(loadOrders);
   flex: 1;
   height: 32px;
   padding: 0 8px;
-  border: 1px solid rgba(35, 19, 15, 0.15);
+  border: 1px solid rgba(var(--text-rgb), 0.15);
   border-radius: 4px;
   background: #fafafa;
   font-size: 0.85rem;
@@ -683,7 +683,7 @@ onMounted(loadOrders);
 .cust-add-btn {
   width: 32px;
   height: 32px;
-  border: 1px solid rgba(35, 19, 15, 0.25);
+  border: 1px solid rgba(var(--text-rgb), 0.25);
   background: none;
   border-radius: 4px;
   font-size: 1.1rem;
@@ -703,7 +703,7 @@ onMounted(loadOrders);
   gap: 10px;
   flex-wrap: wrap;
   padding-top: 6px;
-  border-top: 1px solid rgba(35, 19, 15, 0.06);
+  border-top: 1px solid rgba(var(--text-rgb), 0.06);
 }
 
 .cust-total {
@@ -729,7 +729,7 @@ onMounted(loadOrders);
 .cust-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .cust-btn-save   { background: #23130f; color: #fff; }
-.cust-btn-ghost  { background: none; border: 1px solid rgba(35,19,15,0.22); color: #23130f; }
+.cust-btn-ghost  { background: none; border: 1px solid rgba(var(--text-rgb), 0.22); color: #23130f; }
 .cust-btn-cancel { background: none; border: 1px solid rgba(180,60,40,0.35); color: #b43c28; }
 
 /* ─── Error ────────────────────────────────────────── */

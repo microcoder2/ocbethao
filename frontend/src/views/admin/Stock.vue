@@ -367,13 +367,13 @@ async function createIngredient() {
 .stock-search-icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 0.9rem; pointer-events: none; }
 .stock-search {
   width: 100%; padding: 10px 14px 10px 36px; border: 1px solid var(--line);
-  border-radius: 14px; background: rgba(255,253,249,0.9); font-size: 0.95rem;
+  border-radius: 14px; background: rgba(var(--panel-rgb), 0.9); font-size: 0.95rem;
   color: var(--text); outline: none; box-sizing: border-box; transition: border-color 0.18s;
 }
 .stock-search:focus { border-color: var(--ember); }
 
 .stock-error {
-  background: rgba(201,87,43,0.1); border: 1px solid rgba(201,87,43,0.3);
+  background: rgba(var(--ember-rgb), 0.1); border: 1px solid rgba(var(--ember-rgb), 0.3);
   border-radius: 14px; padding: 12px 16px; color: var(--ember-strong);
   font-size: 0.9rem; margin-bottom: 16px;
 }
@@ -383,12 +383,12 @@ async function createIngredient() {
 
 /* new card */
 .stock-card {
-  background: rgba(255,253,249,0.7); border: 1px solid var(--line); border-radius: 20px;
+  background: rgba(var(--panel-rgb), 0.7); border: 1px solid var(--line); border-radius: 20px;
   padding: 14px; display: flex; flex-direction: column; gap: 10px; opacity: 0.55;
   transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s; position: relative; overflow: hidden;
 }
 .stock-card-new { border-style: dashed; opacity: 0.75; justify-content: center; min-height: 80px; }
-.stock-card-new.is-open { opacity: 1; border-style: solid; border-color: rgba(201,87,43,0.3); }
+.stock-card-new.is-open { opacity: 1; border-style: solid; border-color: rgba(var(--ember-rgb), 0.3); }
 
 .stock-new-trigger {
   display: flex; align-items: center; justify-content: center; gap: 8px;

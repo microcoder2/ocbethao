@@ -432,7 +432,7 @@ onBeforeUnmount(() => {
     ),
     radial-gradient(
       circle at bottom right,
-      rgba(201, 87, 43, 0.16),
+      rgba(var(--ember-rgb), 0.16),
       transparent 28%
     ),
     linear-gradient(160deg, #fff8f0 0%, #fffdf9 55%, #f8ead9 100%);
@@ -479,7 +479,7 @@ onBeforeUnmount(() => {
     rgba(255, 255, 255, 0.94),
     rgba(255, 249, 241, 0.92)
   );
-  border: 1px solid rgba(230, 209, 192, 0.9);
+  border: 1px solid rgba(var(--line-rgb), 0.9);
   box-shadow:
     0 30px 60px rgba(88, 38, 17, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.74);
