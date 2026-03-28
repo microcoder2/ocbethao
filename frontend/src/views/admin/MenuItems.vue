@@ -57,7 +57,8 @@
               :class="{ 'mi-row--dim': item.status !== 'ACTIVE' }"
             >
               <td class="mi-td mi-td--img">
-                <img :src="resolveImg(item.imageUrl)" class="mi-thumb" @error="onImgError" />
+                <img v-if="item.imageUrl && !failedImgs[item.id]" :src="resolveImg(item.imageUrl)" class="mi-thumb" @error="failedImgs[item.id] = true" />
+                <div v-else class="mi-thumb mi-thumb--blank" v-html="blankIngredientSvg"></div>
               </td>
               <td class="mi-td">
                 <div class="mi-name">{{ item.name }}</div>
@@ -136,7 +137,8 @@
 
             <!-- ── image upload via CropDialog ── -->
             <div class="mi-img-wrap" @click="imgRef?.click()">
-              <img :src="resolveImg(modal.form.imageUrl)" class="mi-img-preview" @error="onImgError" />
+              <img v-if="modal.form.imageUrl && !modalImgFailed" :src="resolveImg(modal.form.imageUrl)" class="mi-img-preview" @error="modalImgFailed = true" />
+              <div v-else class="mi-img-preview mi-img-preview--blank" v-html="blankIngredientSvg"></div>
               <div class="mi-img-overlay">
                 <i v-if="modal.uploading" class="bi bi-hourglass-split"></i>
                 <i v-else class="bi bi-camera-fill"></i>
@@ -311,7 +313,8 @@
             </button>
           </div>
           <div v-if="viewModal.item" class="mi-modal-body">
-            <img :src="resolveImg(viewModal.item.imageUrl)" class="mi-view-img" @error="onImgError" />
+            <img v-if="viewModal.item.imageUrl && !viewImgFailed" :src="resolveImg(viewModal.item.imageUrl)" class="mi-view-img" @error="viewImgFailed = true" />
+            <div v-else class="mi-view-img mi-view-img--blank" v-html="blankIngredientSvg"></div>
             <dl class="mi-view-dl">
               <dt>Nhóm</dt>
               <dd>{{ viewModal.item.category?.name || '—' }}</dd>
@@ -362,11 +365,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from "vue";
+import { ref, reactive, computed, watch, onMounted } from "vue";
 import { api } from "../../api";
 import { formatMoney } from "../../utils/format";
 import { API_BASE_URL } from "../../config";
-import blankIngredient from "../../assets/blank_ingredient.svg";
+import blankIngredientSvg from "../../assets/blank_ingredient.svg?raw";
 import CropDialog from "../../components/admin/CropDialog.vue";
 import QuickListManager from "../../components/admin/QuickListManager.vue";
 
@@ -654,14 +657,17 @@ const selectedIngUnit = computed(() =>
   ingredients.value.find(i => i.id === modal.form.ingredientId)?.unit ?? ""
 );
 
-// ── helpers ────────────────────────────────────────────────────────────
-function resolveImg(url?: string | null): string {
-  if (!url) return blankIngredient;
-  return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
-}
+// ── image helpers ───────────────────────────────────────────────────────
+const failedImgs     = reactive<Record<number, boolean>>({});
+const modalImgFailed = ref(false);
+const viewImgFailed  = ref(false);
 
-function onImgError(e: Event) {
-  (e.target as HTMLImageElement).src = blankIngredient;
+watch(() => modal.form.imageUrl,   () => { modalImgFailed.value = false; });
+watch(() => viewModal.item?.imageUrl, () => { viewImgFailed.value  = false; });
+
+function resolveImg(url?: string | null): string {
+  if (!url) return "";
+  return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
 }
 
 function slugify(text: string): string {
@@ -925,6 +931,12 @@ onMounted(loadData);
   width: 46px; height: 36px; object-fit: cover;
   border-radius: 8px; display: block; background: var(--surface, #f5f3ef);
 }
+.mi-thumb--blank {
+  width: 46px; height: 36px; border-radius: 8px;
+  flex-shrink: 0; overflow: hidden;
+  background: var(--panel-soft); color: var(--ember);
+  display: flex; align-items: center; justify-content: center;
+}
 .mi-name { font-weight: 600; }
 .mi-slug { font-size: 0.74rem; color: var(--muted); font-family: monospace; margin-top: 1px; }
 .mi-muted { color: var(--muted); }
@@ -1023,6 +1035,11 @@ onMounted(loadData);
   background: var(--surface, #f5f3ef); flex-shrink: 0;
 }
 .mi-img-preview { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mi-img-preview--blank {
+  width: 100%; height: 100%;
+  background: var(--panel-soft); color: var(--ember);
+  display: flex; align-items: center; justify-content: center;
+}
 .mi-img-overlay {
   position: absolute; inset: 0; background: rgba(0,0,0,0.28);
   display: flex; align-items: center; justify-content: center;
@@ -1098,6 +1115,18 @@ onMounted(loadData);
   width: 100%; border-radius: 12px; object-fit: cover;
   max-height: 200px; display: block; background: var(--surface, #f5f3ef);
 }
+.mi-view-img--blank {
+  width: 100%; border-radius: 12px; max-height: 200px; min-height: 120px;
+  background: var(--panel-soft); color: var(--ember);
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* thumbnail: fill the small cell entirely */
+.mi-thumb--blank :deep(svg) { width: 100%; aspect-ratio: 4/3; display: block; }
+
+/* larger placeholders: SVG floats centered at natural size, no stretching */
+.mi-img-preview--blank :deep(svg),
+.mi-view-img--blank :deep(svg) { width: 55%; aspect-ratio: 4/3; display: block; }
 .mi-view-dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 0.9rem; }
 .mi-view-dl dt {
   font-weight: 700; color: var(--muted); font-size: 0.74rem;

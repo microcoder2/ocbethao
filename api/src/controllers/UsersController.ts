@@ -46,6 +46,21 @@ class UserBody {
   authIdentities?: AuthIdentityBody[];
 }
 
+class UpdateUserBody {
+  fullName!: string;
+  password?: string;
+  role?: Role;
+  username?: string;
+  phone?: string;
+  email?: string;
+  preferredAuthProvider?: string;
+  customerType?: CustomerType;
+  avatarUrl?: string;
+  notes?: string;
+  isActive?: boolean;
+  authIdentities?: AuthIdentityBody[];
+}
+
 @Route("users")
 @Tags("Users")
 export class UsersController extends Controller {
@@ -124,10 +139,10 @@ export class UsersController extends Controller {
 
   @Put("{id}")
   @Security("bearerAuth", ["ADMIN"])
-  public async updateUser(@Path() id: number, @Body() body: UserBody) {
+  public async updateUser(@Path() id: number, @Body() body: UpdateUserBody) {
     const data: Prisma.UserUpdateInput = {
       fullName: body.fullName,
-      role: body.role,
+      ...(body.role !== undefined && { role: body.role }),
       username: body.username,
       phone: body.phone,
       email: body.email?.toLowerCase(),

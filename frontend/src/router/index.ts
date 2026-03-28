@@ -29,7 +29,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: "admin/dashboard",
         component: () => import("../views/admin/Dashboard.vue"),
-        meta: { title: "Tong quan" },
+        meta: { title: "Tổng quan" },
       },
       {
         path: "admin/menu-items",
@@ -44,7 +44,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: "admin/orders",
         component: () => import("../views/admin/Orders.vue"),
-        meta: { title: "Don hang" },
+        meta: { title: "Đơn hàng" },
       },
       {
         path: "admin/stock",
@@ -54,7 +54,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: "admin/users",
         component: () => import("../views/admin/Users.vue"),
-        meta: { title: "Nguoi dung" },
+        meta: { title: "Người dùng" },
       },
       {
         path: "staff/console",
@@ -64,11 +64,11 @@ const routes: RouteRecordRaw[] = [
       {
         path: "staff/orders",
         component: () => import("../views/staff/Orders.vue"),
-        meta: { title: "Don hang staff" },
+        meta: { title: "Đơn hàng staff" },
       },
       {
         path: "customer/menu",
-        component: () => import("../views/customer/Menu.vue"),
+        component: () => import("../views/customer/CustomerMenuPage.vue"),
         meta: { title: "Thực đơn hôm nay" },
       },
       {

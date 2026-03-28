@@ -23,16 +23,16 @@
     </div>
 
     <div class="topbar-actions">
-      <RouterLink
-        v-if="accountPath"
-        :to="accountPath"
+      <button
         class="btn topbar-icon-button topbar-account-button"
-        aria-label="Tài khoản"
-        title="Tài khoản"
+        type="button"
+        aria-label="Hồ sơ"
+        title="Hồ sơ"
+        @click="showProfile = true"
       >
         <i class="bi bi-person-circle"></i>
-      </RouterLink>
-      <div class="topbar-user">{{ user?.fullName || APP_NAME }}</div>
+      </button>
+      <div class="topbar-user">{{ displayName }}</div>
       <button
         class="btn topbar-icon-button topbar-logout-button"
         type="button"
@@ -44,15 +44,22 @@
       </button>
     </div>
   </header>
+
+  <ProfileModal
+    v-if="showProfile"
+    @close="showProfile = false"
+    @saved="onProfileSaved"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { ref, computed } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { APP_NAME } from "../config";
 import logoUrl from "../assets/logo.header.svg";
 import { api } from "../api";
 import { getUser, logout } from "../utils/auth";
+import ProfileModal from "./ProfileModal.vue";
 
 withDefaults(defineProps<{ showBrand?: boolean }>(), {
   showBrand: false,
@@ -60,15 +67,15 @@ withDefaults(defineProps<{ showBrand?: boolean }>(), {
 
 defineEmits<{ "toggle-sidebar": [] }>();
 
-const router = useRouter();
-const user = computed(() => getUser());
-const accountPath = computed(() => {
-  const role = String(user.value?.role || "").toUpperCase();
-  if (role === "ADMIN") return "/admin/users";
-  if (role === "STAFF") return "/staff/orders";
-  if (role === "CUSTOMER") return "/customer/orders";
-  return "";
-});
+const router      = useRouter();
+const user        = ref(getUser());
+const showProfile = ref(false);
+
+const displayName = computed(() => user.value?.fullName || APP_NAME);
+
+function onProfileSaved() {
+  user.value = getUser();
+}
 
 async function handleLogout() {
   try {
