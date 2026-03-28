@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Path,
   Post,
@@ -97,5 +98,15 @@ export class IngredientsController extends Controller {
       },
     });
     return serializeIngredient(updated);
+  }
+
+  @Delete("{id}")
+  @Security("bearerAuth", ["ADMIN"])
+  public async deleteIngredient(@Path() id: number) {
+    await prisma.ingredient.update({
+      where: { id },
+      data: { isActive: false },
+    });
+    this.setStatus(204);
   }
 }

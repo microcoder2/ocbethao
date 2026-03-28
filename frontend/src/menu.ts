@@ -8,13 +8,21 @@ const MENU: Record<string, AppMenuItem[]> = {
   ADMIN: [
     { label: "Tổng Quan", to: "/admin/dashboard", icon: "bi-grid-1x2-fill" },
     { label: "Quản Lý Đơn", to: "/admin/orders", icon: "bi-receipt-cutoff" },
-    { label: "Nhập Kho Hải Sản", to: "/admin/stock", icon: "bi-box-seam-fill" },
-    { label: "Tạo Menu Ngày", to: "/admin/daily-menus", icon: "bi-calendar2-week-fill" },
+    { label: "Đi Chợ Hôm Nay", to: "/admin/stock", icon: "bi-box-seam-fill" },
+    {
+      label: "Menu Hôm Nay",
+      to: "/admin/daily-menus",
+      icon: "bi-calendar2-week-fill",
+    },
     { label: "Ngân Hàng Món", to: "/admin/menu-items", icon: "bi-egg-fried" },
     { label: "Tập Khách Hàng", to: "/admin/users", icon: "bi-people-fill" },
   ],
   STAFF: [
-    { label: "Console", to: "/staff/console", icon: "bi-lightning-charge-fill" },
+    {
+      label: "Console",
+      to: "/staff/console",
+      icon: "bi-lightning-charge-fill",
+    },
     { label: "Đơn hàng", to: "/staff/orders", icon: "bi-cup-hot-fill" },
   ],
   CUSTOMER: [

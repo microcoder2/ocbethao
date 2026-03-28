@@ -436,8 +436,9 @@ export class DailyMenusController extends Controller {
     const code = body.code || buildMenuCode(body.serviceDate);
 
     const created = await prisma.$transaction(async (tx) => {
-      const menu = await tx.dailyMenu.create({
-        data: {
+      const menu = await tx.dailyMenu.upsert({
+        where: { code },
+        create: {
           code,
           title: body.title,
           serviceDate: new Date(body.serviceDate),
@@ -446,6 +447,13 @@ export class DailyMenusController extends Controller {
           bannerText: body.bannerText,
           createdById: authUser.id,
         },
+        update: {
+          title: body.title,
+          serviceDate: new Date(body.serviceDate),
+          note: body.note,
+          bannerText: body.bannerText,
+        },
+        select: { id: true },
       });
 
       await syncDailyMenuResources(tx, menu.id, body);
