@@ -4,8 +4,8 @@
       <div class="page-panel">
         <div class="d-flex justify-content-between align-items-center mb-3">
           <div>
-            <div class="panel-title mb-1">{{ menu?.title || "Thuc don hom nay" }}</div>
-            <div class="text-muted">{{ menu?.bannerText || "Staff co the tao don tai ban tu day." }}</div>
+            <div class="panel-title mb-1">{{ menu?.title || "Thực đơn hôm nay" }}</div>
+            <div class="text-muted">{{ menu?.bannerText || "Nhân viên có thể tạo đơn tại bàn từ đây." }}</div>
           </div>
           <button class="btn btn-outline-dark" @click="loadData">Reload</button>
         </div>
@@ -20,8 +20,8 @@
                 </div>
                 <span class="tag">{{ formatMoney(item.sellingPrice) }}</span>
               </div>
-              <div class="small text-muted mt-3">Con lai: {{ item.availableQuantity ?? "khong gioi han" }}</div>
-              <button class="btn btn-ember btn-sm mt-3" @click="addToCart(item)">Them vao don</button>
+              <div class="small text-muted mt-3">Còn lại: {{ item.availableQuantity ?? "không giới hạn" }}</div>
+              <button class="btn btn-ember btn-sm mt-3" @click="addToCart(item)">Thêm vào đơn</button>
             </div>
           </article>
         </div>
@@ -30,17 +30,17 @@
 
     <div class="col-12 col-xl-4">
       <div class="page-panel sticky-panel">
-        <div class="panel-title">Tao don tai ban</div>
+        <div class="panel-title">Tạo đơn tại bàn</div>
         <div class="form-grid mb-3">
-          <input v-model="form.tableLabel" class="form-control" placeholder="Ban hem 02" />
-          <input v-model="form.guestName" class="form-control" placeholder="Ten khach" />
-          <input v-model="form.guestPhone" class="form-control" placeholder="So dien thoai" />
-          <input v-model.number="form.guestCount" type="number" class="form-control" placeholder="So khach" />
-          <input v-model="form.arrivalAt" type="datetime-local" class="form-control" placeholder="Gio hen den" />
-          <textarea v-model="form.note" class="form-control" rows="2" placeholder="Ghi chu order"></textarea>
+          <input v-model="form.tableLabel" class="form-control" placeholder="Bàn số 02" />
+          <input v-model="form.guestName" class="form-control" placeholder="Tên khách" />
+          <input v-model="form.guestPhone" class="form-control" placeholder="Số điện thoại" />
+          <input v-model.number="form.guestCount" type="number" class="form-control" placeholder="Số khách" />
+          <input v-model="form.arrivalAt" type="datetime-local" class="form-control" placeholder="Giờ hẹn đến" />
+          <textarea v-model="form.note" class="form-control" rows="2" placeholder="Ghi chú đơn hàng"></textarea>
         </div>
 
-        <div v-if="cart.length === 0" class="text-muted small">Chua co mon nao trong don.</div>
+        <div v-if="cart.length === 0" class="text-muted small">Chưa có món nào trong đơn.</div>
         <div v-else class="d-grid gap-2 mb-3">
           <div v-for="line in cart" :key="line.dailyMenuItemId" class="d-flex justify-content-between gap-2 align-items-center">
             <div>
@@ -55,25 +55,25 @@
           </div>
         </div>
 
-        <div class="fw-semibold mb-3">Tong tam tinh: {{ formatMoney(cartTotal) }}</div>
+        <div class="fw-semibold mb-3">Tổng tạm tính: {{ formatMoney(cartTotal) }}</div>
         <button class="btn btn-ember w-100" :disabled="cart.length === 0 || submitting" @click="submitOrder">
-          {{ submitting ? "Dang tao don..." : "Tao don staff" }}
+          {{ submitting ? "Đang tạo đơn..." : "Tạo đơn" }}
         </button>
       </div>
     </div>
 
     <div class="col-12">
       <div class="table-card">
-        <div class="p-3 border-bottom fw-semibold">Don dang xu ly</div>
+        <div class="p-3 border-bottom fw-semibold">Đơn đang xử lý</div>
         <div class="table-responsive">
           <table class="table align-middle mb-0">
             <thead>
               <tr>
-                <th>Ma don</th>
-                <th>Ban / Khach</th>
-                <th>Gio hen</th>
-                <th>Tong</th>
-                <th>Trang thai</th>
+                <th>Mã đơn</th>
+                <th>Bàn / Khách</th>
+                <th>Giờ hẹn</th>
+                <th>Tổng</th>
+                <th>Trạng thái</th>
                 <th></th>
               </tr>
             </thead>
@@ -85,9 +85,9 @@
                 <td>{{ formatMoney(order.totalAmount) }}</td>
                 <td>{{ order.status }}</td>
                 <td class="text-end d-flex justify-content-end gap-2">
-                  <button class="btn btn-sm btn-outline-dark" @click="updateStatus(order.id, 'COMPLETED', 'CASH')">Tien mat</button>
-                  <button class="btn btn-sm btn-ember" @click="updateStatus(order.id, 'COMPLETED', 'TRANSFER')">Chuyen khoan</button>
-                  <button class="btn btn-sm btn-outline-danger" @click="updateStatus(order.id, 'CANCELLED')">Huy</button>
+                  <button class="btn btn-sm btn-outline-dark" @click="updateStatus(order.id, 'COMPLETED', 'CASH')">Tiền mặt</button>
+                  <button class="btn btn-sm btn-ember" @click="updateStatus(order.id, 'COMPLETED', 'TRANSFER')">Chuyển khoản</button>
+                  <button class="btn btn-sm btn-outline-danger" @click="updateStatus(order.id, 'CANCELLED')">Hủy</button>
                 </td>
               </tr>
             </tbody>

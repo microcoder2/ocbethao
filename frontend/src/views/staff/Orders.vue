@@ -1,15 +1,15 @@
 <template>
   <div class="table-card">
-    <div class="p-3 border-bottom fw-semibold">Bang don staff</div>
+    <div class="p-3 border-bottom fw-semibold">Bảng đơn nhân viên</div>
     <div class="table-responsive">
       <table class="table align-middle mb-0">
         <thead>
           <tr>
-            <th>Ma don</th>
-            <th>Khach</th>
-            <th>Ban</th>
-            <th>Tong tien</th>
-            <th>Trang thai</th>
+            <th>Mã đơn</th>
+            <th>Khách</th>
+            <th>Bàn</th>
+            <th>Tổng tiền</th>
+            <th>Trạng thái</th>
           </tr>
         </thead>
         <tbody>
