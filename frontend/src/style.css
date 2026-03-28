@@ -105,6 +105,14 @@ label {
   z-index: 1001;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  transition: transform 0.25s ease, margin-left 0.25s ease;
+}
+
+@media (min-width: 992px) {
+  .sidebar-panel.hidden {
+    transform: translateX(-100%);
+    margin-left: -300px;
+  }
 }
 
 .brand-block {

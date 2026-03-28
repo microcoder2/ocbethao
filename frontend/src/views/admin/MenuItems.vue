@@ -3,8 +3,18 @@
 
     <!-- ── Header ── -->
     <div class="mi-header">
-      <h1 class="mi-title">Ngân hàng món</h1>
-      <div class="mi-header-right">
+      <div class="mi-header-top">
+        <h1 class="mi-title">Ngân hàng món</h1>
+        <div class="mi-header-btns">
+          <button class="mi-icon-btn" :class="{ 'mi-icon-btn--spin': loading }" title="Làm mới" @click="loadData">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+          <button class="mi-icon-btn mi-icon-btn--primary" title="Thêm món mới" @click="openAdd">
+            <i class="bi bi-plus-lg"></i>
+          </button>
+        </div>
+      </div>
+      <div class="mi-header-filters">
         <div class="mi-search-wrap">
           <i class="bi bi-search mi-search-icon"></i>
           <input v-model="search" class="mi-search" placeholder="Tìm tên món..." autocomplete="off" />
@@ -13,12 +23,6 @@
           <option :value="0">Tất cả nhóm</option>
           <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
-        <button class="mi-icon-btn" :class="{ 'mi-icon-btn--spin': loading }" title="Làm mới" @click="loadData">
-          <i class="bi bi-arrow-clockwise"></i>
-        </button>
-        <button class="mi-icon-btn mi-icon-btn--primary" title="Thêm món mới" @click="openAdd">
-          <i class="bi bi-plus-lg"></i>
-        </button>
       </div>
     </div>
 
@@ -29,10 +33,10 @@
           <tr>
             <th class="mi-th mi-th--img"></th>
             <th class="mi-th">Tên món</th>
-            <th class="mi-th">Nhóm</th>
-            <th class="mi-th">Nguyên liệu</th>
-            <th class="mi-th mi-th--right">Giá mẫu</th>
-            <th class="mi-th">Trạng thái</th>
+            <th class="mi-th mi-col-nhom">Nhóm</th>
+            <th class="mi-th mi-col-ing">Nguyên liệu</th>
+            <th class="mi-th mi-th--right mi-col-price">Giá mẫu</th>
+            <th class="mi-th mi-col-status">Trạng thái</th>
             <th class="mi-th mi-th--actions"></th>
           </tr>
         </thead>
@@ -58,12 +62,19 @@
               <td class="mi-td">
                 <div class="mi-name">{{ item.name }}</div>
                 <div class="mi-slug">{{ item.slug }}</div>
+                <!-- mobile-only: category + status inline -->
+                <div class="mi-mobile-meta">
+                  <span v-if="item.category" class="mi-badge">{{ item.category.name }}</span>
+                  <span class="mi-status" :class="`mi-status--${(item.status || '').toLowerCase()}`">
+                    {{ item.status }}
+                  </span>
+                </div>
               </td>
-              <td class="mi-td">
+              <td class="mi-td mi-col-nhom">
                 <span v-if="item.category" class="mi-badge">{{ item.category.name }}</span>
                 <span v-else class="mi-muted">—</span>
               </td>
-              <td class="mi-td">
+              <td class="mi-td mi-col-ing">
                 <template v-if="item.ingredientPresets?.[0]">
                   <div class="mi-name">{{ item.ingredientPresets[0].ingredient?.name }}</div>
                   <div class="mi-slug">
@@ -73,17 +84,20 @@
                 </template>
                 <span v-else class="mi-muted">—</span>
               </td>
-              <td class="mi-td mi-td--right">{{ formatMoney(item.currentPrice) }}</td>
-              <td class="mi-td">
+              <td class="mi-td mi-td--right mi-col-price">{{ formatMoney(item.currentPrice) }}</td>
+              <td class="mi-td mi-col-status">
                 <span class="mi-status" :class="`mi-status--${(item.status || '').toLowerCase()}`">
                   {{ item.status }}
                 </span>
               </td>
               <td class="mi-td mi-td--actions">
                 <div v-if="deleteConfirmId === item.id" class="mi-row-confirm">
-                  <span class="mi-confirm-text">Xóa?</span>
-                  <button class="mi-row-btn mi-row-btn--del" @click="confirmDelete(item)">Có</button>
-                  <button class="mi-row-btn" @click="deleteConfirmId = null">Không</button>
+                  <button class="mi-row-btn mi-row-btn--yes" title="Xác nhận xóa" @click="confirmDelete(item)">
+                    <i class="bi bi-check-lg"></i>
+                  </button>
+                  <button class="mi-row-btn mi-row-btn--no" title="Hủy" @click="deleteConfirmId = null">
+                    <i class="bi bi-x-lg"></i>
+                  </button>
                 </div>
                 <div v-else class="mi-row-actions">
                   <button class="mi-row-btn" title="Xem" @click="openView(item)">
@@ -804,78 +818,69 @@ onMounted(loadData);
 
 <style scoped>
 /* ── shell ── */
-.mi-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
+.mi-shell { display: flex; flex-direction: column; gap: 20px; }
 
 /* ── header ── */
-.mi-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.mi-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--text);
-  margin: 0;
-}
-.mi-header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+.mi-header { display: flex; flex-direction: column; gap: 10px; }
 
-.mi-search-wrap { position: relative; }
+.mi-header-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.mi-title { font-size: 1.25rem; font-weight: 700; color: var(--text); margin: 0; }
+.mi-header-btns { display: flex; gap: 8px; flex-shrink: 0; }
+
+.mi-header-filters { display: flex; gap: 8px; }
+
+.mi-search-wrap { position: relative; flex: 1; min-width: 0; }
 .mi-search-icon {
   position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
   color: var(--muted); font-size: 0.82rem; pointer-events: none;
 }
 .mi-search {
-  padding: 7px 12px 7px 30px;
+  padding: 8px 12px 8px 30px;
   border: 1px solid var(--line); border-radius: 10px;
-  font-size: 0.88rem; background: rgba(255,255,255,0.8);
-  color: var(--text); outline: none; width: 200px;
+  font-size: 0.9rem; background: rgba(255,255,255,0.8);
+  color: var(--text); outline: none; width: 100%; box-sizing: border-box;
   transition: border-color 0.15s;
 }
 .mi-search:focus { border-color: var(--ember); }
 
 .mi-filter-select {
-  padding: 7px 10px;
+  padding: 8px 10px; flex-shrink: 0;
   border: 1px solid var(--line); border-radius: 10px;
-  font-size: 0.88rem; background: rgba(255,255,255,0.8);
+  font-size: 0.9rem; background: rgba(255,255,255,0.8);
   color: var(--text); outline: none; cursor: pointer;
+  max-width: 160px;
 }
 
 .mi-icon-btn {
-  width: 36px; height: 36px;
+  width: 40px; height: 40px;
   border-radius: 10px; border: 1px solid var(--line);
   background: rgba(255,255,255,0.8); color: var(--text);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; font-size: 1rem; flex-shrink: 0;
   transition: background 0.15s, border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 .mi-icon-btn:hover { background: rgba(201,87,43,0.08); border-color: rgba(201,87,43,0.3); }
+.mi-icon-btn:active { background: rgba(201,87,43,0.14); }
 .mi-icon-btn--spin i { animation: mi-spin 0.7s linear infinite; }
 .mi-icon-btn--primary {
   background: linear-gradient(135deg, var(--ember), var(--ember-strong, #b5521a));
   border-color: transparent; color: #fff;
 }
 .mi-icon-btn--primary:hover { opacity: 0.88; }
+.mi-icon-btn--primary:active { opacity: 0.78; }
 
 @keyframes mi-spin { to { transform: rotate(360deg); } }
 
 /* ── table ── */
 .mi-table-wrap {
   background: rgba(255,253,249,0.75);
-  border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 16px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
 }
-.mi-table { width: 100%; border-collapse: collapse; }
+.mi-table { width: 100%; border-collapse: collapse; min-width: 480px; }
 
 .mi-th {
   padding: 10px 14px; font-size: 0.75rem; font-weight: 700;
@@ -883,9 +888,14 @@ onMounted(loadData);
   border-bottom: 1px solid var(--line); text-align: left;
   background: rgba(245,240,232,0.55); white-space: nowrap;
 }
-.mi-th--img      { width: 56px; }
-.mi-th--right    { text-align: right; }
-.mi-th--actions  { width: 108px; }
+.mi-th--img     { width: 56px; }
+.mi-th--right   { text-align: right; }
+.mi-th--actions {
+  width: 108px;
+  position: sticky; right: 0; z-index: 2;
+  background: rgba(245,240,232,0.92);
+  box-shadow: -2px 0 6px rgba(0,0,0,0.06);
+}
 
 .mi-td {
   padding: 10px 14px; font-size: 0.88rem;
@@ -893,14 +903,23 @@ onMounted(loadData);
 }
 .mi-td--img     { padding: 8px 8px 8px 14px; }
 .mi-td--right   { text-align: right; font-weight: 600; }
-.mi-td--actions { padding: 8px 10px; }
+.mi-td--actions {
+  padding: 8px 10px;
+  position: sticky; right: 0; z-index: 1;
+  background: rgba(255,253,249,0.97);
+  box-shadow: -2px 0 6px rgba(0,0,0,0.05);
+}
 .mi-td--center  { text-align: center; color: var(--muted); padding: 32px; }
 .mi-td--muted   { color: var(--muted); }
 
 .mi-row { transition: background 0.1s; }
 .mi-row:hover { background: rgba(201,87,43,0.04); }
+.mi-row:hover .mi-td--actions { background: rgba(255,246,240,0.98); }
 .mi-row--dim { opacity: 0.48; }
 .mi-row:last-child .mi-td { border-bottom: none; }
+
+/* mobile-only meta: hidden on desktop */
+.mi-mobile-meta { display: none; }
 
 .mi-thumb {
   width: 46px; height: 36px; object-fit: cover;
@@ -923,19 +942,38 @@ onMounted(loadData);
 .mi-status--hidden   { background: rgba(251,191,36,0.15); color: #92400e; }
 .mi-status--archived { background: rgba(0,0,0,0.07);      color: var(--muted); }
 
+/* ── row actions ── */
 .mi-row-actions, .mi-row-confirm {
   display: flex; align-items: center; justify-content: flex-end; gap: 4px;
 }
-.mi-confirm-text { font-size: 0.78rem; color: var(--muted); margin-right: 2px; }
+
 .mi-row-btn {
-  width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line);
+  width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
   background: transparent; color: var(--muted);
   display: flex; align-items: center; justify-content: center;
-  cursor: pointer; font-size: 0.82rem; padding: 0;
+  cursor: pointer; font-size: 0.85rem; padding: 0;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
-.mi-row-btn:hover { background: rgba(201,87,43,0.08); color: var(--ember); border-color: rgba(201,87,43,0.25); }
-.mi-row-btn--del:hover { background: rgba(201,50,30,0.1); color: rgb(201,50,30); border-color: rgba(201,50,30,0.25); }
+.mi-row-btn:hover  { background: rgba(201,87,43,0.08); color: var(--ember); border-color: rgba(201,87,43,0.25); }
+.mi-row-btn:active { background: rgba(201,87,43,0.16); }
+
+.mi-row-btn--del:hover  { background: rgba(201,50,30,0.1);  color: rgb(201,50,30);  border-color: rgba(201,50,30,0.25); }
+.mi-row-btn--del:active { background: rgba(201,50,30,0.18); color: rgb(201,50,30); }
+
+/* delete confirm: green check + neutral x */
+.mi-row-btn--yes {
+  background: rgba(34,197,94,0.1); color: #166534; border-color: rgba(34,197,94,0.3);
+}
+.mi-row-btn--yes:hover  { background: rgba(34,197,94,0.2); color: #14532d; border-color: rgba(34,197,94,0.45); }
+.mi-row-btn--yes:active { background: rgba(34,197,94,0.3); }
+
+.mi-row-btn--no {
+  background: rgba(0,0,0,0.05); color: var(--muted); border-color: var(--line);
+}
+.mi-row-btn--no:hover  { background: rgba(0,0,0,0.1); color: var(--text); }
+.mi-row-btn--no:active { background: rgba(0,0,0,0.15); }
 
 /* ── modal backdrop ── */
 .mi-backdrop {
@@ -958,16 +996,19 @@ onMounted(loadData);
   font-weight: 700; font-size: 1rem; color: var(--text); flex-shrink: 0;
 }
 .mi-modal-close {
-  width: 30px; height: 30px; border-radius: 8px; border: none;
+  width: 36px; height: 36px; border-radius: 8px; border: none;
   background: transparent; cursor: pointer; color: var(--muted);
-  display: flex; align-items: center; justify-content: center; font-size: 0.82rem;
+  display: flex; align-items: center; justify-content: center; font-size: 0.85rem;
   transition: background 0.12s, color 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
-.mi-modal-close:hover { background: rgba(0,0,0,0.06); color: var(--text); }
+.mi-modal-close:hover  { background: rgba(0,0,0,0.06); color: var(--text); }
+.mi-modal-close:active { background: rgba(0,0,0,0.1); }
 
 .mi-modal-body {
   padding: 18px 20px; overflow-y: auto; flex: 1;
   display: flex; flex-direction: column; gap: 14px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .mi-modal-footer {
@@ -985,7 +1026,7 @@ onMounted(loadData);
 .mi-img-overlay {
   position: absolute; inset: 0; background: rgba(0,0,0,0.28);
   display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 1.2rem; opacity: 0; transition: opacity 0.15s;
+  color: #fff; font-size: 1.4rem; opacity: 0; transition: opacity 0.15s;
 }
 .mi-img-wrap:hover .mi-img-overlay { opacity: 1; }
 
@@ -994,60 +1035,63 @@ onMounted(loadData);
 .mi-row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 .mi-row-flags { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
 
-.mi-field { display: flex; flex-direction: column; gap: 4px; }
+.mi-field { display: flex; flex-direction: column; gap: 5px; }
 .mi-field--grow { flex: 1; }
 
 .mi-label { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 
 .mi-input {
-  padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
   font-size: 0.9rem; color: var(--text); background: rgba(255,255,255,0.9);
   outline: none; width: 100%; box-sizing: border-box; transition: border-color 0.15s;
 }
 .mi-input:focus { border-color: var(--ember); }
 .mi-input--sm   { font-size: 0.85rem; }
 .mi-input--mono { font-family: monospace; font-size: 0.82rem; }
-.mi-textarea    { resize: vertical; min-height: 60px; }
+.mi-textarea    { resize: vertical; min-height: 64px; }
 
-/* select group = select + manage button */
 .mi-select-group { display: flex; gap: 4px; }
 .mi-select-group .mi-select { flex: 1; min-width: 0; }
 
 .mi-select {
-  padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
   font-size: 0.9rem; color: var(--text); background: rgba(255,255,255,0.9);
   outline: none; cursor: pointer; width: 100%; transition: border-color 0.15s;
 }
 .mi-select:focus { border-color: var(--ember); }
 
 .mi-manage-btn {
-  width: 36px; flex-shrink: 0;
+  width: 40px; flex-shrink: 0;
   border: 1px solid var(--line); border-radius: 10px;
   background: rgba(255,255,255,0.8); color: var(--muted);
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   font-size: 0.85rem; transition: background 0.12s, color 0.12s, border-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
-.mi-manage-btn:hover {
-  background: rgba(201,87,43,0.08); color: var(--ember); border-color: rgba(201,87,43,0.25);
-}
+.mi-manage-btn:hover  { background: rgba(201,87,43,0.08); color: var(--ember); border-color: rgba(201,87,43,0.25); }
+.mi-manage-btn:active { background: rgba(201,87,43,0.15); }
 
 .mi-checkbox-label {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 0.88rem; color: var(--text);
-  cursor: pointer; user-select: none; padding-bottom: 2px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.9rem; color: var(--text);
+  cursor: pointer; user-select: none; padding: 6px 0;
 }
+.mi-checkbox-label input[type="checkbox"] { width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
 
 /* ── footer buttons ── */
 .mi-btn {
-  padding: 8px 20px; border-radius: 10px;
-  font-size: 0.88rem; font-weight: 700;
+  padding: 10px 22px; border-radius: 10px;
+  font-size: 0.9rem; font-weight: 700;
   cursor: pointer; border: none;
   display: inline-flex; align-items: center; gap: 6px; transition: opacity 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .mi-btn:disabled { opacity: 0.55; cursor: default; }
 .mi-btn--ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
-.mi-btn--ghost:hover { background: rgba(0,0,0,0.04); }
-.mi-btn--save { min-width: 90px; justify-content: center; }
+.mi-btn--ghost:hover  { background: rgba(0,0,0,0.04); }
+.mi-btn--ghost:active { background: rgba(0,0,0,0.08); }
+.mi-btn--save { min-width: 100px; justify-content: center; }
 
 /* ── view modal ── */
 .mi-view-img {
@@ -1057,13 +1101,81 @@ onMounted(loadData);
 .mi-view-dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 0.9rem; }
 .mi-view-dl dt {
   font-weight: 700; color: var(--muted); font-size: 0.74rem;
-  text-transform: uppercase; letter-spacing: 0.05em; align-self: start; padding-top: 2px; white-space: nowrap;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  align-self: start; padding-top: 2px; white-space: nowrap;
 }
 .mi-view-dl dd { margin: 0; color: var(--text); }
 
 /* ── transition ── */
 .mi-fade-enter-active, .mi-fade-leave-active { transition: opacity 0.18s; }
-.mi-fade-enter-from,  .mi-fade-leave-to      { opacity: 0; }
+.mi-fade-enter-from,   .mi-fade-leave-to     { opacity: 0; }
 .mi-fade-enter-active .mi-modal, .mi-fade-leave-active .mi-modal { transition: transform 0.18s; }
 .mi-fade-enter-from .mi-modal,   .mi-fade-leave-to .mi-modal     { transform: translateY(14px) scale(0.97); }
+
+/* ── MOBILE ── */
+@media (max-width: 639px) {
+  /* table: ẩn cột phụ — không cần thiết trên điện thoại */
+  .mi-col-nhom,
+  .mi-col-ing,
+  .mi-col-status { display: none; }
+
+  /* ẩn slug và mobile-meta — chỉ hiện tên sạch */
+  .mi-slug,
+  .mi-mobile-meta { display: none; }
+
+  /* table: thu nhỏ cells */
+  .mi-td { padding: 8px 10px; font-size: 0.85rem; }
+  .mi-td--img { padding: 6px 6px 6px 10px; }
+  .mi-td--actions { padding: 6px 8px; }
+  .mi-th { padding: 8px 10px; }
+
+  /* table: bỏ min-width để vừa màn hình */
+  .mi-table { min-width: unset; width: 100%; }
+
+  /* thumbnail nhỏ hơn */
+  .mi-thumb { width: 40px; height: 32px; }
+
+  /* action buttons lớn hơn cho ngón tay */
+  .mi-row-btn { width: 40px; height: 40px; font-size: 0.95rem; border-radius: 10px; }
+  .mi-th--actions { width: 92px; }
+
+  /* modal: bottom sheet */
+  .mi-backdrop { padding: 0; align-items: flex-end; }
+  .mi-modal {
+    border-radius: 0;
+    max-height: 95dvh; max-height: 95vh;
+    max-width: 100%;
+  }
+  .mi-modal--sm { max-width: 100%; }
+
+  /* modal body: padding nhỏ hơn */
+  .mi-modal-body { padding: 14px 16px; gap: 12px; }
+  .mi-modal-header { padding: 14px 16px; }
+  .mi-modal-footer { padding: 12px 16px; }
+
+  /* form: 1 cột */
+  .mi-row2 { grid-template-columns: 1fr; gap: 10px; }
+  .mi-row3 { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* inputs lớn hơn cho touch */
+  .mi-input, .mi-select { padding: 11px 12px; font-size: 1rem; }
+  .mi-manage-btn { width: 44px; height: 44px; }
+
+  /* image area cao hơn trên mobile */
+  .mi-img-wrap { height: 180px; }
+  .mi-img-overlay { opacity: 0.35; } /* visible by default on touch */
+
+  /* header filters: filter select full width */
+  .mi-filter-select { flex: 1; max-width: unset; }
+
+  /* transition: slide up from bottom */
+  .mi-fade-enter-from .mi-modal,
+  .mi-fade-leave-to .mi-modal { transform: translateY(40px); }
+}
+
+@media (max-width: 400px) {
+  /* very small: chỉ còn tên + actions */
+  .mi-col-price { display: none; }
+  .mi-row3 { grid-template-columns: 1fr; }
+}
 </style>

@@ -2,10 +2,10 @@
   <header class="topbar">
     <div class="topbar-main">
       <button
-        class="btn topbar-icon-button topbar-menu-button d-lg-none"
+        class="btn topbar-icon-button topbar-menu-button"
         type="button"
-        aria-label="Mở menu"
-        title="Mở menu"
+        aria-label="Ẩn/hiện menu"
+        title="Ẩn/hiện menu"
         @click="$emit('toggle-sidebar')"
       >
         <i class="bi bi-list"></i>

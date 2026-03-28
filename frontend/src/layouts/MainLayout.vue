@@ -12,17 +12,25 @@
 </template>
 
 <script setup lang="ts">
-import { RouterView } from "vue-router";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { RouterView, useRoute } from "vue-router";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppHeader from "../components/Header.vue";
 import AppSidebar from "../components/Sidebar.vue";
 
 const MOBILE_BREAKPOINT_QUERY = "(max-width: 991px)";
 const isMobile = ref(false);
 const mobileSidebarOpen = ref(false);
+const desktopSidebarOpen = ref(true);
 
-const sidebarOpen = computed(() => !isMobile.value || mobileSidebarOpen.value);
+const sidebarOpen = computed(() =>
+  isMobile.value ? mobileSidebarOpen.value : desktopSidebarOpen.value
+);
 const showHeaderBrand = computed(() => isMobile.value && !mobileSidebarOpen.value);
+
+const route = useRoute();
+watch(() => route.path, () => {
+  if (isMobile.value) mobileSidebarOpen.value = false;
+});
 
 let mobileQuery: MediaQueryList | null = null;
 
@@ -36,11 +44,11 @@ function syncViewportState(event?: MediaQueryList | MediaQueryListEvent) {
 }
 
 function toggleSidebar() {
-  if (!isMobile.value) {
-    return;
+  if (isMobile.value) {
+    mobileSidebarOpen.value = !mobileSidebarOpen.value;
+  } else {
+    desktopSidebarOpen.value = !desktopSidebarOpen.value;
   }
-
-  mobileSidebarOpen.value = !mobileSidebarOpen.value;
 }
 
 onMounted(() => {

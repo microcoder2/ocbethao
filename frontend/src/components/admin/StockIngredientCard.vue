@@ -49,8 +49,12 @@
         <i class="bi bi-trash3 stock-del-icon"></i>
         <p class="stock-del-text">Xóa <strong>{{ ing.name }}</strong>?</p>
         <div class="stock-del-actions">
-          <button class="stock-del-no" @click="showConfirm = false">Không</button>
-          <button class="stock-del-yes" @click="confirmDelete">Xóa</button>
+          <button class="stock-del-no" title="Hủy" @click="showConfirm = false">
+            <i class="bi bi-x-lg"></i>
+          </button>
+          <button class="stock-del-yes" title="Xác nhận xóa" @click="confirmDelete">
+            <i class="bi bi-check-lg"></i>
+          </button>
         </div>
       </div>
     </Transition>
@@ -142,15 +146,6 @@ function confirmDelete() {
 .stock-card.is-active {
   opacity: 1; border-color: rgba(201,87,43,0.38);
   box-shadow: 0 6px 24px rgba(201,87,43,0.12); background: rgba(255,248,241,0.95);
-}
-.stock-card.is-active::after {
-  content: ""; position: absolute; inset: 0; width: 60%;
-  background: linear-gradient(to right, transparent, rgba(255,255,255,0.45), transparent);
-  will-change: transform; animation: card-shine 2.4s linear infinite; pointer-events: none;
-}
-@keyframes card-shine {
-  from { transform: skewX(-18deg) translateX(-160%); }
-  to   { transform: skewX(-18deg) translateX(320%); }
 }
 
 .stock-card-img-wrap {

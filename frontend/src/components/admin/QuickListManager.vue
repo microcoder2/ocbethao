@@ -17,8 +17,12 @@
             <!-- confirm delete -->
             <template v-if="deleteId === item.id">
               <span class="qlm-label qlm-label--del">Xóa "{{ item[fields[0].key] }}"?</span>
-              <button class="qlm-btn qlm-btn--del" @click="doRemove(item.id)">Xóa</button>
-              <button class="qlm-btn" @click="deleteId = null">Không</button>
+              <button class="qlm-btn qlm-btn--yes" title="Xác nhận xóa" @click="doRemove(item.id)">
+                <i class="bi bi-check-lg"></i>
+              </button>
+              <button class="qlm-btn qlm-btn--no" title="Hủy" @click="deleteId = null">
+                <i class="bi bi-x-lg"></i>
+              </button>
             </template>
 
             <!-- edit mode -->
@@ -368,12 +372,23 @@ function doRemove(id: string | number) {
 }
 .qlm-btn--save:hover { opacity: 0.88; background: linear-gradient(135deg, var(--ember), var(--ember-strong, #b5521a)); }
 
-.qlm-btn--del {
-  background: rgba(201,50,30,0.1);
-  color: rgb(201,50,30);
-  border-color: rgba(201,50,30,0.2);
+.qlm-btn--yes {
+  width: 32px; height: 32px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(34,197,94,0.1); color: #166534; border-color: rgba(34,197,94,0.3);
+  border-radius: 8px;
 }
-.qlm-btn--del:hover { background: rgba(201,50,30,0.18); }
+.qlm-btn--yes:hover  { background: rgba(34,197,94,0.2); border-color: rgba(34,197,94,0.45); }
+.qlm-btn--yes:active { background: rgba(34,197,94,0.3); }
+
+.qlm-btn--no {
+  width: 32px; height: 32px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.05); color: var(--muted); border-color: var(--line);
+  border-radius: 8px;
+}
+.qlm-btn--no:hover  { background: rgba(0,0,0,0.1); color: var(--text); }
+.qlm-btn--no:active { background: rgba(0,0,0,0.15); }
 
 /* ── add new row ── */
 .qlm-add-row {
@@ -393,5 +408,33 @@ function doRemove(id: string | number) {
   border-color: transparent;
   border-radius: 9px;
 }
-.qlm-btn--add:hover { opacity: 0.88; }
+.qlm-btn--add:hover  { opacity: 0.88; }
+.qlm-btn--add:active { opacity: 0.72; }
+
+/* ── icon buttons: touch-friendly ── */
+.qlm-icon-btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.qlm-btn      { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+/* ── MOBILE ── */
+@media (max-width: 639px) {
+  .qlm-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .qlm-panel {
+    max-width: 100%;
+    border-radius: 20px 20px 0 0;
+    max-height: 80vh;
+  }
+  .qlm-header { padding: 14px 16px; }
+  .qlm-body   { padding: 10px 12px 20px; }
+
+  /* bigger touch targets */
+  .qlm-icon-btn { width: 36px; height: 36px; font-size: 0.9rem; }
+  .qlm-btn--yes, .qlm-btn--no { width: 38px; height: 38px; font-size: 1rem; }
+  .qlm-input  { padding: 10px; font-size: 1rem; }
+  .qlm-row    { min-height: 44px; padding: 6px 8px; }
+  .qlm-label  { font-size: 0.92rem; }
+  .qlm-btn--add { width: 40px; height: 40px; }
+}
 </style>
