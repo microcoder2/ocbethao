@@ -18,6 +18,7 @@
   /* ── RGB channels (dùng cho rgba() với opacity tuỳ ý) ── */
   --ember-rgb: 201, 87, 43;
   --text-rgb: 35, 19, 15;
+  --muted-rgb: 125, 97, 83;
   --panel-rgb: 255, 253, 249;
   --line-rgb: 230, 209, 192;
   --green-rgb: 34, 105, 85;
@@ -39,6 +40,119 @@
   --danger: #c9321e;
   --danger-rgb: 201, 50, 30;
   --success-rgb: 34, 197, 94;
+}
+
+/* ══════════════════════════════════════════
+   THEMES  –  chỉ override các token thay đổi
+   ══════════════════════════════════════════ */
+
+/* ── Ocean 🌊 ── */
+:root[data-theme="ocean"] {
+  --bg: #f0f7ff;
+  --bg-light: #f3f9ff;
+  --bg-deep: #e0efff;
+  --panel: #f8fcff;
+  --panel-alt: #061220;
+  --panel-soft: #d6eaf8;
+  --line: #a8cde0;
+  --text: #0c2030;
+  --muted: #3a6a85;
+  --ember: #1a7ab0;
+  --ember-strong: #0d4d78;
+  --green: #1a8a7a;
+  --gold: #b07820;
+  --shadow: 0 18px 40px rgba(10, 40, 80, 0.1);
+
+  --ember-rgb: 26, 122, 176;
+  --text-rgb: 12, 32, 48;
+  --muted-rgb: 58, 106, 133;
+  --panel-rgb: 248, 252, 255;
+  --line-rgb: 168, 205, 224;
+  --green-rgb: 26, 138, 122;
+  --gold-rgb: 176, 120, 32;
+  --panel-alt-rgb: 6, 18, 32;
+
+  --sidebar-fg: #e0f0ff;
+  --sidebar-fg-rgb: 224, 240, 255;
+  --sidebar-bg-dark: #040c14;
+  --sidebar-bg-dark-rgb: 4, 12, 20;
+  --sidebar-bg-mid: #0a1e30;
+  --sidebar-bg-mid-rgb: 10, 30, 48;
+  --sidebar-bg-deep: #102840;
+  --sidebar-bg-deep-rgb: 16, 40, 64;
+}
+
+/* ── Matcha 🍵 ── */
+:root[data-theme="matcha"] {
+  --bg: #f2f7f0;
+  --bg-light: #f5f9f3;
+  --bg-deep: #e4f0e0;
+  --panel: #f9fcf8;
+  --panel-alt: #0c180e;
+  --panel-soft: #d4eada;
+  --line: #a8ceb0;
+  --text: #18281a;
+  --muted: #4a6e50;
+  --ember: #3d7a52;
+  --ember-strong: #245436;
+  --green: #2d6e5a;
+  --gold: #906820;
+  --shadow: 0 18px 40px rgba(20, 60, 30, 0.08);
+
+  --ember-rgb: 61, 122, 82;
+  --text-rgb: 24, 40, 26;
+  --muted-rgb: 74, 110, 80;
+  --panel-rgb: 249, 252, 248;
+  --line-rgb: 168, 206, 176;
+  --green-rgb: 45, 110, 90;
+  --gold-rgb: 144, 104, 32;
+  --panel-alt-rgb: 12, 24, 14;
+
+  --sidebar-fg: #eaf5ec;
+  --sidebar-fg-rgb: 234, 245, 236;
+  --sidebar-bg-dark: #060e08;
+  --sidebar-bg-dark-rgb: 6, 14, 8;
+  --sidebar-bg-mid: #102018;
+  --sidebar-bg-mid-rgb: 16, 32, 24;
+  --sidebar-bg-deep: #1a3022;
+  --sidebar-bg-deep-rgb: 26, 48, 34;
+}
+
+/* ── Midnight 🌙 ── */
+:root[data-theme="midnight"] {
+  --bg: #0e0e14;
+  --bg-light: #111118;
+  --bg-deep: #08080e;
+  --panel: #17171f;
+  --panel-alt: #08060f;
+  --panel-soft: #22223a;
+  --line: #2e2e42;
+  --text: #e8e6f5;
+  --muted: #7878a0;
+  --ember: #a78bfa;
+  --ember-strong: #7c5cda;
+  --green: #34d399;
+  --gold: #fbbf24;
+  --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+
+  --ember-rgb: 167, 139, 250;
+  --text-rgb: 232, 230, 245;
+  --muted-rgb: 120, 120, 160;
+  --panel-rgb: 23, 23, 31;
+  --line-rgb: 46, 46, 66;
+  --green-rgb: 52, 211, 153;
+  --gold-rgb: 251, 191, 36;
+  --panel-alt-rgb: 8, 6, 15;
+
+  --sidebar-fg: #e8e6f5;
+  --sidebar-fg-rgb: 232, 230, 245;
+  --sidebar-bg-dark: #06060a;
+  --sidebar-bg-dark-rgb: 6, 6, 10;
+  --sidebar-bg-mid: #0e0e16;
+  --sidebar-bg-mid-rgb: 14, 14, 22;
+  --sidebar-bg-deep: #14143a;
+  --sidebar-bg-deep-rgb: 20, 20, 58;
+  --overlay: rgba(0, 0, 0, 0.65);
 }
 
 html {

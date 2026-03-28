@@ -242,9 +242,9 @@ const arrivalBadgeLabel = computed(() => {
   gap: 22px;
   padding: 24px;
   border-radius: 28px;
-  border: 1px solid rgba(120, 74, 54, 0.08);
-  background: rgba(255, 251, 246, 0.96);
-  box-shadow: 0 28px 60px rgba(61, 25, 14, 0.12);
+  border: 1px solid rgba(var(--muted-rgb), 0.08);
+  background: rgba(var(--panel-rgb), 0.96);
+  box-shadow: 0 28px 60px rgba(var(--panel-alt-rgb), 0.12);
 }
 
 .order-draft-panel.is-frameless {
@@ -274,23 +274,23 @@ const arrivalBadgeLabel = computed(() => {
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--customer-muted, #6f5a50);
+  color: var(--muted);
 }
 
 .order-draft-panel h2 {
   margin: 0;
-  color: var(--customer-ink, #21120e);
+  color: var(--text);
 }
 
 .order-draft-panel p {
   margin: 6px 0 0;
-  color: var(--customer-muted, #6f5a50);
+  color: var(--muted);
 }
 
 .order-draft-panel__link {
   justify-self: start;
   font-weight: 700;
-  color: var(--customer-accent-strong, #973413);
+  color: var(--ember-strong);
   text-decoration: none;
 }
 
@@ -303,20 +303,20 @@ const arrivalBadgeLabel = computed(() => {
 .order-draft-panel__summary-item {
   padding: 16px;
   border-radius: 20px;
-  background: rgba(255, 246, 236, 0.94);
-  border: 1px solid rgba(120, 74, 54, 0.08);
+  background: rgba(var(--panel-rgb), 0.94);
+  border: 1px solid rgba(var(--muted-rgb), 0.08);
 }
 
 .order-draft-panel__summary-item span {
   display: block;
-  color: var(--customer-muted, #6f5a50);
+  color: var(--muted);
   font-size: 0.82rem;
 }
 
 .order-draft-panel__summary-item strong {
   display: block;
   margin-top: 8px;
-  color: var(--customer-ink, #21120e);
+  color: var(--text);
   font-size: 1.08rem;
 }
 
@@ -325,8 +325,8 @@ const arrivalBadgeLabel = computed(() => {
   gap: 14px;
   padding: 24px;
   border-radius: 24px;
-  border: 1px dashed rgba(120, 74, 54, 0.18);
-  background: rgba(255, 255, 255, 0.56);
+  border: 1px dashed rgba(var(--muted-rgb), 0.18);
+  background: rgba(var(--panel-rgb), 0.56);
 }
 
 .order-draft-panel__empty-icon {
@@ -335,14 +335,14 @@ const arrivalBadgeLabel = computed(() => {
   display: grid;
   place-items: center;
   border-radius: 18px;
-  background: rgba(201, 88, 44, 0.1);
-  color: var(--customer-accent, #c9582c);
+  background: rgba(var(--ember-rgb), 0.1);
+  color: var(--ember);
   font-size: 1.3rem;
 }
 
 .order-draft-panel__empty h3 {
   margin: 0;
-  color: var(--customer-ink, #21120e);
+  color: var(--text);
 }
 
 .order-draft-panel__empty p {
@@ -361,8 +361,8 @@ const arrivalBadgeLabel = computed(() => {
   gap: 14px;
   padding: 16px;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(120, 74, 54, 0.08);
+  background: rgba(var(--panel-rgb), 0.72);
+  border: 1px solid rgba(var(--muted-rgb), 0.08);
 }
 
 .draft-line__body {
@@ -371,7 +371,7 @@ const arrivalBadgeLabel = computed(() => {
 
 .draft-line__name {
   font-weight: 700;
-  color: var(--customer-ink, #21120e);
+  color: var(--text);
 }
 
 .draft-line__meta {
@@ -379,7 +379,7 @@ const arrivalBadgeLabel = computed(() => {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 8px;
-  color: var(--customer-muted, #6f5a50);
+  color: var(--muted);
   font-size: 0.88rem;
 }
 
@@ -397,8 +397,8 @@ const arrivalBadgeLabel = computed(() => {
   gap: 8px;
   padding: 6px;
   border-radius: 999px;
-  background: rgba(249, 238, 226, 0.96);
-  border: 1px solid rgba(120, 74, 54, 0.08);
+  background: rgba(var(--panel-rgb), 0.96);
+  border: 1px solid rgba(var(--muted-rgb), 0.08);
 }
 
 .draft-stepper__button,
@@ -409,8 +409,8 @@ const arrivalBadgeLabel = computed(() => {
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: #fff;
-  color: var(--customer-ink, #21120e);
+  background: var(--panel);
+  color: var(--text);
 }
 
 .draft-stepper span {
@@ -420,8 +420,8 @@ const arrivalBadgeLabel = computed(() => {
 }
 
 .draft-remove-button {
-  background: rgba(201, 88, 44, 0.08);
-  color: var(--customer-accent-strong, #973413);
+  background: rgba(var(--ember-rgb), 0.08);
+  color: var(--ember-strong);
   flex: 0 0 auto;
 }
 
@@ -436,23 +436,23 @@ const arrivalBadgeLabel = computed(() => {
 
 .order-draft-panel__field span {
   font-weight: 700;
-  color: var(--customer-ink, #21120e);
+  color: var(--text);
 }
 
 .order-draft-panel__field-note {
   margin: 0;
-  color: var(--customer-muted, #6f5a50);
+  color: var(--muted);
   font-size: 0.82rem;
 }
 
 .order-draft-panel__field textarea,
 .order-draft-panel__field input {
   width: 100%;
-  border: 1px solid rgba(120, 74, 54, 0.14);
+  border: 1px solid rgba(var(--muted-rgb), 0.14);
   border-radius: 20px;
   padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.8);
-  color: var(--customer-ink, #21120e);
+  background: rgba(var(--panel-rgb), 0.8);
+  color: var(--text);
   font: inherit;
 }
 
@@ -462,22 +462,22 @@ const arrivalBadgeLabel = computed(() => {
   align-items: center;
   gap: 12px;
   padding: 10px 12px 10px 10px;
-  border: 1px solid rgba(120, 74, 54, 0.14);
+  border: 1px solid rgba(var(--muted-rgb), 0.14);
   border-radius: 20px;
   background:
-    linear-gradient(135deg, rgba(255, 244, 231, 0.95), rgba(255, 255, 255, 0.82)),
-    rgba(255, 255, 255, 0.88);
+    linear-gradient(135deg, rgba(var(--panel-rgb), 0.95), rgba(var(--panel-rgb), 0.82)),
+    rgba(var(--panel-rgb), 0.88);
 }
 
 .order-draft-panel__time-shell.is-empty {
   background:
-    linear-gradient(135deg, rgba(249, 238, 226, 0.95), rgba(255, 255, 255, 0.8)),
-    rgba(255, 255, 255, 0.84);
+    linear-gradient(135deg, rgba(var(--panel-rgb), 0.95), rgba(var(--panel-rgb), 0.8)),
+    rgba(var(--panel-rgb), 0.84);
 }
 
 .order-draft-panel__time-shell:focus-within {
-  border-color: rgba(201, 88, 44, 0.3);
-  box-shadow: 0 0 0 3px rgba(201, 88, 44, 0.12);
+  border-color: rgba(var(--ember-rgb), 0.3);
+  box-shadow: 0 0 0 3px rgba(var(--ember-rgb), 0.12);
 }
 
 .order-draft-panel__time-icon {
@@ -487,8 +487,8 @@ const arrivalBadgeLabel = computed(() => {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  background: rgba(201, 88, 44, 0.12);
-  color: var(--customer-accent, #c9582c);
+  background: rgba(var(--ember-rgb), 0.12);
+  color: var(--ember);
   font-size: 1.05rem;
 }
 
@@ -519,16 +519,16 @@ const arrivalBadgeLabel = computed(() => {
   padding: 0 12px;
   margin-left: auto;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--customer-accent-strong, #973413);
+  background: rgba(var(--panel-rgb), 0.92);
+  color: var(--ember-strong);
   font-size: 0.82rem;
   font-weight: 800;
   white-space: nowrap;
 }
 
 .order-draft-panel__time-shell.is-empty .order-draft-panel__time-badge {
-  background: rgba(249, 238, 226, 0.96);
-  color: var(--customer-muted, #6f5a50);
+  background: rgba(var(--panel-rgb), 0.96);
+  color: var(--muted);
 }
 
 .order-draft-panel__field textarea {
@@ -552,18 +552,18 @@ const arrivalBadgeLabel = computed(() => {
   justify-content: space-between;
   gap: 12px;
   align-items: center;
-  color: var(--customer-ink, #21120e);
+  color: var(--text);
   font-weight: 600;
 }
 
 .order-draft-panel__total-row--muted {
-  color: var(--customer-muted, #6f5a50);
+  color: var(--muted);
 }
 
 .order-draft-panel__total-row--grand {
   margin-top: 4px;
   padding-top: 16px;
-  border-top: 1px solid rgba(120, 74, 54, 0.18);
+  border-top: 1px solid rgba(var(--muted-rgb), 0.18);
   font-size: 1.05rem;
 }
 

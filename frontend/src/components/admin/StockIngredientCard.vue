@@ -6,7 +6,8 @@
 
     <div class="stock-card" :class="{ 'is-active': draft.active }">
       <div class="stock-card-img-wrap" :title="ing.imageUrl ? 'Đổi ảnh' : 'Thêm ảnh'" @click="fileRef?.click()">
-        <img :src="resolvedUrl" class="stock-card-img" @error="onImgError" />
+        <img v-if="hasImg" :src="resolvedUrl" class="stock-card-img" @error="onImgError" />
+        <div v-else class="stock-card-img stock-card-img--blank" v-html="blankIngredientSvg"></div>
         <div class="stock-card-img-overlay">
           <i v-if="uploadingImg" class="bi bi-hourglass-split"></i>
           <i v-else class="bi bi-camera-fill"></i>
@@ -64,7 +65,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { API_BASE_URL } from "../../config";
-import blankIngredient from "../../assets/blank_ingredient.svg";
+import blankIngredientSvg from "../../assets/blank_ingredient.svg?raw";
 
 type Ingredient = { id: number; name: string; slug: string; unit: string; imageUrl: string | null };
 type Draft      = { active: boolean; quantity: string; saving: boolean };
@@ -81,16 +82,16 @@ const emit  = defineEmits<{
 
 const fileRef     = ref<HTMLInputElement | null>(null);
 const showConfirm = ref(false);
+const imgFailed   = ref(false);
 
+const hasImg = computed(() => !!props.ing.imageUrl && !imgFailed.value);
 const resolvedUrl = computed(() => {
   const url = props.ing.imageUrl;
-  if (!url) return blankIngredient;
+  if (!url) return "";
   return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
 });
 
-function onImgError(e: Event) {
-  (e.target as HTMLImageElement).src = blankIngredient;
-}
+function onImgError() { imgFailed.value = true; }
 
 function onFileChange(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0];
@@ -153,6 +154,11 @@ function confirmDelete() {
   overflow: hidden; cursor: pointer; flex-shrink: 0; background: var(--surface,#f5f3ef);
 }
 .stock-card-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.stock-card-img--blank {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel-soft); color: var(--ember);
+}
+.stock-card-img--blank :deep(svg) { width: 55%; aspect-ratio: 4/3; display: block; }
 .stock-card-img-overlay {
   position: absolute; inset: 0; background: rgba(0,0,0,0.32);
   display: flex; align-items: center; justify-content: center;
