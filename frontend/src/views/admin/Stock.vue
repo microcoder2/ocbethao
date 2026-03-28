@@ -51,7 +51,7 @@
               <input v-model="newForm.unit" class="stock-new-input stock-new-input--sm" type="text" placeholder="kg / con / phần..." />
             </div>
             <div class="stock-new-actions">
-              <button class="stock-new-cancel" @click="closeNewForm">Hủy</button>
+              <button class="stock-new-cancel" @click="cancelNewForm">Hủy</button>
               <button class="stock-save-btn btn-ember" :disabled="!newForm.name.trim() || newForm.saving" @click="createIngredient">
                 <i v-if="newForm.saving" class="bi bi-hourglass-split"></i>
                 <span v-else>Tạo & Bật</span>
@@ -294,15 +294,20 @@ function handleNewImg(event: Event) {
   (event.target as HTMLInputElement).value = "";
   openCrop(file, async (blob) => {
     newForm.imageUploading = true;
+    let uploadedUrl = "";
     try {
       newForm.imagePreview = URL.createObjectURL(blob);
-      newForm.imageUrl = await uploadBlob(blob);
+      uploadedUrl = await uploadBlob(blob);
+      newForm.imageUrl = uploadedUrl;
     } catch (e) {
       newForm.error = getErrorMessage(e, "Không tải ảnh được.");
       newForm.imagePreview = "";
       newForm.imageUrl = "";
     } finally {
       newForm.imageUploading = false;
+      if (!newForm.open && uploadedUrl) {
+        api.delete("/uploads/images", { data: { url: uploadedUrl } }).catch(() => {});
+      }
     }
   });
 }
@@ -330,6 +335,14 @@ async function openNewForm() {
 }
 
 function closeNewForm() { newForm.open = false; }
+
+async function cancelNewForm() {
+  if (!newForm.imageUploading && newForm.imageUrl) {
+    try { await api.delete("/uploads/images", { data: { url: newForm.imageUrl } }); } catch { /* best-effort */ }
+  }
+  if (newForm.imagePreview) URL.revokeObjectURL(newForm.imagePreview);
+  newForm.open = false;
+}
 
 async function createIngredient() {
   const name = newForm.name.trim();

@@ -126,11 +126,11 @@
   <!-- ── Add / Edit Modal ── -->
   <Teleport to="body">
     <Transition name="mi-fade">
-      <div v-if="modal.open" class="mi-backdrop" @click.self="closeModal">
+      <div v-if="modal.open" class="mi-backdrop" @click.self="cancelModal">
         <div class="mi-modal">
           <div class="mi-modal-header">
             <span>{{ modal.isEdit ? `Sửa: ${modal.form.name || '—'}` : 'Thêm món mẫu mới' }}</span>
-            <button class="mi-modal-close" @click="closeModal"><i class="bi bi-x-lg"></i></button>
+            <button class="mi-modal-close" @click="cancelModal"><i class="bi bi-x-lg"></i></button>
           </div>
 
           <div class="mi-modal-body">
@@ -286,7 +286,7 @@
           </div>
 
           <div class="mi-modal-footer">
-            <button class="mi-btn mi-btn--ghost" @click="closeModal">Hủy</button>
+            <button class="mi-btn mi-btn--ghost" @click="cancelModal">Hủy</button>
             <button
               class="mi-btn mi-btn--save btn-ember"
               :disabled="modal.saving || !modal.form.name.trim()"
@@ -478,15 +478,20 @@ function onImgFileChange(e: Event) {
 async function onCropDone(blob: Blob) {
   modal.uploading = true;
   cropFile.value = null;
+  let uploadedUrl = "";
   try {
     const fd = new FormData();
     fd.append("file", new File([blob], "image.jpg", { type: "image/jpeg" }));
     const { data } = await api.post("/uploads/images", fd, {
       headers: { "Content-Type": "multipart/form-data" },
     });
-    modal.form.imageUrl = data.url;
+    uploadedUrl = data.url;
+    modal.form.imageUrl = uploadedUrl;
   } finally {
     modal.uploading = false;
+    if (!modal.open && uploadedUrl) {
+      api.delete("/uploads/images", { data: { url: uploadedUrl } }).catch(() => {});
+    }
   }
 }
 
@@ -714,6 +719,8 @@ async function loadData() {
 }
 
 // ── modal open/close ───────────────────────────────────────────────────
+const originalImageUrl = ref("");
+
 function resetForm() {
   Object.assign(modal.form, {
     id: null, name: "", slug: "", description: "",
@@ -728,6 +735,7 @@ function resetForm() {
 function openAdd() {
   modal.isEdit = false;
   resetForm();
+  originalImageUrl.value = "";
   modal.open = true;
 }
 
@@ -754,6 +762,7 @@ function openEdit(item: MenuItem) {
     consumeQuantity: preset?.consumeQuantity || 1,
     cookingMethod: method?.id || "",
   });
+  originalImageUrl.value = item.imageUrl || "";
   modal.open = true;
 }
 
@@ -763,6 +772,13 @@ function openView(item: MenuItem) {
 }
 
 function closeModal() {
+  modal.open = false;
+}
+
+async function cancelModal() {
+  if (!modal.uploading && modal.form.imageUrl && modal.form.imageUrl !== originalImageUrl.value) {
+    try { await api.delete("/uploads/images", { data: { url: modal.form.imageUrl } }); } catch { /* best-effort */ }
+  }
   modal.open = false;
 }
 

@@ -10,7 +10,8 @@ import swaggerDocument from "../swagger/swagger.json";
 import { RegisterRoutes } from "./routes/routes";
 import { multerMiddleware } from "./middleware";
 import { initSocket } from "./socket";
-import { getPublicImageUrl, resolvePublicDir } from "./utils/uploads";
+import { getPublicImageUrl, resolvePublicDir, deletePublicImage } from "./utils/uploads";
+import { expressAuthentication } from "./authentication";
 
 const env = process.env.NODE_ENV || "development";
 dotenv.config();
@@ -141,6 +142,22 @@ app.post("/api/uploads/images", multerMiddleware, (req, res) => {
     size: file.size,
     mime: file.mimetype,
   });
+});
+
+app.delete("/api/uploads/images", async (req, res) => {
+  try {
+    await expressAuthentication(req, "bearerAuth", ["ADMIN", "STAFF"]);
+  } catch (e: any) {
+    res.status(e?.status || 401).json({ message: e?.message || "Unauthorized" });
+    return;
+  }
+  const { url } = req.body as { url?: string };
+  if (!url || typeof url !== "string") {
+    res.status(400).json({ message: "Missing url" });
+    return;
+  }
+  deletePublicImage(url);
+  res.status(204).send();
 });
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
