@@ -1,38 +1,59 @@
 <template>
-  <article :class="['order-card', surfaceClass]">
+  <article :class="['order-card', surfaceClass, { 'is-collapsed': collapsed }]">
     <!-- Head -->
     <div class="order-card-head">
       <div class="order-head-main">
         <div class="order-contact-line">
           <span class="order-customer-name">{{ customerName }}</span>
-          <span class="order-customer-phone">{{ customerPhone }}</span>
+          <a
+            v-if="order.guestPhone || order.customer?.phone"
+            class="order-customer-phone"
+            :href="`tel:${order.guestPhone || order.customer?.phone}`"
+          >{{ customerPhone }}</a>
+          <span v-else class="order-customer-phone">{{ customerPhone }}</span>
         </div>
       </div>
       <div class="order-head-side">
-        <button
-          class="order-info-trigger"
-          type="button"
-          :title="infoTooltip"
-          :aria-label="`Thông tin đơn ${order.orderNumber}`"
-        >
-          <i class="bi bi-info-circle"></i>
-        </button>
+        <div ref="infoTriggerRef" class="order-info-wrap">
+          <button
+            class="order-info-trigger"
+            type="button"
+            :aria-label="`Thông tin đơn ${order.orderNumber}`"
+            @click.stop="toggleInfo"
+          >
+            <i class="bi bi-info-circle"></i>
+          </button>
+          <div v-if="infoOpen" class="order-info-popup" role="tooltip">
+            <div v-for="line in infoTooltip.split('\n')" :key="line">{{ line }}</div>
+          </div>
+        </div>
         <div class="order-total">{{ formatMoney(order.totalAmount) }}</div>
+        <button
+          class="order-collapse-btn"
+          type="button"
+          :aria-expanded="!collapsed"
+          :aria-label="collapsed ? 'Mở rộng đơn' : 'Thu gọn đơn'"
+          :title="collapsed ? 'Mở rộng' : 'Thu gọn'"
+          @click="collapsed = !collapsed"
+        >
+          <i :class="['bi', collapsed ? 'bi-chevron-down' : 'bi-chevron-up']"></i>
+        </button>
       </div>
     </div>
 
     <!-- Status line -->
     <div class="order-status-line">
-      <span class="order-arrival-chip">Giờ hẹn {{ queueTime }}</span>
+      <span class="order-arrival-chip">{{ order.arrivalAt ? `Giờ hẹn ${queueTime}` : 'Chưa xác định' }}</span>
+      <span v-if="showPaymentMethod && order.paymentMethod" class="order-pill is-muted">{{ paymentMethodLabel }}</span>
+      <span class="order-item-count-chip">{{ editableItems.length }} món</span>
       <span :class="['order-pill', simpleStatusClass]">{{ statusLabel }}</span>
+      <button v-if="canDelete" class="order-delete-inline" type="button" :disabled="busy" :title="`Xóa đơn ${order.orderNumber}`" @click="$emit('deleteOrder')">
+        <i class="bi bi-trash3"></i>
+      </button>
     </div>
 
-    <!-- Payment badge -->
-    <div v-if="showPaymentMethod" class="order-badges">
-      <span v-if="order.paymentMethod" class="order-pill is-muted">
-        {{ paymentMethodLabel }}
-      </span>
-    </div>
+    <!-- Collapsible body -->
+    <div v-show="!collapsed" class="order-collapsible">
 
     <!-- Progress -->
     <div v-if="order.itemProgress?.total" class="order-progress">
@@ -59,7 +80,7 @@
       <li
         v-for="(item, index) in editableItems"
         :key="item.key"
-        class="order-item-row"
+        :class="['order-item-row', { 'is-highlighted': highlightedKey === item.key }]"
       >
         <div class="order-item-main">
           <div class="order-item-copy">
@@ -95,12 +116,18 @@
       </li>
     </ul>
 
-    <!-- Edit panel (CONFIRMED only) -->
+    <!-- Edit panel -->
     <div v-if="canEdit" class="order-editor-panel">
       <div v-if="menuOptions.length" class="order-add-row">
         <div class="order-add-field">
-          <span class="order-field-label">Thêm món vào đơn</span>
+          <span class="order-field-label">Cập nhật đơn</span>
           <div class="order-add-control">
+            <button
+              type="button"
+              :class="['btn order-add-btn order-time-toggle', arrivalEditOpen ? 'btn-secondary' : 'btn-outline-secondary']"
+              :title="arrivalEditOpen ? 'Đóng chỉnh giờ' : 'Chỉnh giờ hẹn'"
+              @click="arrivalEditOpen = !arrivalEditOpen"
+            ><i class="bi bi-clock"></i></button>
             <select v-model="addSelection" class="form-select order-select" :disabled="busy">
               <option value="">Chọn món để thêm</option>
               <template v-for="group in groupedOptions" :key="group.label">
@@ -121,15 +148,31 @@
             >+</button>
           </div>
         </div>
+        <div v-if="arrivalEditOpen" class="order-arrival-row">
+          <div class="order-arrival-segment">
+            <button type="button" :class="['order-arrival-seg', { 'is-active': arrivalMode === 'scheduled' }]" :disabled="busy" @click="arrivalMode = 'scheduled'">Có giờ hẹn</button>
+            <button type="button" :class="['order-arrival-seg', { 'is-active': arrivalMode === 'unknown' }]"   :disabled="busy" @click="arrivalMode = 'unknown'">Chưa xác định</button>
+            <button type="button" :class="['order-arrival-seg', { 'is-active': arrivalMode === 'arrived' }]"   :disabled="busy" @click="arrivalMode = 'arrived'">Đã tới bàn</button>
+          </div>
+          <input
+            v-if="arrivalMode === 'scheduled'"
+            v-model="arrivalTimeDraft"
+            type="time"
+            class="form-control order-arrival-time-input"
+            :disabled="busy"
+            min="13:30"
+            max="20:30"
+          />
+        </div>
       </div>
       <div v-else class="order-add-hint">
         Hôm nay không còn món khả dụng để thêm vào đơn này.
       </div>
 
-      <div v-if="draftChanged" class="order-editor-actions">
-        <div class="order-editor-note">Lưu thay đổi món trước khi hoàn tất hoặc hủy đơn.</div>
+      <div v-if="draftChanged || arrivalChanged" class="order-editor-actions">
+        <div v-if="draftChanged" class="order-editor-note">Lưu thay đổi món trước khi hoàn tất hoặc hủy đơn.</div>
         <button class="btn btn-dark" type="button" :disabled="busy" @click="emitSave">
-          {{ isSaving ? "Đang lưu..." : "Lưu món" }}
+          {{ isSaving ? "Đang lưu..." : "Lưu" }}
         </button>
         <button class="btn btn-outline-dark" type="button" :disabled="busy" @click="discardDraft">
           Bỏ thay đổi
@@ -168,6 +211,8 @@
       </button>
     </div>
 
+    </div><!-- /order-collapsible -->
+
     <!-- Remove item confirm (internal) -->
     <div
       v-if="removeDialog.visible"
@@ -191,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { formatMoney } from "../../utils/format";
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -265,7 +310,8 @@ const emit = defineEmits<{
   confirm: [];
   openComplete: [];
   openCancel: [];
-  saveItems: [items: SavePayload[]];
+  deleteOrder: [];
+  saveItems: [items: SavePayload[], arrivalTime: string | null];
   updateItemStatus: [itemId: number, status: string];
 }>();
 
@@ -284,8 +330,46 @@ const itemStatusActions = [
 ] as const;
 
 // ─── Internal state ─────────────────────────────────────────────────────
+const collapsed = ref(true);
+const infoOpen = ref(false);
+const infoTriggerRef = ref<HTMLElement | null>(null);
+
+function toggleInfo() {
+  infoOpen.value = !infoOpen.value;
+}
+
+function closeInfoOnOutside(e: MouseEvent) {
+  if (infoTriggerRef.value && !infoTriggerRef.value.contains(e.target as Node)) {
+    infoOpen.value = false;
+  }
+}
+
+watch(infoOpen, (val) => {
+  if (val) document.addEventListener("click", closeInfoOnOutside);
+  else document.removeEventListener("click", closeInfoOnOutside);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", closeInfoOnOutside);
+});
+
 const draft = ref<EditableItem[] | null>(null);
+const arrivalTimeDraft = ref<string>(
+  props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""
+);
+
+type ArrivalMode = "scheduled" | "unknown" | "arrived";
+const initialArrivalMode: ArrivalMode = props.order.arrivalAt ? "scheduled" : "unknown";
+const initialArrivalTime = props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : "";
+const arrivalMode = ref<ArrivalMode>(initialArrivalMode);
+const arrivalEditOpen = ref(false);
 const addSelection = ref("");
+const highlightedKey = ref<string | number | null>(null);
+
+function flashItem(key: string | number) {
+  highlightedKey.value = key;
+  setTimeout(() => { highlightedKey.value = null; }, 1200);
+}
 const removeDialog = reactive({ visible: false, index: -1, itemName: "" });
 
 // Reset draft when server items change (after save or status update)
@@ -366,6 +450,11 @@ const progressText = computed(() => {
 
 const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
 
+const arrivalChanged = computed(() =>
+  arrivalMode.value !== initialArrivalMode ||
+  (arrivalMode.value === "scheduled" && arrivalTimeDraft.value !== initialArrivalTime)
+);
+
 const draftChanged = computed(() => {
   if (!draft.value) return false;
   const orig = cloneItems(props.order.items).map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}`).join("|");
@@ -373,13 +462,17 @@ const draftChanged = computed(() => {
   return orig !== curr;
 });
 
-const canEdit    = computed(() => simplifyStatus(props.order.status) === "CONFIRMED");
+const canEdit    = computed(() => {
+  const s = simplifyStatus(props.order.status);
+  return s !== "COMPLETED" && s !== "CANCELLED";
+});
 const canConfirm = computed(() => simplifyStatus(props.order.status) === "PENDING");
 const canComplete = computed(() => simplifyStatus(props.order.status) === "CONFIRMED");
 const canCancel  = computed(() => {
   const s = simplifyStatus(props.order.status);
   return s === "PENDING" || s === "CONFIRMED";
 });
+const canDelete = computed(() => simplifyStatus(props.order.status) === "CANCELLED");
 const readyToComplete = computed(() => {
   const p = props.order.itemProgress;
   return Boolean(p?.total && p.waiting === 0 && p.cooking === 0);
@@ -442,10 +535,12 @@ function addItem() {
   if (existing >= 0) {
     const cur = draft.value![existing];
     draft.value![existing] = { ...cur, quantity: cur.quantity + 1, lineTotal: (cur.quantity + 1) * cur.unitPrice };
+    flashItem(cur.key);
   } else {
+    const newKey = `new-${opt.id}`;
     draft.value!.push({
       id: null,
-      key: `new-${opt.id}`,
+      key: newKey,
       menuItemId: opt.menuItem.id,
       dailyMenuItemId: opt.id,
       itemNameSnapshot: opt.menuItem.name,
@@ -454,17 +549,24 @@ function addItem() {
       status: "WAITING",
       lineTotal: Number(opt.sellingPrice || 0),
     });
+    flashItem(newKey);
   }
   addSelection.value = "";
 }
 
 function emitSave() {
-  if (!draft.value) return;
-  emit("saveItems", draft.value.map((i) => ({
-    dailyMenuItemId: i.dailyMenuItemId ?? undefined,
-    menuItemId: i.menuItemId ?? undefined,
-    quantity: i.quantity,
-  })));
+  if (!draft.value && !arrivalChanged.value) return;
+  emit(
+    "saveItems",
+    editableItems.value.map((i) => ({
+      dailyMenuItemId: i.dailyMenuItemId ?? undefined,
+      menuItemId: i.menuItemId ?? undefined,
+      quantity: i.quantity,
+    })),
+    arrivalMode.value === "scheduled" ? (arrivalTimeDraft.value || null)
+      : arrivalMode.value === "arrived" ? "ARRIVED"
+      : null,
+  );
 }
 
 function groupByIngredient(options: DailyMenuOption[]) {
@@ -497,6 +599,8 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 }
 
 .order-card:last-child { margin-bottom: 0; }
+.order-card.is-collapsed { gap: 8px; }
+.order-collapsible { display: grid; gap: 14px; }
 
 .order-card.is-status-pending   { --order-status-surface: rgba(203, 165, 81, 0.12); }
 .order-card.is-status-confirmed { --order-status-surface: rgba(201, 126, 71, 0.1); }
@@ -518,6 +622,28 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   gap: 10px;
   flex-shrink: 0;
   text-align: right;
+}
+
+.order-info-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.order-info-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(30, 20, 14, 0.92);
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: nowrap;
+  z-index: 200;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
 .order-info-trigger {
@@ -543,6 +669,27 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 
 .order-info-trigger i { font-size: 0.95rem; }
 
+.order-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(126, 86, 65, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+.order-collapse-btn:hover,
+.order-collapse-btn:focus-visible {
+  color: var(--ember-strong);
+  border-color: rgba(201, 88, 44, 0.32);
+  background: rgba(255, 247, 241, 0.92);
+  outline: none;
+}
+.order-collapse-btn i { font-size: 0.82rem; }
+
 .order-contact-line {
   display: flex;
   align-items: center;
@@ -552,23 +699,135 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 }
 
 .order-customer-name { font-weight: 700; }
-.order-customer-phone { color: var(--muted); font-size: 0.9rem; }
+.order-customer-phone {
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: underline; }
 
 .order-status-line {
   display: grid;
   align-items: center;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
+  gap: 8px;
   width: 100%;
   min-width: 0;
+}
+
+.order-delete-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--bs-danger, #dc3545);
+  opacity: 0.7;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.order-delete-inline:hover { opacity: 1; background: rgba(220, 53, 69, 0.08); }
+.order-delete-inline i { font-size: 0.82rem; }
+
+.order-item-count-chip {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.order-arrival-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.order-arrival-segment {
+  display: flex;
+  border: 1px solid rgba(var(--text-rgb), 0.14);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.order-arrival-seg {
+  flex: 1;
+  padding: 5px 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.order-arrival-seg + .order-arrival-seg {
+  border-left: 1px solid rgba(var(--text-rgb), 0.14);
+}
+
+.order-arrival-seg.is-active {
+  background: var(--ember-strong, #c9582c);
+  color: #fff;
+  font-weight: 700;
+}
+
+.order-arrival-seg:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.order-arrival-time-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+}
+
+.order-arrival-toggle {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.order-arrival-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+}
+
+.order-arrival-prefix {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ember-strong);
+  white-space: nowrap;
+}
+
+.order-arrival-input {
+  width: 106px;
+  height: 24px;
+  padding: 0 2px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--text-rgb), 0.14);
+  background: #fff;
+  font-size: 0.72rem;
+  color: var(--text);
+  line-height: 1;
+  overflow: hidden;
 }
 
 .order-arrival-chip {
   position: relative;
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  padding: 0 10px 0 0;
+  min-height: 22px;
+  padding: 0 8px 0 0;
   color: var(--ember-strong);
   font-size: 0.8rem;
   font-weight: 700;
@@ -594,9 +853,9 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 .order-pill {
   display: inline-flex;
   align-items: center;
-  padding: 6px 12px;
+  padding: 3px 10px;
   border-radius: 999px;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 800;
   white-space: nowrap;
   flex-shrink: 0;
@@ -649,6 +908,12 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   border-top: 1px solid rgba(var(--line-rgb), 0.72);
 }
 
+@keyframes item-flash {
+  0%   { background: rgba(201, 88, 44, 0.18); }
+  70%  { background: rgba(201, 88, 44, 0.08); }
+  100% { background: transparent; }
+}
+
 .order-item-row {
   display: flex;
   align-items: center;
@@ -660,6 +925,7 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 
 .order-item-row:last-child { border-bottom: none; }
 .order-item-row.is-empty   { justify-content: flex-start; }
+.order-item-row.is-highlighted { animation: item-flash 1.2s ease-out forwards; border-radius: 6px; }
 
 .order-item-main {
   display: grid;
@@ -743,30 +1009,34 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 }
 
 .order-item-qty {
-  min-width: 40px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  min-width: 26px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: inset 0 1px 3px rgba(var(--text-rgb), 0.14), inset 0 1px 1px rgba(var(--text-rgb), 0.1);
   text-align: center;
-  font-weight: 800;
-  line-height: 38px;
+  font-weight: 400;
+  font-size: 0.82rem;
+  line-height: 24px;
+  height: 24px;
   font-variant-numeric: tabular-nums;
 }
 
 .order-qty-btn {
-  width: 38px;
-  height: 38px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--text-rgb), 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 234, 226, 0.94));
-  box-shadow: 0 10px 18px rgba(var(--text-rgb), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  border-radius: 4px;
+  border: 1px solid rgba(var(--text-rgb), 0.1);
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(var(--text-rgb), 0.12), 0 1px 2px rgba(var(--text-rgb), 0.08);
   color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1;
 }
 
-.order-qty-btn:hover  { transform: translateY(-1px); }
-.order-qty-btn:active { transform: translateY(1px); box-shadow: 0 5px 10px rgba(var(--text-rgb), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92); }
+.order-qty-btn:hover  { background: #f5f5f5; box-shadow: 0 3px 6px rgba(var(--text-rgb), 0.14), 0 1px 2px rgba(var(--text-rgb), 0.08); }
+.order-qty-btn:active { background: #ebebeb; box-shadow: 0 1px 2px rgba(var(--text-rgb), 0.08); }
 
 .order-editor-panel { display: grid; gap: 12px; }
 
@@ -792,7 +1062,7 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 
 .order-add-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
 }
@@ -815,14 +1085,17 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 }
 
 .order-item-qty-read {
-  min-width: 40px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  min-width: 32px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: inset 0 1px 3px rgba(var(--text-rgb), 0.14), inset 0 1px 1px rgba(var(--text-rgb), 0.1);
   flex: 0 0 auto;
   text-align: center;
-  font-weight: 800;
-  line-height: 38px;
+  font-weight: 400;
+  font-size: 0.82rem;
+  line-height: 24px;
+  height: 24px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -878,12 +1151,12 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   .order-qty-btn,
   .order-item-qty,
   .order-item-qty-read {
-    min-width: 36px;
-    height: 36px;
-    line-height: 36px;
+    min-width: 22px;
+    height: 22px;
+    line-height: 22px;
   }
 
-  .order-add-control { grid-template-columns: minmax(0, 1fr) auto; }
+  .order-add-control { grid-template-columns: auto minmax(0, 1fr) auto; }
 
   .orders-modal { padding: 18px; }
 }

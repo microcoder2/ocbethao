@@ -88,12 +88,14 @@
       </article>
     </div>
 
-    <label v-if="showArrival" class="order-draft-panel__field order-draft-panel__field--arrival">
+    <div v-if="showArrival" class="order-draft-panel__field order-draft-panel__field--arrival">
       <span>{{ arrivalLabel }}</span>
-      <div :class="['order-draft-panel__time-shell', { 'is-empty': !arrivalTime }]">
-        <div class="order-draft-panel__time-icon">
-          <i class="bi bi-clock-history"></i>
-        </div>
+      <div class="order-draft-panel__arrival-segment">
+        <button type="button" :class="['order-draft-panel__arrival-seg', { 'is-active': arrivalMode === 'scheduled' }]" :disabled="disabled || submitting" @click="$emit('update:arrivalMode', 'scheduled')">Có giờ hẹn</button>
+        <button type="button" :class="['order-draft-panel__arrival-seg', { 'is-active': arrivalMode === 'unknown' }]"   :disabled="disabled || submitting" @click="$emit('update:arrivalMode', 'unknown')">Chưa xác định</button>
+        <button type="button" :class="['order-draft-panel__arrival-seg', { 'is-active': arrivalMode === 'arrived' }]"   :disabled="disabled || submitting" @click="$emit('update:arrivalMode', 'arrived')">Đã tới bàn</button>
+      </div>
+      <div v-if="arrivalMode === 'scheduled'" :class="['order-draft-panel__time-shell', { 'is-empty': !arrivalTime }]">
         <input
           :value="arrivalTime"
           class="order-draft-panel__time-input"
@@ -103,12 +105,12 @@
           :disabled="disabled || submitting"
           @input="$emit('update:arrivalTime', ($event.target as HTMLInputElement).value)"
         />
-        <span class="order-draft-panel__time-badge">{{ arrivalBadgeLabel }}</span>
+        <span v-if="arrivalTime" class="order-draft-panel__time-badge">{{ arrivalTime.slice(0, 5) }}</span>
       </div>
-      <small v-if="arrivalPlaceholder" class="order-draft-panel__field-note">
+      <small v-if="arrivalMode === 'scheduled' && arrivalPlaceholder" class="order-draft-panel__field-note">
         {{ arrivalPlaceholder }}
       </small>
-    </label>
+    </div>
 
     <label v-if="showNote" class="order-draft-panel__field">
       <span>{{ noteLabel }}</span>
@@ -169,6 +171,7 @@ const props = withDefaults(
     linkLabel?: string;
     lines: DraftLine[];
     arrivalTime: string;
+    arrivalMode?: "scheduled" | "unknown" | "arrived";
     note: string;
     disabled?: boolean;
     submitDisabled?: boolean;
@@ -202,6 +205,7 @@ const props = withDefaults(
     totalLabel: "Tổng cần xác nhận",
     emptyTitle: "Chưa có món",
     emptyDescription: "Thêm món để bắt đầu tạo đơn.",
+    arrivalMode: "unknown",
     arrivalLabel: "Giờ bạn muốn tới / nhận món",
     arrivalPlaceholder: "Nếu muốn tới ngay thì để trống",
     noteLabel: "Ghi chú cho bếp",
@@ -220,6 +224,7 @@ defineEmits<{
   "change-qty": [{ key: string | number; delta: number }];
   "remove-line": [key: string | number];
   "update:arrivalTime": [value: string];
+  "update:arrivalMode": [value: "scheduled" | "unknown" | "arrived"];
   "update:note": [value: string];
   submit: [];
 }>();
@@ -230,10 +235,7 @@ const itemCount = computed(() =>
 const totalAmount = computed(() =>
   props.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0)
 );
-const arrivalBadgeLabel = computed(() => {
-  const value = props.arrivalTime?.trim();
-  return value ? value.slice(0, 5) : "Tới ngay";
-});
+
 </script>
 
 <style scoped>
@@ -432,6 +434,40 @@ const arrivalBadgeLabel = computed(() => {
 
 .order-draft-panel__field--arrival {
   gap: 8px;
+}
+
+.order-draft-panel__arrival-segment {
+  display: flex;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.order-draft-panel__arrival-seg {
+  flex: 1;
+  padding: 7px 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.order-draft-panel__arrival-seg + .order-draft-panel__arrival-seg {
+  border-left: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.order-draft-panel__arrival-seg.is-active {
+  background: #c9582c;
+  color: #fff;
+  font-weight: 700;
+}
+
+.order-draft-panel__arrival-seg:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .order-draft-panel__field span {

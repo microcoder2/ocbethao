@@ -4,6 +4,54 @@
       <div class="orders-toolbar-body">
         <div class="orders-toolbar-head">
           <span class="orders-field-label">{{ statusFieldLabel }}</span>
+
+          <!-- Bell notification -->
+          <div ref="bellWrapRef" class="orders-bell-wrap">
+            <button
+              class="orders-bell-btn"
+              type="button"
+              aria-label="Đơn hàng mới"
+              title="Đơn hàng mới"
+              @click="toggleBellPanel"
+            >
+              <i class="bi bi-bell-fill"></i>
+              <span v-if="unreadOrders.length && !bellOpen" class="orders-bell-badge">
+                {{ unreadOrders.length > 99 ? "99+" : unreadOrders.length }}
+              </span>
+            </button>
+
+            <div v-if="bellOpen" class="orders-bell-panel" @click.stop>
+              <div class="orders-bell-panel-head">
+                <span class="orders-bell-panel-title">
+                  {{ unreadOrders.length ? `${unreadOrders.length} đơn mới` : "Không có đơn mới" }}
+                </span>
+                <button
+                  v-if="unreadOrders.length"
+                  class="orders-bell-clear-btn"
+                  type="button"
+                  @click="clearUnread"
+                >Đã xem</button>
+              </div>
+              <ul v-if="unreadOrders.length" class="orders-bell-list">
+                <li v-for="o in unreadOrders" :key="o.id" class="orders-bell-item">
+                  <div class="orders-bell-item-row">
+                    <span class="orders-bell-item-name">{{ o.customer?.fullName || o.guestName || "Khách lẻ" }}</span>
+                    <span class="orders-bell-item-time">{{ formatHM(o.createdAt) }}</span>
+                  </div>
+                  <div class="orders-bell-item-meta">
+                    <span v-if="o.guestPhone || o.customer?.phone">{{ o.guestPhone || o.customer?.phone }}</span>
+                    <span>{{ o.items?.length ?? "?" }} món</span>
+                    <span class="orders-bell-item-total">{{ formatMoney(o.totalAmount) }}</span>
+                  </div>
+                </li>
+              </ul>
+              <div v-else class="orders-bell-empty">
+                <i class="bi bi-bell-slash"></i>
+                <span>Chưa có đơn mới từ khách</span>
+              </div>
+            </div>
+          </div>
+
           <button
             class="orders-toolbar-collapse"
             type="button"
@@ -75,13 +123,16 @@
 
             <label class="orders-field">
               <span class="orders-field-label">Ngày đặt</span>
-              <input
-                v-model="filter.date"
-                class="form-control orders-select"
-                type="date"
-                :disabled="isLoading"
-                @change="handleImmediateFilterChange"
-              />
+              <div class="orders-date-wrap">
+                <i class="bi bi-calendar3 orders-date-icon"></i>
+                <input
+                  v-model="filter.date"
+                  class="form-control orders-select orders-date-input"
+                  type="date"
+                  :disabled="isLoading"
+                  @change="handleImmediateFilterChange"
+                />
+              </div>
             </label>
           </div>
         </div>
@@ -107,13 +158,17 @@
         </div>
       </header>
 
-      <div v-if="scheduleBuckets.length" class="orders-schedule-strip">
-        <div v-for="bucket in scheduleBuckets" :key="bucket.key" class="orders-schedule-chip">
-          <strong>{{ bucket.label }}</strong>
-          <span>{{ bucket.orderCount }} đơn</span>
-          <span>{{ bucket.guestCount }} khách</span>
-          <span>{{ bucket.waiting + bucket.cooking }} món đang chạy</span>
+      <div v-if="scheduleBuckets.length" class="orders-schedule-wrap">
+        <button class="orders-schedule-nav" type="button" aria-label="Cuộn trái" @click="scrollSchedule(-1)">‹</button>
+        <div ref="scheduleStripRef" class="orders-schedule-strip">
+          <div v-for="bucket in scheduleBuckets" :key="bucket.key" class="orders-schedule-chip">
+            <strong>{{ bucket.label }}</strong>
+            <span>{{ bucket.orderCount }} đơn</span>
+            <span>{{ bucket.guestCount }} khách</span>
+            <span>{{ bucket.waiting + bucket.cooking }} món đang chạy</span>
+          </div>
         </div>
+        <button class="orders-schedule-nav" type="button" aria-label="Cuộn phải" @click="scrollSchedule(1)">›</button>
       </div>
 
       <div v-if="isLoading && !orders.length" class="orders-state">
@@ -138,7 +193,8 @@
           @confirm="changeOrderStatus(order, 'CONFIRMED')"
           @open-complete="openCompleteDialog(order)"
           @open-cancel="openCancelDialog(order)"
-          @save-items="(items) => saveOrderItems(order, items)"
+          @delete-order="deleteOrder(order)"
+          @save-items="(items, arrivalTime) => saveOrderItems(order, items, arrivalTime)"
           @update-item-status="(itemId, status) => updateItemStatus(order, itemId, status)"
         />
 
@@ -193,6 +249,10 @@
           <label class="orders-radio-option">
             <input v-model="cancelDialog.reason" type="radio" value="STAFF_MISTAKE" />
             <span>Admin/staff hủy do thao tác sai</span>
+          </label>
+          <label class="orders-radio-option">
+            <input v-model="cancelDialog.reason" type="radio" value="SPAM" />
+            <span>Đơn Spam/Rác</span>
           </label>
           <label class="orders-radio-option">
             <input v-model="cancelDialog.reason" type="radio" value="OTHER" />
@@ -251,6 +311,7 @@
               summary=""
               :lines="createOrderDialog.lines"
               :arrival-time="createOrderDialog.arrivalTime"
+              :arrival-mode="createOrderDialog.arrivalMode"
               :note="createOrderDialog.note"
               :disabled="createOrderSubmitting || !manualMenu"
               :submit-disabled="createOrderSubmitting || !canSubmitCreateOrder"
@@ -267,6 +328,7 @@
               @change-qty="handleCreateOrderLineChange"
               @remove-line="removeCreateOrderLine"
               @update:arrival-time="createOrderDialog.arrivalTime = $event"
+              @update:arrival-mode="createOrderDialog.arrivalMode = $event"
               @update:note="createOrderDialog.note = $event"
               @submit="submitCreateOrder"
             >
@@ -341,6 +403,12 @@ import { socket } from "../../socket";
 import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import OrderCard from "../../components/admin/OrderCard.vue";
 import { formatMoney } from "../../utils/format";
+
+function formatHM(value: string) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "--:--";
+  return new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit" }).format(d);
+}
 
 type OrderItem = {
   id: number;
@@ -459,9 +527,34 @@ const updatingOrderId = ref<number | null>(null);
 const savingOrderId = ref<number | null>(null);
 const errorMessage = ref("");
 
+// Bell / unread
+const bellWrapRef = ref<HTMLElement | null>(null);
+const scheduleStripRef = ref<HTMLElement | null>(null);
+
+function scrollSchedule(dir: -1 | 1) {
+  scheduleStripRef.value?.scrollBy({ left: dir * 180, behavior: "smooth" });
+}
+const bellOpen = ref(false);
+const unreadOrders = ref<OrderRecord[]>([]);
+
+function toggleBellPanel() {
+  bellOpen.value = !bellOpen.value;
+}
+
+function clearUnread() {
+  unreadOrders.value = [];
+  bellOpen.value = false;
+}
+
+function closeBellOnOutsideClick(e: MouseEvent) {
+  if (bellWrapRef.value && !bellWrapRef.value.contains(e.target as Node)) {
+    bellOpen.value = false;
+  }
+}
+
 const filter = reactive({
   date: getTodayInputValue(),
-  status: "CONFIRMED",
+  status: "PENDING",
   search: "",
 });
 
@@ -489,6 +582,7 @@ const createOrderDialog = reactive<{
   guestName: string;
   guestPhone: string;
   arrivalTime: string;
+  arrivalMode: "scheduled" | "unknown" | "arrived";
   note: string;
   selectedItemId: string;
   lines: ManualOrderLine[];
@@ -497,6 +591,7 @@ const createOrderDialog = reactive<{
   guestName: "",
   guestPhone: "",
   arrivalTime: "",
+  arrivalMode: "unknown",
   note: "",
   selectedItemId: "",
   lines: [],
@@ -507,7 +602,7 @@ const createOrderSubmitting = ref(false);
 const cancelDialog = reactive<{
   visible: boolean;
   order: OrderRecord | null;
-  reason: "CUSTOMER_REQUEST" | "STAFF_MISTAKE" | "OTHER";
+  reason: "CUSTOMER_REQUEST" | "STAFF_MISTAKE" | "SPAM" | "OTHER";
   otherReason: string;
 }>({
   visible: false,
@@ -572,6 +667,10 @@ const scheduleBuckets = computed(() => {
 
 function getErrorMessage(error: any, fallback: string) {
   return error?.response?.data?.message || error?.message || fallback;
+}
+
+function alertApiError(error: any, fallback: string) {
+  alert(getErrorMessage(error, fallback));
 }
 
 function isBusy(order: OrderRecord) {
@@ -674,7 +773,11 @@ async function submitCreateOrder() {
       dailyMenuId: manualMenu.value.id,
       guestName: createOrderDialog.guestName.trim(),
       guestPhone: createOrderDialog.guestPhone.trim() || undefined,
-      arrivalAt: buildArrivalAt(filter.date, createOrderDialog.arrivalTime),
+      arrivalAt: createOrderDialog.arrivalMode === "scheduled"
+        ? buildArrivalAt(filter.date, createOrderDialog.arrivalTime)
+        : createOrderDialog.arrivalMode === "arrived"
+          ? new Date().toISOString()
+          : undefined,
       note: createOrderDialog.note.trim() || undefined,
       items: createOrderDialog.lines.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
@@ -685,7 +788,7 @@ async function submitCreateOrder() {
     closeCreateOrderDialog();
     await loadOrders();
   } catch (error) {
-    errorMessage.value = getErrorMessage(error, "Không tạo được đơn thủ công.");
+    alertApiError(error, "Không tạo được đơn thủ công.");
   } finally {
     createOrderSubmitting.value = false;
   }
@@ -727,6 +830,10 @@ function buildCancelReason() {
 
   if (cancelDialog.reason === "STAFF_MISTAKE") {
     return "Lý do hủy: Admin/staff thao tác sai";
+  }
+
+  if (cancelDialog.reason === "SPAM") {
+    return "Lý do hủy: Đơn Spam/Rác";
   }
 
   return `Lý do hủy: ${cancelDialog.otherReason.trim()}`;
@@ -791,6 +898,50 @@ function handleStockUpdate(pools: Array<{ id: number; remainingQuantity: number 
   }
 }
 
+function playNewOrderSound() {
+  try {
+    const ctx = new AudioContext();
+    const times = [0, 0.18, 0.36];
+    for (const t of times) {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, ctx.currentTime + t);
+      gain.gain.setValueAtTime(0.28, ctx.currentTime + t);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.14);
+      osc.start(ctx.currentTime + t);
+      osc.stop(ctx.currentTime + t + 0.14);
+    }
+  } catch (_) { /* browser blocked audio */ }
+}
+
+function orderMatchesCurrentFilter(order: OrderRecord): boolean {
+  if (filter.date) {
+    const orderDate = new Date(order.createdAt);
+    const localDate = new Date(orderDate.getTime() - orderDate.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 10);
+    if (localDate !== filter.date) return false;
+  }
+  if (filter.status && order.status !== filter.status) return false;
+  if (filter.search.trim()) return false;
+  return true;
+}
+
+function handleNewOrder(order: OrderRecord) {
+  // Always add to unread bell list
+  if (!unreadOrders.value.some((o) => o.id === order.id)) {
+    unreadOrders.value = [order, ...unreadOrders.value];
+    playNewOrderSound();
+  }
+  // Prepend to visible list only if matches current filter
+  if (!orderMatchesCurrentFilter(order)) return;
+  if (orders.value.some((o) => o.id === order.id)) return;
+  orders.value = [order, ...orders.value];
+}
+
 function sortOrdersByQueue(a: OrderRecord, b: OrderRecord) {
   const aTime = getOrderDateValue(a.arrivalAt || a.createdAt)?.getTime() ?? 0;
   const bTime = getOrderDateValue(b.arrivalAt || b.createdAt)?.getTime() ?? 0;
@@ -835,7 +986,8 @@ async function loadOrders() {
 
 async function saveOrderItems(
   order: OrderRecord,
-  items: Array<{ dailyMenuItemId?: number; menuItemId?: number; quantity: number }>
+  items: Array<{ dailyMenuItemId?: number; menuItemId?: number; quantity: number }>,
+  arrivalTime: string | null
 ) {
   if (!items.length) {
     errorMessage.value = "Nếu muốn bỏ hết món, hãy hủy đơn thay vì lưu đơn rỗng.";
@@ -845,13 +997,32 @@ async function saveOrderItems(
   savingOrderId.value = order.id;
   errorMessage.value = "";
 
+  const arrivalAt = arrivalTime === "ARRIVED"
+    ? new Date().toISOString()
+    : arrivalTime
+      ? buildArrivalAt(filter.date, arrivalTime)
+      : undefined;
+
   try {
-    await api.put(`/orders/${order.id}`, { items });
+    await api.put(`/orders/${order.id}`, { items, ...(arrivalAt ? { arrivalAt } : {}) });
     await loadOrders();
   } catch (error) {
-    errorMessage.value = getErrorMessage(error, "Không lưu được thay đổi món.");
+    alertApiError(error, "Không lưu được thay đổi món.");
   } finally {
     savingOrderId.value = null;
+  }
+}
+
+async function deleteOrder(order: OrderRecord) {
+  if (!confirm(`Xóa vĩnh viễn đơn ${order.orderNumber}? Không thể hoàn tác.`)) return;
+  updatingOrderId.value = order.id;
+  try {
+    await api.delete(`/orders/${order.id}`);
+    orders.value = orders.value.filter((o) => o.id !== order.id);
+  } catch (error) {
+    alertApiError(error, "Không xóa được đơn hàng.");
+  } finally {
+    updatingOrderId.value = null;
   }
 }
 
@@ -867,7 +1038,7 @@ async function changeOrderStatus(
     await api.put(`/orders/${order.id}/status`, { status, ...extraData });
     await loadOrders();
   } catch (error) {
-    errorMessage.value = getErrorMessage(error, "Không cập nhật được trạng thái đơn hàng.");
+    alertApiError(error, "Không cập nhật được trạng thái đơn hàng.");
   } finally {
     updatingOrderId.value = null;
   }
@@ -891,7 +1062,7 @@ async function updateItemStatus(order: OrderRecord, itemId: number, status: stri
       .map((entry) => (entry.id === order.id ? nextOrder : entry))
       .sort(sortOrdersByQueue);
   } catch (error) {
-    errorMessage.value = getErrorMessage(error, "Không cập nhật được trạng thái món.");
+    alertApiError(error, "Không cập nhật được trạng thái món.");
   } finally {
     updatingOrderId.value = null;
   }
@@ -912,11 +1083,15 @@ function handleImmediateFilterChange() {
 onMounted(() => {
   void loadOrders();
   socket.on("stock:update", handleStockUpdate);
+  socket.on("order:new", handleNewOrder);
+  document.addEventListener("click", closeBellOnOutsideClick);
 });
 
 onBeforeUnmount(() => {
   clearSearchDebounce();
   socket.off("stock:update", handleStockUpdate);
+  socket.off("order:new", handleNewOrder);
+  document.removeEventListener("click", closeBellOnOutsideClick);
 });
 </script>
 
@@ -936,7 +1111,7 @@ onBeforeUnmount(() => {
 
 .orders-toolbar {
   border: 0;
-  overflow: hidden;
+  overflow: visible;
   display: grid;
 }
 
@@ -1000,6 +1175,154 @@ onBeforeUnmount(() => {
 .orders-toolbar-add-btn i {
   display: block;
 }
+
+/* ── Bell ─────────────────────────────────────────────────────── */
+.orders-bell-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.orders-bell-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  transition: color 0.18s, background 0.18s;
+}
+.orders-bell-btn:hover,
+.orders-bell-btn:focus-visible {
+  color: var(--ember-strong);
+  background: rgba(201, 88, 44, 0.08);
+  outline: none;
+}
+.orders-bell-btn i { font-size: 1rem; }
+
+.orders-bell-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #e03e2d;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.orders-bell-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(320px, calc(100vw - 32px));
+  z-index: 9000;
+  border-radius: 20px;
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  background: rgba(var(--panel-rgb), 0.98);
+  box-shadow: 0 16px 40px rgba(var(--text-rgb), 0.18);
+  overflow: hidden;
+}
+
+.orders-bell-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid rgba(var(--line-rgb), 0.7);
+}
+
+.orders-bell-panel-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.orders-bell-clear-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ember-strong);
+  cursor: pointer;
+}
+.orders-bell-clear-btn:hover { text-decoration: underline; }
+
+.orders-bell-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.orders-bell-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 16px;
+  border-bottom: 1px dashed rgba(var(--line-rgb), 0.6);
+}
+.orders-bell-item:last-child { border-bottom: none; }
+
+.orders-bell-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.orders-bell-item-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orders-bell-item-time {
+  font-size: 0.8rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.orders-bell-item-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.orders-bell-item-total {
+  font-weight: 700;
+  color: var(--ember-strong);
+}
+
+.orders-bell-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 16px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* ── End Bell ─────────────────────────────────────────────────── */
 
 .orders-toolbar-collapse {
   border: none;
@@ -1082,6 +1405,27 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
+.orders-date-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.orders-date-icon { display: none; }
+.orders-date-input { width: 100%; }
+@media (pointer: coarse) {
+  .orders-date-icon {
+    display: block;
+    position: absolute;
+    left: 14px;
+    font-size: 0.88rem;
+    color: var(--muted);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .orders-date-input { padding-left: 36px; }
+  .orders-date-input::-webkit-calendar-picker-indicator { opacity: 0; }
+}
+
 .orders-search-input {
   border: none;
   background: transparent;
@@ -1123,13 +1467,44 @@ onBeforeUnmount(() => {
   color: var(--ember-strong);
 }
 
+.orders-schedule-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.orders-schedule-nav {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 4px rgba(var(--text-rgb), 0.1);
+  color: var(--text);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  z-index: 1;
+}
+
+.orders-schedule-nav:first-child { margin-right: -6px; }
+.orders-schedule-nav:last-child  { margin-left: -6px; }
+
 .orders-schedule-strip {
   display: flex;
   gap: 10px;
-  margin-top: 12px;
-  padding: 0 20px 16px;
+  padding: 0 8px 16px;
   overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+  min-width: 0;
 }
+
+.orders-schedule-strip::-webkit-scrollbar { display: none; }
 
 .orders-schedule-chip {
   min-width: 150px;
@@ -1207,6 +1582,7 @@ onBeforeUnmount(() => {
 
 .orders-list {
   display: grid;
+  margin-top: 2px;
 }
 
 .order-add-row {
@@ -1443,9 +1819,12 @@ onBeforeUnmount(() => {
     margin-top: 0;
   }
 
-  .orders-schedule-strip {
+  .orders-schedule-wrap {
     margin-top: 10px;
-    padding: 0 16px 14px;
+  }
+
+  .orders-schedule-strip {
+    padding: 0 6px 14px;
     border-top: 0;
     border-bottom: 0;
     background: transparent;

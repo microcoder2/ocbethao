@@ -23,6 +23,14 @@ export function getIo(): SocketIOServer | null {
 }
 
 /**
+ * Broadcast a newly created order to all connected clients.
+ */
+export function broadcastNewOrder(order: unknown): void {
+  if (!io) return;
+  io.emit("order:new", order);
+}
+
+/**
  * Fetch fresh pool data after a stock change and broadcast to all clients.
  */
 export async function broadcastStockUpdate(poolIds: number[]): Promise<void> {

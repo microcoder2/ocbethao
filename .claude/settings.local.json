@@ -5,7 +5,10 @@
       "Bash(find /h/VSCode/ocbethao/api/src -type f -name *.ts)",
       "Bash(npm install:*)",
       "Bash(find /h/VSCode/ocbethao/api/prisma -type f -name *.sql -o -type f -name migration*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(npx prisma:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(npx tsoa:*)"
     ]
   }
 }

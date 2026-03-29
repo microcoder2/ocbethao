@@ -3,14 +3,28 @@
     <section class="page-panel users-hero">
       <div class="users-hero__layout">
         <div class="users-hero__copy">
-          <div class="users-hero__eyebrow">Customer CRM</div>
-          <h2 class="users-hero__title">Tập khách hàng và tài khoản</h2>
-          <p class="users-hero__description">
-            Quản lý user theo chuẩn card/grid, thao tác nhanh trên điện thoại, thêm khách bằng popup và lọc dữ liệu ngay trên đầu trang.
-          </p>
+          <h2 class="users-hero__title">Người dùng</h2>
           <div class="users-hero__actions">
-            <button type="button" class="btn btn-outline-dark" @click="openCreateDialog('STAFF')">Thêm nhân sự</button>
-            <button type="button" class="btn btn-ember" @click="openCreateDialog('CUSTOMER')">Thêm khách hàng</button>
+            <button
+              type="button"
+              class="btn btn-outline-dark"
+              title="Thêm nhân sự"
+              aria-label="Thêm nhân sự"
+              @click="openCreateDialog('STAFF')"
+            >
+              <i class="bi bi-person-plus"></i>
+              <span>Nhân sự</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-ember"
+              title="Thêm khách hàng"
+              aria-label="Thêm khách hàng"
+              @click="openCreateDialog('CUSTOMER')"
+            >
+              <i class="bi bi-person-plus"></i>
+              <span>Khách hàng</span>
+            </button>
           </div>
         </div>
 
@@ -38,7 +52,7 @@
       <div class="users-toolbar-card">
         <div class="section-head users-toolbar-card__head">
           <div>
-            <div class="panel-title mb-1">Bộ lọc người dùng</div>
+            <div class="panel-title mb-1">Bộ lọc</div>
             <div class="small text-muted">
               {{ filteredUsers.length }} user phù hợp trên tổng {{ users.length }} user hiện có.
             </div>
@@ -50,50 +64,53 @@
         </div>
 
         <div class="users-toolbar">
-          <label class="users-field users-search-field">
-            <span>Tìm kiếm</span>
-            <div class="users-search-control">
-              <i class="bi bi-search"></i>
-              <input
-                v-model.trim="filter.search"
-                class="form-control users-search-input"
-                type="search"
-                placeholder="Tìm theo tên, username, email, số điện thoại..."
-                @input="handleSearchInput"
-                @search="handleImmediateSearch"
-              />
-            </div>
-          </label>
+          <div class="users-toolbar__row">
+            <label class="users-field users-search-field">
+              <span>Tìm kiếm</span>
+              <div class="users-search-control">
+                <i class="bi bi-search"></i>
+                <input
+                  v-model.trim="filter.search"
+                  class="form-control users-search-input"
+                  type="search"
+                  placeholder="Tìm theo tên, username, email, số điện thoại..."
+                  @input="handleSearchInput"
+                  @search="handleImmediateSearch"
+                />
+              </div>
+            </label>
 
-          <label class="users-field">
-            <span>Vai trò</span>
-            <select v-model="filter.role" class="form-select" @change="handleServerFilterChange">
-              <option value="ALL">Tất cả</option>
-              <option value="ADMIN">Admin</option>
-              <option value="STAFF">Staff</option>
-              <option value="CUSTOMER">Customer</option>
-            </select>
-          </label>
+            <label class="users-field">
+              <span>Trạng thái</span>
+              <select v-model="filter.status" class="form-select" @change="resetToFirstPage">
+                <option value="ALL">Tất cả</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </label>
+          </div>
 
-          <label class="users-field">
-            <span>Provider</span>
-            <select v-model="filter.provider" class="form-select" @change="resetToFirstPage">
-              <option value="ALL">Tất cả</option>
-              <option v-for="provider in providerOptions" :key="provider" :value="provider">
-                {{ formatProviderLabel(provider) }}
-              </option>
-            </select>
-          </label>
+          <div class="users-toolbar__row">
+            <label class="users-field">
+              <span>Vai trò</span>
+              <select v-model="filter.role" class="form-select" @change="handleServerFilterChange">
+                <option value="ALL">Tất cả</option>
+                <option value="ADMIN">Admin</option>
+                <option value="STAFF">Staff</option>
+                <option value="CUSTOMER">Customer</option>
+              </select>
+            </label>
 
-          <label class="users-field">
-            <span>Trạng thái</span>
-            <select v-model="filter.status" class="form-select" @change="resetToFirstPage">
-              <option value="ALL">Tất cả</option>
-              <option value="ACTIVE">Active</option>
-              <option value="INACTIVE">Inactive</option>
-            </select>
-          </label>
-
+            <label class="users-field">
+              <span>Provider</span>
+              <select v-model="filter.provider" class="form-select" @change="resetToFirstPage">
+                <option value="ALL">Tất cả</option>
+                <option v-for="provider in providerOptions" :key="provider" :value="provider">
+                  {{ formatProviderLabel(provider) }}
+                </option>
+              </select>
+            </label>
+          </div>
         </div>
       </div>
     </section>
@@ -101,99 +118,122 @@
     <section class="page-panel">
       <div class="section-head">
         <div>
-          <div class="panel-title mb-1">User grid</div>
-          <div class="small text-muted">Thao tác thêm, sửa, xóa nhanh theo từng card.</div>
+          <div class="panel-title mb-1">Danh sách</div>
         </div>
       </div>
 
-      <div v-if="!loading && paginatedUsers.length === 0" class="empty-state">
-        Không có user nào phù hợp bộ lọc hiện tại.
-      </div>
-
-      <div v-else class="users-grid">
-        <button type="button" class="user-create-card" @click="openCreateDialog('CUSTOMER')">
-          <i class="bi bi-person-plus"></i>
-          <strong>Thêm khách hàng</strong>
-          <span>Mở popup để tạo nhanh khách mới.</span>
-        </button>
-
-        <article v-for="user in paginatedUsers" :key="user.id" class="user-card">
-          <div class="user-card__head">
-            <div class="user-avatar">{{ getInitials(user.fullName) }}</div>
-
-            <div class="user-card__main">
-              <div class="user-card__title-row">
-                <h3 class="user-card__name">{{ user.fullName }}</h3>
-                <span class="user-role" :class="`user-role--${user.role.toLowerCase()}`">
-                  {{ formatRoleLabel(user.role) }}
-                </span>
-              </div>
-
-              <div class="user-card__sub">
-                {{ user.username ? `@${user.username}` : `#${user.id}` }}
-              </div>
-            </div>
-
-            <span class="user-status" :class="{ 'is-inactive': !user.isActive }">
-              {{ user.isActive ? "Active" : "Inactive" }}
-            </span>
-          </div>
-
-          <div class="user-card__meta">
-            <div class="user-card__line">
-              <i class="bi bi-telephone"></i>
-              <span>{{ user.phone || "Chưa có số điện thoại" }}</span>
-            </div>
-            <div class="user-card__line">
-              <i class="bi bi-envelope"></i>
-              <span>{{ user.email || "Chưa có email" }}</span>
-            </div>
-            <div class="user-card__line">
-              <i class="bi bi-person-badge"></i>
-              <span>{{ formatCustomerTypeLabel(user.customerType) }}</span>
-            </div>
-            <div class="user-card__line">
-              <i class="bi bi-calendar3"></i>
-              <span>Tạo {{ formatDate(user.createdAt) }}</span>
-            </div>
-          </div>
-
-          <div class="user-card__providers">
-            <span
-              v-for="provider in getLoginProviders(user)"
-              :key="provider"
-              class="user-chip"
-              :class="{ 'user-chip--primary': provider === getPrimaryProvider(user) }"
-            >
-              {{ formatProviderLabel(provider) }}
-            </span>
-            <span v-if="!getLoginProviders(user).length" class="user-chip user-chip--muted">Chưa có provider</span>
-          </div>
-
-          <p v-if="user.notes" class="user-card__notes">{{ user.notes }}</p>
-
-          <div class="user-card__actions">
-            <button
-              type="button"
-              class="user-card__icon-btn"
-              title="Sửa"
-              :aria-label="`Sửa ${user.fullName}`"
-              @click="editUser(user)"
-            >
-              <i class="bi bi-pencil"></i>
-            </button>
-            <button
-              type="button"
-              class="user-card__icon-btn user-card__icon-btn--danger"
-              title="Xóa"
-              :aria-label="`Xóa ${user.fullName}`"
-              :disabled="deletingUserId === user.id"
-              @click="openDeleteDialog(user)"
-            >
-              <i class="bi bi-trash3"></i>
-            </button>
-          </div>
-        </article>
+      <div class="users-table-wrap">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th class="users-th users-th--avatar"></th>
+              <th class="users-th">User</th>
+              <th class="users-th users-col-contact">Liên hệ</th>
+              <th class="users-th users-col-role">Vai trò</th>
+              <th class="users-th users-col-provider">Provider</th>
+              <th class="users-th users-col-status">Trạng thái</th>
+              <th class="users-th users-th--actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="loading">
+              <td colspan="7" class="users-td users-td--center">
+                <i class="bi bi-hourglass-split"></i> Đang tải...
+              </td>
+            </tr>
+            <tr v-else-if="paginatedUsers.length === 0">
+              <td colspan="7" class="users-td users-td--center users-td--muted">
+                Không có user nào phù hợp bộ lọc hiện tại.
+              </td>
+            </tr>
+            <template v-else>
+              <tr
+                v-for="user in paginatedUsers"
+                :key="user.id"
+                class="users-row"
+                :class="{ 'users-row--dim': !user.isActive }"
+              >
+                <td class="users-td users-td--avatar">
+                  <div class="user-avatar">{{ getInitials(user.fullName) }}</div>
+                </td>
+                <td class="users-td">
+                  <div class="users-table__name">{{ user.fullName }}</div>
+                  <div class="users-table__mobile-meta">
+                    <span class="user-role" :class="`user-role--${user.role.toLowerCase()}`">
+                      {{ formatRoleLabel(user.role) }}
+                    </span>
+                    <span class="user-status" :class="{ 'is-inactive': !user.isActive }">
+                      {{ user.isActive ? "Active" : "Inactive" }}
+                    </span>
+                  </div>
+                </td>
+                <td class="users-td users-col-contact">
+                  <div class="users-table__contact" :title="getPreferredContact(user)">
+                    <span class="users-table__contact-value">{{ getPreferredContact(user) }}</span>
+                  </div>
+                </td>
+                <td class="users-td users-col-role">
+                  <div class="users-table__role">
+                    <span class="user-role" :class="`user-role--${user.role.toLowerCase()}`">
+                      {{ formatRoleLabel(user.role) }}
+                    </span>
+                    <div class="users-table__sub">{{ formatCustomerTypeLabel(user.customerType) }}</div>
+                  </div>
+                </td>
+                <td class="users-td users-col-provider">
+                  <div class="users-table__chips">
+                    <span
+                      v-for="provider in getLoginProviders(user)"
+                      :key="provider"
+                      class="user-chip"
+                      :class="{ 'user-chip--primary': provider === getPrimaryProvider(user) }"
+                    >
+                      {{ formatProviderLabel(provider) }}
+                    </span>
+                    <span v-if="!getLoginProviders(user).length" class="user-chip user-chip--muted">Chưa có provider</span>
+                  </div>
+                </td>
+                <td class="users-td users-col-status">
+                  <span class="user-status" :class="{ 'is-inactive': !user.isActive }">
+                    {{ user.isActive ? "Active" : "Inactive" }}
+                  </span>
+                </td>
+                <td class="users-td users-td--actions">
+                  <div class="users-row-actions">
+                    <button
+                      type="button"
+                      class="user-card__icon-btn"
+                      title="Xem"
+                      :aria-label="`Xem ${user.fullName}`"
+                      @click="viewUser(user)"
+                    >
+                      <i class="bi bi-eye"></i>
+                    </button>
+                    <button
+                      type="button"
+                      class="user-card__icon-btn"
+                      title="Sửa"
+                      :aria-label="`Sửa ${user.fullName}`"
+                      @click="editUser(user)"
+                    >
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button
+                      type="button"
+                      class="user-card__icon-btn user-card__icon-btn--danger"
+                      title="Xóa"
+                      :aria-label="`Xóa ${user.fullName}`"
+                      :disabled="deletingUserId === user.id"
+                      @click="openDeleteDialog(user)"
+                    >
+                      <i class="bi bi-trash3"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
       </div>
 
       <div v-if="filteredUsers.length > 0" class="users-pagination">
@@ -278,13 +318,11 @@
         <div class="users-modal__head">
           <div class="users-modal__hero">
             <div class="users-modal__avatar">
-              <i :class="dialogMode === 'edit' ? 'bi bi-pencil-square' : 'bi bi-person-plus'"></i>
+              <i :class="dialogIconClass"></i>
             </div>
             <div class="users-modal__hero-copy">
-              <div class="users-modal__eyebrow">{{ dialogMode === "edit" ? "Edit user" : "Add user" }}</div>
-              <h3 id="user-dialog-title" class="users-modal__title">
-                {{ dialogMode === "edit" ? "Cập nhật tài khoản" : "Thêm khách hàng / tài khoản mới" }}
-              </h3>
+              <div class="users-modal__eyebrow">{{ dialogEyebrow }}</div>
+              <h3 id="user-dialog-title" class="users-modal__title">{{ dialogTitle }}</h3>
               <div class="users-modal__role-badge">{{ formatRoleLabel(form.role) }}</div>
             </div>
           </div>
@@ -294,17 +332,22 @@
           </button>
         </div>
 
-        <form class="users-modal__form" @submit.prevent="saveUser">
+        <form class="users-modal__form" @submit.prevent="handleDialogSubmit">
           <div class="users-modal__body">
             <div class="users-form-grid">
               <label class="users-field users-field--full">
                 <span>Họ tên</span>
-                <input v-model.trim="form.fullName" class="form-control" placeholder="Ví dụ: Nguyễn Minh An" />
+                <input
+                  v-model.trim="form.fullName"
+                  class="form-control"
+                  placeholder="Ví dụ: Nguyễn Minh An"
+                  :disabled="isViewDialog"
+                />
               </label>
 
               <label class="users-field">
                 <span>Vai trò</span>
-                <select v-model="form.role" class="form-select" @change="handleRoleChange">
+                <select v-model="form.role" class="form-select" :disabled="isViewDialog" @change="handleRoleChange">
                   <option value="ADMIN">Admin</option>
                   <option value="STAFF">Staff</option>
                   <option value="CUSTOMER">Customer</option>
@@ -313,7 +356,7 @@
 
               <label class="users-field">
                 <span>Trạng thái</span>
-                <select v-model="form.isActive" class="form-select">
+                <select v-model="form.isActive" class="form-select" :disabled="isViewDialog">
                   <option :value="true">Active</option>
                   <option :value="false">Inactive</option>
                 </select>
@@ -321,12 +364,12 @@
 
               <label class="users-field">
                 <span>Username</span>
-                <input v-model.trim="form.username" class="form-control" placeholder="username" />
+                <input v-model.trim="form.username" class="form-control" placeholder="username" :disabled="isViewDialog" />
               </label>
 
               <label class="users-field">
                 <span>Loại khách</span>
-                <select v-model="form.customerType" class="form-select" :disabled="form.role !== 'CUSTOMER'">
+                <select v-model="form.customerType" class="form-select" :disabled="isViewDialog || form.role !== 'CUSTOMER'">
                   <option value="">Chưa phân loại</option>
                   <option value="REGULAR">Regular</option>
                   <option value="VIP">VIP</option>
@@ -338,17 +381,17 @@
 
               <label class="users-field">
                 <span>Số điện thoại</span>
-                <input v-model.trim="form.phone" class="form-control" placeholder="090..." />
+                <input v-model.trim="form.phone" class="form-control" placeholder="090..." :disabled="isViewDialog" />
               </label>
 
               <label class="users-field">
                 <span>Email</span>
-                <input v-model.trim="form.email" class="form-control" placeholder="name@example.com" />
+                <input v-model.trim="form.email" class="form-control" placeholder="name@example.com" :disabled="isViewDialog" />
               </label>
 
               <label class="users-field">
                 <span>Provider ưu tiên</span>
-                <select v-model="form.preferredAuthProvider" class="form-select">
+                <select v-model="form.preferredAuthProvider" class="form-select" :disabled="isViewDialog">
                   <option value="">Chọn provider</option>
                   <option value="password">Password</option>
                   <option value="google">Google</option>
@@ -359,7 +402,7 @@
                 </select>
               </label>
 
-              <label class="users-field users-field--full">
+              <label v-if="!isViewDialog" class="users-field users-field--full">
                 <span>{{ dialogMode === "edit" ? "Mật khẩu mới" : "Mật khẩu" }}</span>
                 <input
                   v-model="form.password"
@@ -371,7 +414,13 @@
 
               <label class="users-field users-field--full">
                 <span>Ghi chú nội bộ</span>
-                <textarea v-model.trim="form.notes" rows="3" class="form-control" placeholder="Thông tin thêm về user"></textarea>
+                <textarea
+                  v-model.trim="form.notes"
+                  rows="3"
+                  class="form-control"
+                  placeholder="Thông tin thêm về user"
+                  :disabled="isViewDialog"
+                ></textarea>
               </label>
             </div>
 
@@ -392,7 +441,7 @@
             </p>
             <div class="users-modal__footer-actions">
               <button type="button" class="users-modal__btn" @click="closeDialog">Đóng</button>
-              <button type="submit" class="users-modal__btn users-modal__btn--save" :disabled="saving">
+              <button v-if="!isViewDialog" type="submit" class="users-modal__btn users-modal__btn--save" :disabled="saving">
                 <i v-if="saving" class="bi bi-hourglass-split"></i>
                 <span v-else>{{ dialogMode === "edit" ? "Cập nhật user" : "Tạo user" }}</span>
               </button>
@@ -426,7 +475,7 @@ import { api } from "../../api";
 
 type UserRole = "ADMIN" | "STAFF" | "CUSTOMER";
 type CustomerType = "" | "REGULAR" | "VIP" | "OFFICE" | "ONLINE" | "TOURIST";
-type DialogMode = "create" | "edit";
+type DialogMode = "create" | "edit" | "view";
 
 interface AuthIdentityRecord {
   id: number;
@@ -499,6 +548,26 @@ const providerOptions = computed(() => {
     }
   }
   return Array.from(values).sort((left, right) => left.localeCompare(right));
+});
+
+const isViewDialog = computed(() => dialogMode.value === "view");
+
+const dialogEyebrow = computed(() => {
+  if (dialogMode.value === "edit") return "Edit user";
+  if (dialogMode.value === "view") return "View user";
+  return "Add user";
+});
+
+const dialogTitle = computed(() => {
+  if (dialogMode.value === "edit") return "Cập nhật tài khoản";
+  if (dialogMode.value === "view") return "Chi tiết tài khoản";
+  return "Thêm khách hàng / tài khoản mới";
+});
+
+const dialogIconClass = computed(() => {
+  if (dialogMode.value === "edit") return "bi bi-pencil-square";
+  if (dialogMode.value === "view") return "bi bi-eye";
+  return "bi bi-person-plus";
 });
 
 const filteredUsers = computed(() =>
@@ -716,15 +785,29 @@ function formatDate(value?: string) {
   }).format(date);
 }
 
+function getPreferredContact(user: UserRecord) {
+  if (user.phone) return user.phone;
+  if (user.email) return user.email;
+  return "Chưa có liên hệ";
+}
+
 function getErrorMessage(error: any, fallback: string) {
   return error?.response?.data?.message || error?.message || fallback;
 }
 
 function editUser(user: UserRecord) {
   dialogMode.value = "edit";
+  openUserDialog(user);
+}
+
+function viewUser(user: UserRecord) {
+  dialogMode.value = "view";
+  openUserDialog(user);
+}
+
+function openUserDialog(user: UserRecord) {
   dialogOpen.value = true;
   errorMessage.value = "";
-
   Object.assign(form, {
     id: user.id,
     fullName: user.fullName,
@@ -743,6 +826,13 @@ function editUser(user: UserRecord) {
       return `${identity.provider}:${handle}`;
     }),
   });
+}
+
+function handleDialogSubmit() {
+  if (isViewDialog.value) {
+    return;
+  }
+  void saveUser();
 }
 
 function goToPage(page: number) {
@@ -882,6 +972,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .users-admin {
+  gap: 24px;
+  margin-inline: -24px;
+  margin-top: -24px;
   padding-bottom: 48px;
 }
 
@@ -944,6 +1037,19 @@ onBeforeUnmount(() => {
 .users-hero__actions {
   flex-wrap: wrap;
   align-items: center;
+}
+
+.users-hero__actions .btn {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.users-hero__actions .btn i {
+  font-size: 0.95rem;
+  line-height: 1;
 }
 
 .users-toolbar-card {
@@ -1042,8 +1148,25 @@ onBeforeUnmount(() => {
 .users-toolbar,
 .users-form-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.8fr) repeat(4, minmax(140px, 1fr));
   gap: 14px;
+}
+
+.users-toolbar {
+  gap: 12px;
+}
+
+.users-toolbar__row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.users-toolbar__row:first-child {
+  grid-template-columns: minmax(0, 1.55fr) minmax(220px, 0.85fr);
+}
+
+.users-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .users-field {
@@ -1054,10 +1177,6 @@ onBeforeUnmount(() => {
 
 .users-field--full {
   grid-column: 1 / -1;
-}
-
-.users-search-field {
-  grid-column: span 2;
 }
 
 .users-search-control {
@@ -1076,48 +1195,6 @@ onBeforeUnmount(() => {
   padding-left: 42px;
 }
 
-.users-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
-}
-
-.user-create-card,
-.user-card {
-  border: 1px solid rgba(var(--line-rgb), 0.9);
-  border-radius: 24px;
-  padding: 18px;
-  background: rgba(var(--panel-rgb), 0.92);
-  box-shadow: var(--shadow);
-}
-
-.user-create-card {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  min-height: 220px;
-  border-style: dashed;
-  background:
-    linear-gradient(180deg, rgba(var(--panel-rgb), 0.92), rgba(246, 249, 255, 0.96)),
-    rgba(var(--panel-rgb), 0.92);
-  color: var(--text);
-  text-align: center;
-}
-
-.user-create-card i {
-  font-size: 2rem;
-  color: var(--ember-strong);
-}
-
-.user-create-card span {
-  color: var(--muted);
-}
-
-.user-card {
-  display: grid;
-  gap: 14px;
-}
-
 .user-avatar {
   width: 52px;
   height: 52px;
@@ -1130,38 +1207,112 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
-.user-card__head {
-  align-items: flex-start;
+.users-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  border-radius: 24px;
 }
 
-.user-card__actions {
-  justify-content: flex-end;
-  align-items: center;
+.users-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
 }
 
-.user-card__main {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  flex: 1;
+.users-th {
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  background: rgba(var(--panel-rgb), 0.95);
+  border-bottom: 1px solid rgba(var(--line-rgb), 0.9);
 }
 
-.user-card__title-row {
-  display: flex;
-  align-items: center;
+.users-th--avatar {
+  width: 70px;
+}
+
+.users-th--actions {
+  width: 136px;
+}
+
+.users-td,
+.users-th--actions {
+  vertical-align: top;
+}
+
+.users-td {
+  padding: 12px 14px;
+  background: rgba(var(--panel-rgb), 0.97);
+  border-bottom: 1px solid rgba(var(--line-rgb), 0.82);
+}
+
+.users-td--avatar {
+  width: 70px;
+  padding-right: 0;
+}
+
+.users-td--actions {
+  position: sticky;
+  right: 0;
+  background: rgba(var(--panel-rgb), 0.98);
+}
+
+.users-td--center {
+  text-align: center;
+  color: var(--muted);
+  padding: 32px;
+}
+
+.users-td--muted {
+  color: var(--muted);
+}
+
+.users-row {
+  transition: background 0.1s;
+}
+
+.users-row:hover .users-td {
+  background: rgba(255, 249, 246, 0.92);
+}
+
+.users-row:hover .users-td--actions {
+  background: rgba(255, 246, 240, 0.98);
+}
+
+.users-row--dim {
+  opacity: 0.58;
+}
+
+.users-row:last-child .users-td {
+  border-bottom: none;
+}
+
+.users-td--avatar .user-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  font-size: 0.92rem;
+}
+
+.users-table__name {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.users-table__mobile-meta {
+  display: none;
   gap: 8px;
   flex-wrap: wrap;
+  margin-top: 10px;
 }
 
-.user-card__name {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.user-card__sub,
-.user-card__notes,
+.users-table__sub,
 .users-pagination__summary {
   color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .user-status,
@@ -1203,20 +1354,31 @@ onBeforeUnmount(() => {
   color: #8d6510;
 }
 
-.user-card__meta {
-  display: grid;
-  gap: 10px;
-}
-
-.user-card__line {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+.users-table__contact {
+  display: block;
   color: var(--text);
+  min-width: 0;
 }
 
-.user-card__line i {
-  color: var(--muted);
+.users-table__contact-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.users-table__role {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.users-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
 .user-card__icon-btn {
@@ -1264,7 +1426,7 @@ onBeforeUnmount(() => {
   background: rgba(var(--danger-rgb), 0.16);
 }
 
-.user-card__providers,
+.users-table__chips,
 .users-linked-box__list {
   display: flex;
   flex-wrap: wrap;
@@ -1577,43 +1739,138 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
-  .users-toolbar,
-  .users-form-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .users-toolbar__row:first-child {
+    grid-template-columns: minmax(0, 1.25fr) minmax(200px, 0.95fr);
+  }
+}
+
+@media (max-width: 991.98px) {
+  .users-table {
+    min-width: 0;
+    table-layout: fixed;
   }
 
-  .users-search-field {
-    grid-column: 1 / -1;
+  .users-th--avatar,
+  .users-td--avatar,
+  .users-col-role,
+  .users-col-provider,
+  .users-col-status {
+    display: none;
+  }
+
+  .users-th,
+  .users-td {
+    padding: 12px;
+  }
+
+  .users-td--actions {
+    position: static;
+    width: 124px;
+  }
+
+  .users-row-actions {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .users-table__mobile-meta {
+    display: flex;
+  }
+
+  .users-table__mobile-meta .user-role,
+  .users-table__mobile-meta .user-status {
+    min-height: 28px;
+    padding: 4px 10px;
+    font-size: 0.72rem;
   }
 }
 
 @media (max-width: 767px) {
   .users-admin {
-    padding-bottom: 24px;
+    gap: 0;
+    padding-bottom: 0;
+  }
+
+  .users-admin > .page-panel {
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .users-hero {
+    gap: 12px;
+    background: transparent;
+  }
+
+  .users-hero__layout,
+  .users-admin > .page-panel > .section-head,
+  .users-pagination {
+    padding-inline: 12px;
   }
 
   .users-hero__actions,
   .section-head,
   .users-toolbar-card__head,
-  .user-card__head,
-  .user-card__actions,
   .users-pagination__row {
     flex-direction: column;
     align-items: stretch;
   }
 
+  .users-hero__title {
+    font-size: 1.25rem;
+  }
+
+  .users-hero__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 10px;
+  }
+
+  .users-hero__actions .btn {
+    width: 100%;
+  }
+
+  .users-stat-grid {
+    gap: 0;
+  }
+
+  .users-stat-card {
+    min-height: auto;
+    padding: 10px 12px;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    background: rgba(var(--panel-rgb), 0.92);
+  }
+
+  .users-stat-card__hint {
+    display: none;
+  }
+
   .users-toolbar-card {
-    padding: 14px;
+    gap: 10px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    backdrop-filter: none;
   }
 
   .users-toolbar-card__meta {
     align-items: flex-start;
   }
 
-  .users-toolbar,
-  .users-form-grid,
-  .users-grid {
-    grid-template-columns: 1fr;
+  .users-toolbar-card .small {
+    display: none;
+  }
+
+  .users-toolbar__row,
+  .users-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .users-pagination__page-size {
@@ -1631,14 +1888,36 @@ onBeforeUnmount(() => {
     justify-content: flex-start;
   }
 
-  .user-card__actions {
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-end;
+  .users-table-wrap {
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
   }
 
-  .users-search-field {
-    grid-column: auto;
+  .users-table {
+    table-layout: auto;
+  }
+
+  .users-th,
+  .users-td {
+    padding: 10px 12px;
+  }
+
+  .users-table__sub {
+    line-height: 1.45;
+  }
+
+  .users-table__contact {
+    font-size: 0.82rem;
+  }
+
+  .users-row-actions {
+    flex-wrap: wrap;
+  }
+
+  .user-card__icon-btn {
+    width: 34px;
+    height: 34px;
   }
 
   .users-modal {

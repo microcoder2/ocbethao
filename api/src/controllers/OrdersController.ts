@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Path,
   Post,
@@ -22,7 +23,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { serializeOrder } from "../utils/mappers";
-import { broadcastStockUpdate } from "../socket";
+import { broadcastStockUpdate, broadcastNewOrder } from "../socket";
 
 class OrderItemInput {
   dailyMenuItemId?: number;
@@ -207,10 +208,10 @@ async function applyStockUsage(
     const pool = await tx.dailyStockPool.findUniqueOrThrow({
       where: { id: dailyStockPoolId },
     });
-    const nextSoldQuantity = Number(pool.soldQuantity) + quantity * direction;
-    if (nextSoldQuantity < 0) {
-      throw new Error("Ton kho bi am khi hoan mon");
-    }
+    const nextSoldQuantity = Math.max(
+      0,
+      Number(pool.soldQuantity) + quantity * direction
+    );
 
     await tx.dailyStockPool.update({
       where: { id: dailyStockPoolId },
@@ -656,9 +657,10 @@ export class OrdersController extends Controller {
           ? OrderSource.STAFF_POS
           : OrderSource.ADMIN_POS;
 
-    const currentUser = await prisma.user.findUniqueOrThrow({
-      where: { id: authUser.id },
-    });
+    const currentUser =
+      authUser.role === "CUSTOMER"
+        ? await prisma.user.findUnique({ where: { id: authUser.id } })
+        : null;
 
     const { orderId, poolIds: createdPoolIds } = await prisma.$transaction(async (tx) => {
       const lines = await resolveOrderLines(tx, body.items || []);
@@ -681,10 +683,10 @@ export class OrdersController extends Controller {
           guestCount: body.guestCount,
           guestName:
             body.guestName ||
-            (authUser.role === "CUSTOMER" ? currentUser.fullName : undefined),
+            (authUser.role === "CUSTOMER" ? currentUser?.fullName : undefined),
           guestPhone:
             body.guestPhone ||
-            (authUser.role === "CUSTOMER" ? currentUser.phone ?? undefined : undefined),
+            (authUser.role === "CUSTOMER" ? currentUser?.phone ?? undefined : undefined),
           note: body.note,
           internalNote: body.internalNote,
           arrivalAt,
@@ -715,9 +717,11 @@ export class OrdersController extends Controller {
     });
 
     const order = await getOrderDetail(orderId);
+    const serialized = serializeOrder(order);
     void broadcastStockUpdate(createdPoolIds);
+    broadcastNewOrder(serialized);
     this.setStatus(201);
-    return serializeOrder(order);
+    return serialized;
   }
 
   @Put("{id}/status")
@@ -949,5 +953,18 @@ export class OrdersController extends Controller {
 
     const order = await getOrderDetail(orderId);
     return serializeOrder(order);
+  }
+
+  @Delete("{id}")
+  @Security("bearerAuth", ["ADMIN"])
+  public async deleteOrder(@Path() id: number): Promise<void> {
+    const order = await prisma.order.findUniqueOrThrow({ where: { id } });
+    if (order.status !== OrderStatus.CANCELLED) {
+      this.setStatus(400);
+      throw new Error("Chi co the xoa don da huy");
+    }
+    await prisma.orderItem.deleteMany({ where: { orderId: id } });
+    await prisma.order.delete({ where: { id } });
+    this.setStatus(204);
   }
 }
