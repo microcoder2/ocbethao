@@ -5,7 +5,7 @@
         <div class="order-head-label">Đơn {{ order.orderNumber }}</div>
         <div class="order-head-meta">
           <span>{{ formatDate(order.createdAt) }}</span>
-          <span v-if="order.arrivalAt">Giờ hẹn {{ queueTime }}</span>
+          <span v-if="headInfoLabel">{{ headInfoLabel }}</span>
         </div>
       </div>
       <div class="order-head-side">
@@ -23,15 +23,15 @@
       </div>
     </div>
 
-    <div class="order-status-line">
-      <span class="order-arrival-chip">{{ order.arrivalAt ? `Giờ hẹn ${queueTime}` : 'Chưa xác định' }}</span>
-      <span v-if="hasProgress" class="order-pill is-muted">{{ progressText }}</span>
+    <div :class="['order-status-line', { 'is-compact': !statusInfoLabel }]">
+      <span class="order-arrival-chip">{{ arrivalInfoLabel }}</span>
+      <span v-if="statusInfoLabel" class="order-pill is-muted">{{ statusInfoLabel }}</span>
       <span class="order-item-count-chip">{{ editableItems.length }} món</span>
       <span :class="['order-pill', simpleStatusClass]">{{ statusLabel }}</span>
     </div>
 
     <div v-show="!collapsed" class="order-collapsible">
-      <div v-if="hasProgress" class="order-progress">
+      <div v-if="showProgressBar" class="order-progress">
         <div class="order-progress-head">
           <strong>{{ progressText }}</strong>
         </div>
@@ -58,7 +58,7 @@
             <div class="order-item-copy">
               <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
               <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
-              <div class="order-item-statuses">
+              <div v-if="showItemStatuses" class="order-item-statuses">
                 <span :class="['order-item-status', itemStatusClass(item.status), 'is-active']">
                   {{ itemStatusLabel(item.status) }}
                 </span>
@@ -77,7 +77,37 @@
       </ul>
 
       <div v-if="canEdit" class="order-editor-panel">
-        <div class="order-arrival-row">
+        <div class="order-add-row">
+          <div class="order-add-field">
+            <span class="order-field-label">Cập nhật đơn</span>
+            <div :class="['order-add-control', { 'is-time-only': !menuOptions.length }]">
+              <button
+                type="button"
+                :class="['btn order-add-btn order-time-toggle', arrivalEditOpen ? 'btn-secondary' : 'btn-outline-secondary']"
+                :title="arrivalEditOpen ? 'Đóng chỉnh giờ' : 'Chỉnh giờ hẹn'"
+                :aria-pressed="arrivalEditOpen"
+                @click="arrivalEditOpen = !arrivalEditOpen"
+              ><i class="bi bi-clock"></i></button>
+              <select v-if="menuOptions.length" v-model="addSelection" class="form-select order-select" :disabled="busy">
+                <option value="">Chọn món để thêm</option>
+                <option v-for="option in menuOptions" :key="option.id" :value="String(option.id)">
+                  {{ option.menuItem.name }} · {{ formatMoney(option.sellingPrice) }}
+                </option>
+              </select>
+              <div v-else class="order-add-empty">Mở chỉnh giờ hẹn cho đơn</div>
+              <button
+                v-if="menuOptions.length"
+                class="btn btn-outline-dark order-add-btn"
+                type="button"
+                :disabled="busy || !addSelection"
+                aria-label="Thêm món"
+                title="Thêm món"
+                @click="addItem"
+              >+</button>
+            </div>
+          </div>
+        </div>
+        <div v-if="arrivalEditOpen" class="order-arrival-row">
           <div class="order-add-field">
             <span class="order-field-label">Giờ hẹn</span>
             <div class="order-arrival-control">
@@ -93,29 +123,7 @@
             </div>
           </div>
         </div>
-
-        <div v-if="menuOptions.length" class="order-add-row">
-          <div class="order-add-field">
-            <span class="order-field-label">Cập nhật đơn</span>
-            <div class="order-add-control">
-              <select v-model="addSelection" class="form-select order-select" :disabled="busy">
-                <option value="">Chọn món để thêm</option>
-                <option v-for="option in menuOptions" :key="option.id" :value="String(option.id)">
-                  {{ option.menuItem.name }} · {{ formatMoney(option.sellingPrice) }}
-                </option>
-              </select>
-              <button
-                class="btn btn-outline-dark order-add-btn"
-                type="button"
-                :disabled="busy || !addSelection"
-                aria-label="Thêm món"
-                title="Thêm món"
-                @click="addItem"
-              >+</button>
-            </div>
-          </div>
-        </div>
-        <div v-else class="order-add-hint">Hôm nay không còn món khả dụng để thêm vào đơn này.</div>
+        <div v-if="!menuOptions.length" class="order-add-hint">Hôm nay không còn món khả dụng để thêm vào đơn này.</div>
 
         <div v-if="draftChanged || arrivalChanged" class="order-editor-actions">
           <div class="order-editor-note">Lưu thay đổi món hoặc giờ hẹn trước khi tiếp tục.</div>
@@ -231,6 +239,7 @@ const addSelection = ref("");
 const highlightedKey = ref<string | null>(null);
 const draft = ref<EditableItem[] | null>(null);
 const arrivalTimeDraft = ref(props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : "");
+const arrivalEditOpen = ref(false);
 const removeDialog = reactive({ visible: false, index: -1, itemName: "" });
 
 watch(
@@ -239,6 +248,7 @@ watch(
     draft.value = null;
     addSelection.value = "";
     arrivalTimeDraft.value = props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : "";
+    arrivalEditOpen.value = false;
   }
 );
 
@@ -282,6 +292,7 @@ function discardDraft() {
   draft.value = null;
   addSelection.value = "";
   arrivalTimeDraft.value = initialArrivalTime.value;
+  arrivalEditOpen.value = false;
 }
 
 function flashItem(key: string) {
@@ -375,11 +386,12 @@ function itemStatusClass(status?: string | null) {
   return `is-${String(status || "WAITING").toLowerCase()}`;
 }
 
-const surfaceClass = computed(() => `is-status-${simplifyStatus(props.order.status).toLowerCase()}`);
-const simpleStatusClass = computed(() => `is-${simplifyStatus(props.order.status).toLowerCase()}`);
+const simpleStatus = computed(() => simplifyStatus(props.order.status));
+const surfaceClass = computed(() => `is-status-${simpleStatus.value.toLowerCase()}`);
+const simpleStatusClass = computed(() => `is-${simpleStatus.value.toLowerCase()}`);
 
 const statusLabel = computed(() => {
-  const status = simplifyStatus(props.order.status);
+  const status = simpleStatus.value;
   if (status === "PENDING") return "Chờ xác nhận";
   if (status === "CONFIRMED") return "Đang xử lý";
   if (status === "COMPLETED") return "Hoàn tất";
@@ -390,6 +402,8 @@ const queueTime = computed(() => formatTime(props.order.arrivalAt));
 const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
 const initialArrivalTime = computed(() => (props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""));
 const hasProgress = computed(() => Boolean(props.order.itemProgress?.total));
+const showProgressBar = computed(() => hasProgress.value && simpleStatus.value === "CONFIRMED");
+const showItemStatuses = computed(() => simpleStatus.value === "CONFIRMED");
 const readyCount = computed(() => Number(props.order.itemProgress?.ready || 0));
 const pendingCount = computed(() => Math.max(0, Number(props.order.itemProgress?.total || 0) - readyCount.value));
 const readyPct = computed(() => {
@@ -405,6 +419,21 @@ const pendingPct = computed(() => {
 const progressText = computed(() => {
   if (!props.order.itemProgress?.total) return "Chưa có món";
   return `${readyCount.value}/${props.order.itemProgress.total} món sẵn sàng`;
+});
+const headInfoLabel = computed(() => {
+  if (simpleStatus.value === "PENDING") return "Chờ quán xác nhận";
+  if (simpleStatus.value === "CONFIRMED") return "Quán đang chuẩn bị món";
+  return "";
+});
+const arrivalInfoLabel = computed(() => {
+  if (props.order.arrivalAt) return `Giờ hẹn ${queueTime.value}`;
+  if (simpleStatus.value === "PENDING") return "Chưa chốt giờ hẹn";
+  return "Không có giờ hẹn";
+});
+const statusInfoLabel = computed(() => {
+  if (simpleStatus.value === "PENDING") return "Có thể thêm món, đổi giờ hẹn";
+  if (simpleStatus.value === "CONFIRMED") return hasProgress.value ? progressText.value : "Quán đang chuẩn bị món";
+  return "";
 });
 const draftChanged = computed(() => {
   if (!draft.value) return false;
@@ -753,9 +782,25 @@ const displayTotal = computed(() => {
 
 .order-add-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+}
+
+.order-add-control.is-time-only {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.order-add-empty {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px dashed rgba(var(--text-rgb), 0.16);
+  background: rgba(var(--text-rgb), 0.03);
+  color: var(--muted);
+  font-size: 0.84rem;
 }
 
 .order-arrival-control {
@@ -796,6 +841,10 @@ const displayTotal = computed(() => {
   border-radius: 16px;
   font-size: 1.2rem;
   line-height: 1;
+}
+
+.order-time-toggle {
+  font-size: 1rem;
 }
 
 .order-editor-note {
@@ -857,6 +906,10 @@ const displayTotal = computed(() => {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
+  .order-status-line.is-compact {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
   .order-progress-head {
     align-items: flex-start;
     flex-direction: column;
@@ -894,6 +947,10 @@ const displayTotal = computed(() => {
 
   .orders-modal {
     padding: 18px;
+  }
+
+  .order-add-control.is-time-only {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 }
 </style>
