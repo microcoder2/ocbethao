@@ -74,6 +74,16 @@ class UpdateOrderItemStatusBody {
   status!: OrderItemStatus;
 }
 
+class UpdateMyOrderItemQuantityBody {
+  quantity!: number;
+}
+
+class UpdateOrderItemStatusResponse {
+  success!: boolean;
+  id!: number;
+  status!: OrderItemStatus;
+}
+
 type ResolvedOrderLine = {
   menuItemId: number | null;
   dailyMenuItemId: number | null;
@@ -403,8 +413,22 @@ async function getOrderForStockSync(id: number) {
 }
 
 function getStockUsageFromOrder(order: Awaited<ReturnType<typeof getOrderForStockSync>>) {
+  return getStockUsageFromOrderItems(order.items);
+}
+
+function getStockUsageFromOrderItems(
+  items: Array<{
+    quantity: number;
+    dailyMenuItem?: {
+      stockLinks?: Array<{
+        dailyStockPoolId: number;
+        consumeQuantity: Prisma.Decimal | number;
+      }>;
+    } | null;
+  }>
+) {
   const usage = new Map<number, number>();
-  for (const item of order.items) {
+  for (const item of items) {
     const stockLinks = item.dailyMenuItem?.stockLinks || [];
     for (const link of stockLinks) {
       usage.set(
@@ -530,11 +554,8 @@ export class OrdersController extends Controller {
         throw Object.assign(new Error("Forbidden"), { statusCode: 403 });
       }
 
-      if (
-        current.status !== OrderStatus.PENDING &&
-        current.status !== OrderStatus.CONFIRMED
-      ) {
-        throw new Error("Chi co the huy don dang cho xac nhan hoac da xac nhan");
+      if (current.status !== OrderStatus.PENDING) {
+        throw new Error("Chi co the huy don dang cho xac nhan");
       }
 
       const orderWithStocks = await tx.order.findUniqueOrThrow({
@@ -575,6 +596,218 @@ export class OrdersController extends Controller {
       order: serialized,
       occurredAt: new Date().toISOString(),
     });
+    return serialized;
+  }
+
+  @Put("my/{orderId}/items/{itemId}/cancel")
+  @Security("bearerAuth", ["CUSTOMER"])
+  public async cancelMyOrderItem(
+    @Path() orderId: number,
+    @Path() itemId: number,
+    @Request() req: ExRequest
+  ) {
+    const authUser = (req as any).user;
+
+    let cancelPoolIds: number[] = [];
+    let cancelledItemName = "";
+    let orderCancelled = false;
+
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
+        include: {
+          items: {
+            include: {
+              dailyMenuItem: {
+                include: {
+                  stockLinks: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (current.customerId !== authUser.id) {
+        throw Object.assign(new Error("Forbidden"), { statusCode: 403 });
+      }
+
+      if (current.status !== OrderStatus.CONFIRMED) {
+        throw new Error("Chi co the huy mon trong don da xac nhan");
+      }
+
+      const targetItem = current.items.find((item) => item.id === itemId);
+      if (!targetItem) {
+        throw new Error("Mon khong thuoc don hang");
+      }
+
+      if ((targetItem.status ?? OrderItemStatus.WAITING) !== OrderItemStatus.WAITING) {
+        throw new Error("Chi co the huy mon dang cho");
+      }
+
+      cancelledItemName = targetItem.itemNameSnapshot;
+      const itemUsage = getStockUsageFromOrderItems([targetItem]);
+      await applyStockUsage(tx, itemUsage, -1);
+      cancelPoolIds = Array.from(itemUsage.keys());
+
+      await tx.orderItem.update({
+        where: { id: itemId },
+        data: {
+          status: OrderItemStatus.CANCELLED,
+        },
+      });
+
+      const remainingActiveItems = current.items.filter(
+        (item) =>
+          item.id !== itemId &&
+          (item.status ?? OrderItemStatus.WAITING) !== OrderItemStatus.CANCELLED
+      );
+      const nextSubtotal = remainingActiveItems.reduce(
+        (sum, item) => sum + Number(item.lineTotal || 0),
+        0
+      );
+      const serviceFee = Number(current.serviceFee || 0);
+      const discountAmount = Number(current.discountAmount || 0);
+      const nextTotalAmount = Math.max(0, nextSubtotal + serviceFee - discountAmount);
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          subtotal: money(nextSubtotal),
+          totalAmount: money(nextTotalAmount),
+          ...(remainingActiveItems.length
+            ? {}
+            : {
+                status: OrderStatus.CANCELLED,
+                paymentStatus: PaymentStatus.UNPAID,
+                paymentMethod: null,
+              }),
+        },
+      });
+
+      orderCancelled = remainingActiveItems.length === 0;
+    });
+
+    const order = await getOrderDetail(orderId);
+    const serialized = serializeOrder(order);
+    void broadcastStockUpdate(cancelPoolIds);
+    broadcastOrderChanged({
+      type: "CUSTOMER_ITEM_CANCELLED",
+      order: serialized,
+      itemId,
+      itemName: cancelledItemName,
+      orderCancelled,
+      occurredAt: new Date().toISOString(),
+    });
+    return serialized;
+  }
+
+  @Put("my/{orderId}/items/{itemId}")
+  @Security("bearerAuth", ["CUSTOMER"])
+  public async updateMyOrderItemQuantity(
+    @Path() orderId: number,
+    @Path() itemId: number,
+    @Request() req: ExRequest,
+    @Body() body: UpdateMyOrderItemQuantityBody
+  ) {
+    const authUser = (req as any).user;
+    const nextQuantity = normalizePositiveInt(body.quantity);
+
+    let updatePoolIds: number[] = [];
+    let changedFields: OrderChangeField[] = [];
+
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
+        include: {
+          items: {
+            include: {
+              dailyMenuItem: {
+                include: {
+                  stockLinks: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (current.customerId !== authUser.id) {
+        throw Object.assign(new Error("Forbidden"), { statusCode: 403 });
+      }
+
+      if (current.status !== OrderStatus.CONFIRMED) {
+        throw new Error("Chi co the cap nhat so luong mon trong don da xac nhan");
+      }
+
+      const targetItem = current.items.find((item) => item.id === itemId);
+      if (!targetItem) {
+        throw new Error("Mon khong thuoc don hang");
+      }
+
+      if ((targetItem.status ?? OrderItemStatus.WAITING) !== OrderItemStatus.WAITING) {
+        throw new Error("Chi co the cap nhat so luong mon dang cho");
+      }
+
+      if (targetItem.quantity === nextQuantity) {
+        return;
+      }
+
+      const quantityDelta = nextQuantity - targetItem.quantity;
+      const usageDelta = getStockUsageFromOrderItems([
+        {
+          quantity: Math.abs(quantityDelta),
+          dailyMenuItem: targetItem.dailyMenuItem,
+        },
+      ]);
+
+      if (quantityDelta > 0) {
+        await ensureStockAvailability(tx, usageDelta);
+        await applyStockUsage(tx, usageDelta, 1);
+      } else if (quantityDelta < 0) {
+        await applyStockUsage(tx, usageDelta, -1);
+      }
+
+      const nextLineTotal = Number(targetItem.unitPrice || 0) * nextQuantity;
+      const nextSubtotal =
+        Number(current.subtotal || 0) -
+        Number(targetItem.lineTotal || 0) +
+        nextLineTotal;
+      const serviceFee = Number(current.serviceFee || 0);
+      const discountAmount = Number(current.discountAmount || 0);
+      const nextTotalAmount = Math.max(0, nextSubtotal + serviceFee - discountAmount);
+
+      await tx.orderItem.update({
+        where: { id: itemId },
+        data: {
+          quantity: nextQuantity,
+          lineTotal: money(nextLineTotal),
+        },
+      });
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          subtotal: money(nextSubtotal),
+          totalAmount: money(nextTotalAmount),
+        },
+      });
+
+      updatePoolIds = Array.from(usageDelta.keys());
+      changedFields = ["items"];
+    });
+
+    const order = await getOrderDetail(orderId);
+    const serialized = serializeOrder(order);
+    void broadcastStockUpdate(updatePoolIds);
+    if (changedFields.length) {
+      broadcastOrderChanged({
+        type: "CUSTOMER_UPDATED",
+        order: serialized,
+        changedFields,
+        occurredAt: new Date().toISOString(),
+      });
+    }
     return serialized;
   }
 
@@ -990,22 +1223,77 @@ export class OrdersController extends Controller {
     @Path() orderId: number,
     @Path() itemId: number,
     @Body() body: UpdateOrderItemStatusBody
-  ) {
+  ): Promise<UpdateOrderItemStatusResponse> {
+    let updatePoolIds: number[] = [];
+
     await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUniqueOrThrow({
         where: { id: orderId },
+        include: {
+          items: {
+            include: {
+              dailyMenuItem: {
+                include: {
+                  stockLinks: true,
+                },
+              },
+            },
+          },
+        },
       });
 
       if (!canEditOrder(order.status)) {
         throw new Error("Chi co the cap nhat mon trong don dang xu ly");
       }
 
-      await tx.orderItem.findFirstOrThrow({
+      const targetItem = await tx.orderItem.findFirstOrThrow({
         where: {
           id: itemId,
           orderId,
         },
+        include: {
+          dailyMenuItem: {
+            include: {
+              stockLinks: true,
+            },
+          },
+        },
       });
+
+      const currentStatus = targetItem.status ?? OrderItemStatus.WAITING;
+      if (currentStatus === body.status) {
+        return;
+      }
+
+      if (
+        currentStatus === OrderItemStatus.CANCELLED &&
+        body.status !== OrderItemStatus.WAITING
+      ) {
+        throw new Error("Mon da huy chi co the phuc hoi ve trang thai cho");
+      }
+
+      if (
+        currentStatus === OrderItemStatus.CANCELLED &&
+        body.status === OrderItemStatus.WAITING
+      ) {
+        const itemUsage = getStockUsageFromOrderItems([targetItem]);
+        await ensureStockAvailability(tx, itemUsage);
+        await applyStockUsage(tx, itemUsage, 1);
+        updatePoolIds = Array.from(itemUsage.keys());
+
+        const nextSubtotal = Number(order.subtotal || 0) + Number(targetItem.lineTotal || 0);
+        const serviceFee = Number(order.serviceFee || 0);
+        const discountAmount = Number(order.discountAmount || 0);
+        const nextTotalAmount = Math.max(0, nextSubtotal + serviceFee - discountAmount);
+
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            subtotal: money(nextSubtotal),
+            totalAmount: money(nextTotalAmount),
+          },
+        });
+      }
 
       await tx.orderItem.update({
         where: { id: itemId },
@@ -1015,8 +1303,12 @@ export class OrdersController extends Controller {
       });
     });
 
-    const order = await getOrderDetail(orderId);
-    return serializeOrder(order);
+    void broadcastStockUpdate(updatePoolIds);
+    return {
+      success: true,
+      id: itemId,
+      status: body.status,
+    };
   }
 
   @Delete("{id}")

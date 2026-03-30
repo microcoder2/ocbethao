@@ -52,7 +52,14 @@
         <li
           v-for="(item, index) in editableItems"
           :key="item.key"
-          :class="['order-item-row', { 'is-highlighted': highlightedKey === item.key }]"
+          :class="[
+            'order-item-row',
+            {
+              'is-highlighted': highlightedKey === item.key,
+              'is-cancelled': item.status === 'CANCELLED',
+              'is-cancel-pending': props.cancellingItemId === item.id,
+            },
+          ]"
         >
           <div class="order-item-main">
             <div class="order-item-copy">
@@ -62,12 +69,23 @@
                 <span :class="['order-item-status', itemStatusClass(item.status), 'is-active']">
                   {{ itemStatusLabel(item.status) }}
                 </span>
+                <button
+                  v-if="canCancelWaitingItem(item)"
+                  class="order-item-cancel-btn"
+                  type="button"
+                  :disabled="busy"
+                  :title="props.cancellingItemId === item.id ? 'Đang hủy món' : 'Hủy món này'"
+                  @click="$emit('requestCancelItem', item.id!)"
+                >
+                  <i class="bi" :class="props.cancellingItemId === item.id ? 'bi-arrow-repeat' : 'bi-x-circle'"></i>
+                  <span>{{ props.cancellingItemId === item.id ? "Đang hủy" : "Hủy món" }}</span>
+                </button>
               </div>
             </div>
-            <span class="order-item-total">{{ formatMoney(item.lineTotal) }}</span>
+            <span class="order-item-total">{{ formatMoney(item.status === "CANCELLED" ? 0 : item.lineTotal) }}</span>
           </div>
 
-          <div v-if="canEdit" class="order-item-editor">
+          <div v-if="canEdit || canAdjustWaitingItem(item)" class="order-item-editor">
             <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, -1)">-</button>
             <span class="order-item-qty">{{ item.quantity }}</span>
             <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, 1)">+</button>
@@ -136,7 +154,7 @@
         </div>
       </div>
 
-      <div v-if="canCancel" class="order-actions">
+      <div v-if="canCancelOrder" class="order-actions">
         <button
           class="btn btn-outline-danger"
           type="button"
@@ -208,6 +226,7 @@ type MenuOption = {
 };
 
 type EditableItem = {
+  id?: number | null;
   key: string;
   menuItemId?: number | null;
   dailyMenuItemId?: number | null;
@@ -226,12 +245,15 @@ const props = defineProps<{
   busy: boolean;
   isSaving: boolean;
   isCancelling: boolean;
+  cancellingItemId?: number | null;
   errorMessage?: string;
 }>();
 
 const emit = defineEmits<{
   saveItems: [items: SavePayload[], arrivalTime?: string];
   requestCancel: [];
+  requestCancelItem: [itemId: number];
+  updateConfirmedItemQuantity: [itemId: number, quantity: number];
 }>();
 
 const collapsed = ref(["COMPLETED", "CANCELLED"].includes(props.order.status));
@@ -271,6 +293,7 @@ function formatTime(value?: string | null) {
 
 function cloneItems(items: OrderItem[] = []): EditableItem[] {
   return items.map((item, index) => ({
+    id: item.id,
     key: `${item.dailyMenuItemId ?? item.menuItemId ?? "item"}-${index}`,
     menuItemId: item.menuItemId ?? null,
     dailyMenuItemId: item.dailyMenuItemId ?? null,
@@ -305,6 +328,12 @@ function flashItem(key: string) {
 }
 
 function changeQty(index: number, delta: number) {
+  const currentItem = editableItems.value[index];
+  if (currentItem && canAdjustWaitingItem(currentItem)) {
+    emit("updateConfirmedItemQuantity", currentItem.id!, currentItem.quantity + delta);
+    return;
+  }
+
   ensureDraft();
   const item = draft.value?.[index];
   if (!item) return;
@@ -349,6 +378,7 @@ function addItem() {
   } else {
     const key = `new-${option.id}`;
     draft.value!.push({
+      id: null,
       key,
       menuItemId: option.menuItem.id,
       dailyMenuItemId: option.id,
@@ -403,7 +433,10 @@ const editableItems = computed(() => draft.value ?? cloneItems(props.order.items
 const initialArrivalTime = computed(() => (props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""));
 const hasProgress = computed(() => Boolean(props.order.itemProgress?.total));
 const showProgressBar = computed(() => hasProgress.value && simpleStatus.value === "CONFIRMED");
-const showItemStatuses = computed(() => simpleStatus.value === "CONFIRMED");
+const showItemStatuses = computed(() =>
+  simpleStatus.value === "CONFIRMED" ||
+  editableItems.value.some((item) => item.status === "CANCELLED")
+);
 const readyCount = computed(() => Number(props.order.itemProgress?.ready || 0));
 const pendingCount = computed(() => Math.max(0, Number(props.order.itemProgress?.total || 0) - readyCount.value));
 const readyPct = computed(() => {
@@ -447,14 +480,24 @@ const arrivalChanged = computed(() => {
   return next !== initialArrivalTime.value;
 });
 const canEdit = computed(() => simplifyStatus(props.order.status) === "PENDING");
-const canCancel = computed(() => {
-  const status = simplifyStatus(props.order.status);
-  return status === "PENDING" || status === "CONFIRMED";
-});
+const canCancelOrder = computed(() => simpleStatus.value === "PENDING");
 const displayTotal = computed(() => {
   if (!draftChanged.value) return Number(props.order.totalAmount || 0);
   return editableItems.value.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
 });
+
+function canCancelWaitingItem(item: EditableItem) {
+  return (
+    simpleStatus.value === "CONFIRMED" &&
+    item.status === "WAITING" &&
+    typeof item.id === "number" &&
+    item.id > 0
+  );
+}
+
+function canAdjustWaitingItem(item: EditableItem) {
+  return canCancelWaitingItem(item);
+}
 </script>
 
 <style scoped>
@@ -651,6 +694,31 @@ const displayTotal = computed(() => {
 .order-item-row:last-child { border-bottom: none; }
 .order-item-row.is-empty { justify-content: flex-start; }
 .order-item-row.is-highlighted { animation: item-flash 1.2s ease-out forwards; border-radius: 6px; }
+.order-item-row.is-cancelled {
+  padding-inline: 10px;
+  border-radius: 12px;
+  background: rgba(148, 88, 88, 0.08);
+  opacity: 0.74;
+}
+
+.order-item-row.is-cancelled .order-item-name,
+.order-item-row.is-cancelled .order-item-total {
+  color: #8f2f15;
+}
+
+.order-item-row.is-cancelled .order-item-meta,
+.order-item-row.is-cancelled .order-item-qty-read {
+  color: rgba(143, 47, 21, 0.78);
+}
+
+.order-item-row.is-cancel-pending {
+  animation: cancelled-item-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes cancelled-item-pulse {
+  0%, 100% { background: rgba(148, 88, 88, 0.08); }
+  50% { background: rgba(201, 88, 44, 0.18); }
+}
 
 .order-item-main {
   display: grid;
@@ -670,6 +738,33 @@ const displayTotal = computed(() => {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 4px;
+}
+
+.order-item-cancel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(148, 88, 88, 0.24);
+  border-radius: 999px;
+  background: rgba(148, 88, 88, 0.08);
+  color: #8f2f15;
+  font-size: 0.76rem;
+  font-weight: 700;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+
+.order-item-cancel-btn:hover,
+.order-item-cancel-btn:focus-visible {
+  background: rgba(148, 88, 88, 0.12);
+  border-color: rgba(148, 88, 88, 0.34);
+  outline: none;
+}
+
+.order-item-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .order-item-status {

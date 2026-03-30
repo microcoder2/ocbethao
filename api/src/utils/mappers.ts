@@ -241,13 +241,14 @@ function buildOrderItemProgress(items: AnyRecord[]) {
   };
 
   for (const item of items) {
-    progress.total += 1;
     const status = (item.status as OrderItemStatus | null) ?? OrderItemStatus.WAITING;
     if (status === OrderItemStatus.READY) {
+      progress.total += 1;
       progress.ready += 1;
       continue;
     }
     if (status === OrderItemStatus.COOKING) {
+      progress.total += 1;
       progress.cooking += 1;
       continue;
     }
@@ -255,6 +256,7 @@ function buildOrderItemProgress(items: AnyRecord[]) {
       progress.cancelled += 1;
       continue;
     }
+    progress.total += 1;
     progress.waiting += 1;
   }
 

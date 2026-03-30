@@ -193,6 +193,9 @@
           :stock-remaining-map="stockRemainingMap"
           :busy="isBusy(order)"
           :is-saving="savingOrderId === order.id"
+          :flash-cancelled-item-id="cancelledItemFlashMap[order.id] ?? null"
+          :pending-item-status-id="updatingItemStatusOrderId === order.id ? updatingItemStatusId : null"
+          :pending-item-status-value="updatingItemStatusOrderId === order.id ? updatingItemStatusValue : null"
           @confirm="changeOrderStatus(order, 'CONFIRMED')"
           @open-complete="openCompleteDialog(order)"
           @open-cancel="openCancelDialog(order)"
@@ -431,6 +434,9 @@ type OrderRecord = {
   status: string;
   paymentStatus: string;
   paymentMethod?: string | null;
+  subtotal?: number;
+  serviceFee?: number;
+  discountAmount?: number;
   totalAmount: number;
   tableLabel?: string | null;
   guestCount?: number | null;
@@ -454,9 +460,12 @@ type OrderRecord = {
 };
 
 type OrderChangeEvent = {
-  type: "CUSTOMER_UPDATED" | "CUSTOMER_CANCELLED";
+  type: "CUSTOMER_UPDATED" | "CUSTOMER_CANCELLED" | "CUSTOMER_ITEM_CANCELLED";
   order: OrderRecord;
   changedFields?: Array<"items" | "arrivalAt">;
+  itemId?: number;
+  itemName?: string;
+  orderCancelled?: boolean;
   occurredAt: string;
 };
 
@@ -590,6 +599,19 @@ function buildNotificationFromOrderChange(event: OrderChangeEvent) {
     );
   }
 
+  if (event.type === "CUSTOMER_ITEM_CANCELLED") {
+    const itemName = event.itemName?.trim() || "một món";
+    const detail = event.orderCancelled
+      ? `Khách hủy ${itemName}, đơn không còn món và đã đóng`
+      : `Khách vừa hủy ${itemName} khỏi đơn`;
+    return buildOrderNotification(
+      event.order,
+      "Khách vừa hủy món",
+      detail,
+      event.occurredAt
+    );
+  }
+
   const fields = new Set(event.changedFields || []);
   let detail = "Khách vừa cập nhật đơn";
   if (fields.has("items") && fields.has("arrivalAt")) {
@@ -608,12 +630,17 @@ const dailyMenus = ref<DailyMenuRecord[]>([]);
 const advancedFiltersOpen = ref(false);
 const isLoading = ref(false);
 const updatingOrderId = ref<number | null>(null);
+const updatingItemStatusOrderId = ref<number | null>(null);
+const updatingItemStatusId = ref<number | null>(null);
+const updatingItemStatusValue = ref<string | null>(null);
 const savingOrderId = ref<number | null>(null);
 const errorMessage = ref("");
 
 // Bell / unread
 const bellWrapRef = ref<HTMLElement | null>(null);
 const scheduleStripRef = ref<HTMLElement | null>(null);
+const cancelledItemFlashMap = reactive<Record<number, number | null>>({});
+const cancelledItemFlashTimers = new Map<number, number>();
 
 function scrollSchedule(dir: -1 | 1) {
   scheduleStripRef.value?.scrollBy({ left: dir * 180, behavior: "smooth" });
@@ -634,6 +661,22 @@ function closeBellOnOutsideClick(e: MouseEvent) {
   if (bellWrapRef.value && !bellWrapRef.value.contains(e.target as Node)) {
     bellOpen.value = false;
   }
+}
+
+function flashCancelledItem(orderId: number, itemId: number) {
+  const existingTimer = cancelledItemFlashTimers.get(orderId);
+  if (existingTimer) {
+    window.clearTimeout(existingTimer);
+  }
+
+  cancelledItemFlashMap[orderId] = itemId;
+  const timerId = window.setTimeout(() => {
+    if (cancelledItemFlashMap[orderId] === itemId) {
+      delete cancelledItemFlashMap[orderId];
+    }
+    cancelledItemFlashTimers.delete(orderId);
+  }, 4200);
+  cancelledItemFlashTimers.set(orderId, timerId);
 }
 
 const filter = reactive({
@@ -1032,6 +1075,9 @@ function handleNewOrder(order: OrderRecord) {
 
 function handleOrderChanged(event: OrderChangeEvent) {
   if (event.order.source !== "CUSTOMER_APP") return;
+  if (event.type === "CUSTOMER_ITEM_CANCELLED" && typeof event.itemId === "number") {
+    flashCancelledItem(event.order.id, event.itemId);
+  }
   pushUnreadOrder(buildNotificationFromOrderChange(event));
   void loadOrders();
 }
@@ -1145,20 +1191,69 @@ async function completeOrder(order: OrderRecord, paymentMethod: string) {
   });
 }
 
+function adjustItemProgress(progress: OrderRecord["itemProgress"], previousStatus: string, nextStatus: string) {
+  if (!progress || previousStatus === nextStatus) return;
+
+  const keyMap: Record<string, "waiting" | "cooking" | "ready" | "cancelled"> = {
+    WAITING: "waiting",
+    COOKING: "cooking",
+    READY: "ready",
+    CANCELLED: "cancelled",
+  };
+
+  const previousKey = keyMap[previousStatus] || "waiting";
+  const nextKey = keyMap[nextStatus] || "waiting";
+  progress[previousKey] = Math.max(0, Number(progress[previousKey] || 0) - 1);
+  progress[nextKey] = Number(progress[nextKey] || 0) + 1;
+  progress.total =
+    Number(progress.waiting || 0) +
+    Number(progress.cooking || 0) +
+    Number(progress.ready || 0);
+}
+
+function patchOrderItemStatusLocally(orderId: number, itemId: number, nextStatus: string) {
+  const targetOrder = orders.value.find((entry) => entry.id === orderId);
+  const targetItem = targetOrder?.items?.find((entry) => entry.id === itemId);
+  if (!targetOrder || !targetItem) return;
+
+  const previousStatus = targetItem.status || "WAITING";
+  if (previousStatus === nextStatus) return;
+
+  if (previousStatus === "CANCELLED" && nextStatus !== "CANCELLED") {
+    targetOrder.subtotal = Number(targetOrder.subtotal || 0) + Number(targetItem.lineTotal || 0);
+  } else if (previousStatus !== "CANCELLED" && nextStatus === "CANCELLED") {
+    targetOrder.subtotal = Math.max(0, Number(targetOrder.subtotal || 0) - Number(targetItem.lineTotal || 0));
+  }
+
+  targetOrder.totalAmount = Math.max(
+    0,
+    Number(targetOrder.subtotal || 0) +
+      Number(targetOrder.serviceFee || 0) -
+      Number(targetOrder.discountAmount || 0)
+  );
+
+  targetItem.status = nextStatus;
+  adjustItemProgress(targetOrder.itemProgress, previousStatus, nextStatus);
+}
+
 async function updateItemStatus(order: OrderRecord, itemId: number, status: string) {
-  updatingOrderId.value = order.id;
   errorMessage.value = "";
+  updatingItemStatusOrderId.value = order.id;
+  updatingItemStatusId.value = itemId;
+  updatingItemStatusValue.value = status;
 
   try {
     const { data } = await api.put(`/orders/${order.id}/items/${itemId}/status`, { status });
-    const nextOrder = data as OrderRecord;
-    orders.value = orders.value
-      .map((entry) => (entry.id === order.id ? nextOrder : entry))
-      .sort(sortOrdersByQueue);
+    const payload = data as { success?: boolean; id?: number; status?: string };
+    if (payload.success && typeof payload.id === "number" && payload.status) {
+      patchOrderItemStatusLocally(order.id, payload.id, payload.status);
+    }
   } catch (error) {
     alertApiError(error, "Không cập nhật được trạng thái món.");
   } finally {
-    updatingOrderId.value = null;
+    updatingItemStatusOrderId.value = null;
+    updatingItemStatusId.value = null;
+    updatingItemStatusValue.value = null;
   }
 }
 
@@ -1184,6 +1279,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearSearchDebounce();
+  for (const timerId of cancelledItemFlashTimers.values()) {
+    window.clearTimeout(timerId);
+  }
+  cancelledItemFlashTimers.clear();
   socket.off("stock:update", handleStockUpdate);
   socket.off("order:new", handleNewOrder);
   socket.off("order:changed", handleOrderChanged);

@@ -80,21 +80,55 @@
       <li
         v-for="(item, index) in editableItems"
         :key="item.key"
-        :class="['order-item-row', { 'is-highlighted': highlightedKey === item.key }]"
+        :class="[
+          'order-item-row',
+          {
+            'is-highlighted': highlightedKey === item.key,
+            'is-cancelled': item.status === 'CANCELLED',
+            'is-cancelled-flash': props.flashCancelledItemId === item.id,
+          },
+        ]"
       >
         <div class="order-item-main">
           <div class="order-item-copy">
             <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
             <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
-            <div v-if="simplifyStatus(order.status) === 'CONFIRMED'" class="order-item-statuses">
-              <template v-if="canUpdateItemStatus(item)">
+            <div v-if="showItemStatuses" class="order-item-statuses">
+              <template v-if="canRestoreCancelledItem(item)">
+                <span :class="['order-item-status', itemStatusClass(item.status), 'is-active']">
+                  {{ itemStatusLabel(item.status) }}
+                </span>
+                <button
+                  type="button"
+                  :class="['order-item-restore-btn', { 'is-pending': isPendingItemAction(item.id, 'WAITING') }]"
+                  :disabled="props.pendingItemStatusId === item.id"
+                  :aria-busy="isPendingItemAction(item.id, 'WAITING') ? 'true' : 'false'"
+                  @click="$emit('updateItemStatus', item.id!, 'WAITING')"
+                >
+                  <span class="order-item-action-label">Phục hồi</span>
+                  <span v-if="isPendingItemAction(item.id, 'WAITING')" class="order-item-action-spinner" aria-hidden="true"></span>
+                </button>
+              </template>
+              <template v-else-if="canUpdateItemStatus(item)">
                 <button
                   v-for="s in itemStatusActions.filter(s => !(s.value === 'READY' && simplifyStatus(order.status) === 'COMPLETED'))"
                   :key="s.value"
                   type="button"
-                  :class="['order-item-status', itemStatusClass(s.value), { 'is-active': item.status === s.value }]"
+                  :class="[
+                    'order-item-status',
+                    itemStatusClass(s.value),
+                    {
+                      'is-active': item.status === s.value,
+                      'is-pending': isPendingItemAction(item.id, s.value),
+                    },
+                  ]"
+                  :disabled="props.pendingItemStatusId === item.id"
+                  :aria-busy="isPendingItemAction(item.id, s.value) ? 'true' : 'false'"
                   @click="$emit('updateItemStatus', item.id!, s.value)"
-                >{{ s.label }}</button>
+                >
+                  <span class="order-item-action-label">{{ s.label }}</span>
+                  <span v-if="isPendingItemAction(item.id, s.value)" class="order-item-action-spinner" aria-hidden="true"></span>
+                </button>
               </template>
               <span
                 v-else
@@ -104,7 +138,7 @@
               </span>
             </div>
           </div>
-          <span class="order-item-total">{{ formatMoney(item.lineTotal) }}</span>
+          <span class="order-item-total">{{ formatMoney(item.status === "CANCELLED" ? 0 : item.lineTotal) }}</span>
         </div>
 
         <div v-if="canEdit" class="order-item-editor">
@@ -304,6 +338,9 @@ const props = defineProps<{
   stockRemainingMap: Record<number, number>;
   busy: boolean;
   isSaving: boolean;
+  flashCancelledItemId?: number | null;
+  pendingItemStatusId?: number | null;
+  pendingItemStatusValue?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -477,6 +514,10 @@ const readyToComplete = computed(() => {
   const p = props.order.itemProgress;
   return Boolean(p?.total && p.waiting === 0 && p.cooking === 0);
 });
+const showItemStatuses = computed(() =>
+  simplifyStatus(props.order.status) === "CONFIRMED" ||
+  editableItems.value.some((item) => item.status === "CANCELLED")
+);
 
 const groupedOptions = computed(() => groupByIngredient(props.menuOptions));
 
@@ -499,7 +540,32 @@ function itemStatusClass(status?: string | null) {
 }
 
 function canUpdateItemStatus(item: EditableItem) {
-  return canEdit.value && !draftChanged.value && !props.busy && typeof item.id === "number" && item.id > 0;
+  return (
+    canEdit.value &&
+    !draftChanged.value &&
+    item.status !== "CANCELLED" &&
+    typeof item.id === "number" &&
+    item.id > 0
+  );
+}
+
+function canRestoreCancelledItem(item: EditableItem) {
+  return (
+    simplifyStatus(props.order.status) === "CONFIRMED" &&
+    !draftChanged.value &&
+    item.status === "CANCELLED" &&
+    typeof item.id === "number" &&
+    item.id > 0
+  );
+}
+
+function isPendingItemAction(itemId?: number | null, nextStatus?: string | null) {
+  return (
+    typeof itemId === "number" &&
+    itemId > 0 &&
+    props.pendingItemStatusId === itemId &&
+    props.pendingItemStatusValue === String(nextStatus || "")
+  );
 }
 
 function changeQty(index: number, delta: number) {
@@ -928,6 +994,33 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 .order-item-row:last-child { border-bottom: none; }
 .order-item-row.is-empty   { justify-content: flex-start; }
 .order-item-row.is-highlighted { animation: item-flash 1.2s ease-out forwards; border-radius: 6px; }
+.order-item-row.is-cancelled {
+  padding-inline: 10px;
+  border-radius: 12px;
+  background: rgba(148, 88, 88, 0.08);
+  opacity: 0.74;
+}
+
+.order-item-row.is-cancelled .order-item-name,
+.order-item-row.is-cancelled .order-item-total {
+  color: #8f2f15;
+}
+
+.order-item-row.is-cancelled .order-item-meta,
+.order-item-row.is-cancelled .order-item-qty-read {
+  color: rgba(143, 47, 21, 0.78);
+}
+
+.order-item-row.is-cancelled-flash {
+  animation:
+    item-flash 1s ease-out forwards,
+    cancelled-item-pulse 1.4s ease-in-out 3;
+}
+
+@keyframes cancelled-item-pulse {
+  0%, 100% { background: rgba(148, 88, 88, 0.08); }
+  50% { background: rgba(201, 88, 44, 0.18); }
+}
 
 .order-item-main {
   display: grid;
@@ -949,9 +1042,37 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   margin-top: 4px;
 }
 
+.order-item-restore-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(66, 133, 104, 0.22);
+  border-radius: 999px;
+  background: rgba(66, 133, 104, 0.1);
+  color: var(--green);
+  font-size: 0.76rem;
+  font-weight: 700;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+
+.order-item-restore-btn:hover,
+.order-item-restore-btn:focus-visible {
+  background: rgba(66, 133, 104, 0.16);
+  border-color: rgba(66, 133, 104, 0.32);
+  outline: none;
+}
+
+.order-item-restore-btn:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
 .order-item-status {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 28px;
   padding: 0 10px;
   border-radius: 999px;
@@ -960,6 +1081,35 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.order-item-restore-btn,
+.order-item-status {
+  position: relative;
+}
+
+.order-item-action-label {
+  transition: opacity 0.18s ease;
+}
+
+.order-item-restore-btn.is-pending .order-item-action-label,
+.order-item-status.is-pending .order-item-action-label {
+  opacity: 0.28;
+}
+
+.order-item-action-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  margin-left: -7px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: order-item-spin 0.7s linear infinite;
+  pointer-events: none;
 }
 
 .order-item-status.is-waiting  { background: rgba(203, 165, 81, 0.12); color: #8b6517; }
@@ -988,6 +1138,15 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   will-change: transform;
   animation: glass-shine 1.2s linear infinite;
   pointer-events: none;
+}
+
+.order-item-status:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+@keyframes order-item-spin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes glass-shine {

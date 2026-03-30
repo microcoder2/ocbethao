@@ -5,12 +5,18 @@ import { prisma } from "./utils/prisma";
 let io: SocketIOServer | null = null;
 
 export type OrderChangeField = "items" | "arrivalAt";
-export type OrderChangeType = "CUSTOMER_UPDATED" | "CUSTOMER_CANCELLED";
+export type OrderChangeType =
+  | "CUSTOMER_UPDATED"
+  | "CUSTOMER_CANCELLED"
+  | "CUSTOMER_ITEM_CANCELLED";
 
 export type OrderChangedPayload = {
   type: OrderChangeType;
   order: unknown;
   changedFields?: OrderChangeField[];
+  itemId?: number;
+  itemName?: string;
+  orderCancelled?: boolean;
   occurredAt: string;
 };
 
@@ -18,8 +24,8 @@ export function initSocket(
   httpServer: HttpServer,
   corsOriginFn: (
     origin: string | undefined,
-    cb: (err: Error | null, allow?: boolean) => void
-  ) => void
+    cb: (err: Error | null, allow?: boolean) => void,
+  ) => void,
 ): SocketIOServer {
   io = new SocketIOServer(httpServer, {
     path: "/socket.io",
@@ -29,17 +35,17 @@ export function initSocket(
     },
   });
 
-  io.on('connection', (socket) => {
-    console.log('a user connected');
+  // io.on('connection', (socket) => {
+  //   console.log('a user connected');
 
-    socket.on('disconnect', () => {
-      console.log('user disconnected');
-    });
+  //   socket.on('disconnect', () => {
+  //     console.log('user disconnected');
+  //   });
 
-    socket.on('chat:send_message', (msg) => {
-      socket.broadcast.emit('chat:receive_message', msg);
-    });
-  });
+  //   socket.on('chat:send_message', (msg) => {
+  //     socket.broadcast.emit('chat:receive_message', msg);
+  //   });
+  // });
 
   return io;
 }
@@ -77,8 +83,11 @@ export async function broadcastStockUpdate(poolIds: number[]): Promise<void> {
     pools.map((pool) => ({
       id: pool.id,
       label: pool.label ?? pool.ingredient?.name ?? null,
-      remainingQuantity: Math.max(Number(pool.quantity) - Number(pool.soldQuantity), 0),
+      remainingQuantity: Math.max(
+        Number(pool.quantity) - Number(pool.soldQuantity),
+        0,
+      ),
       isAvailable: pool.isAvailable,
-    }))
+    })),
   );
 }

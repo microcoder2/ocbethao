@@ -44,9 +44,12 @@
         :busy="isBusy(order)"
         :is-saving="savingId === order.id"
         :is-cancelling="cancellingId === order.id"
+        :cancelling-item-id="cancellingItemOrderId === order.id ? cancellingItemId : null"
         :error-message="orderError[order.id] || ''"
         @save-items="(items, arrivalTime) => saveEdit(order, items, arrivalTime)"
         @request-cancel="openCancelConfirm(order)"
+        @request-cancel-item="(itemId) => openCancelItemConfirm(order, itemId)"
+        @update-confirmed-item-quantity="(itemId, quantity) => updateConfirmedItemQuantity(order, itemId, quantity)"
       />
     </div>
 
@@ -66,6 +69,29 @@
           </button>
           <button class="cust-btn cust-btn-cancel" type="button" @click="confirmCancel">
             Xác nhận hủy
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="cancelItemConfirm.visible && cancelItemConfirm.order && cancelItemConfirm.item"
+      class="cust-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      @click.self="closeCancelItemConfirm"
+    >
+      <div class="cust-modal">
+        <div class="cust-modal-title">Xác nhận hủy món?</div>
+        <p class="cust-modal-text">
+          Món <strong>{{ cancelItemConfirm.item.itemNameSnapshot }}</strong> đang chờ sẽ bị hủy khỏi đơn.
+        </p>
+        <div class="cust-modal-actions">
+          <button class="cust-btn cust-btn-ghost" type="button" @click="closeCancelItemConfirm">
+            Quay lại
+          </button>
+          <button class="cust-btn cust-btn-cancel" type="button" @click="confirmCancelItem">
+            Xác nhận hủy món
           </button>
         </div>
       </div>
@@ -127,6 +153,9 @@ const allOrders = ref<OrderRecord[]>([]);
 const isLoading = ref(false);
 const savingId = ref<number | null>(null);
 const cancellingId = ref<number | null>(null);
+const cancellingItemOrderId = ref<number | null>(null);
+const cancellingItemId = ref<number | null>(null);
+const updatingItemOrderId = ref<number | null>(null);
 const orderError = reactive<Record<number, string>>({});
 const todayMenuOptions = ref<MenuOption[]>([]);
 
@@ -140,6 +169,15 @@ const cancelConfirm = reactive<{ visible: boolean; order: OrderRecord | null }>(
   visible: false,
   order: null,
 });
+const cancelItemConfirm = reactive<{
+  visible: boolean;
+  order: OrderRecord | null;
+  item: OrderItem | null;
+}>({
+  visible: false,
+  order: null,
+  item: null,
+});
 
 const filteredOrders = computed(() =>
   allOrders.value.filter((order) => {
@@ -150,11 +188,23 @@ const filteredOrders = computed(() =>
 );
 
 function isBusy(order: OrderRecord) {
-  return savingId.value === order.id || cancellingId.value === order.id;
+  return (
+    savingId.value === order.id ||
+    cancellingId.value === order.id ||
+    cancellingItemOrderId.value === order.id ||
+    updatingItemOrderId.value === order.id
+  );
 }
 
 function getErrorMessage(error: any, fallback: string) {
   return error?.response?.data?.message || error?.message || fallback;
+}
+
+function replaceOrder(orderId: number, payload: unknown) {
+  const index = allOrders.value.findIndex((entry) => entry.id === orderId);
+  if (index >= 0) {
+    allOrders.value[index] = payload as OrderRecord;
+  }
 }
 
 function buildArrivalAtForOrder(order: OrderRecord, time?: string) {
@@ -177,10 +227,7 @@ async function saveEdit(order: OrderRecord, items: SavePayload[], arrivalTime?: 
     const arrivalAt = buildArrivalAtForOrder(order, arrivalTime);
     const payload = arrivalAt ? { items, arrivalAt } : { items };
     const { data } = await api.put(`/orders/my/${order.id}`, payload);
-    const index = allOrders.value.findIndex((item) => item.id === order.id);
-    if (index >= 0) {
-      allOrders.value[index] = data as OrderRecord;
-    }
+    replaceOrder(order.id, data);
   } catch (error) {
     orderError[order.id] = getErrorMessage(error, "Không lưu được thay đổi.");
   } finally {
@@ -198,6 +245,20 @@ function closeCancelConfirm() {
   cancelConfirm.order = null;
 }
 
+function openCancelItemConfirm(order: OrderRecord, itemId: number) {
+  const item = (order.items || []).find((entry) => entry.id === itemId);
+  if (!item) return;
+  cancelItemConfirm.visible = true;
+  cancelItemConfirm.order = order;
+  cancelItemConfirm.item = item;
+}
+
+function closeCancelItemConfirm() {
+  cancelItemConfirm.visible = false;
+  cancelItemConfirm.order = null;
+  cancelItemConfirm.item = null;
+}
+
 async function confirmCancel() {
   const order = cancelConfirm.order;
   if (!order) return;
@@ -208,14 +269,61 @@ async function confirmCancel() {
 
   try {
     const { data } = await api.put(`/orders/my/${order.id}/cancel`);
-    const index = allOrders.value.findIndex((item) => item.id === order.id);
-    if (index >= 0) {
-      allOrders.value[index] = data as OrderRecord;
-    }
+    replaceOrder(order.id, data);
   } catch (error) {
     orderError[order.id] = getErrorMessage(error, "Không hủy được đơn hàng.");
   } finally {
     cancellingId.value = null;
+  }
+}
+
+async function confirmCancelItem() {
+  const order = cancelItemConfirm.order;
+  const item = cancelItemConfirm.item;
+  if (!order || !item) return;
+  closeCancelItemConfirm();
+
+  cancellingItemOrderId.value = order.id;
+  cancellingItemId.value = item.id;
+  delete orderError[order.id];
+
+  try {
+    const { data } = await api.put(`/orders/my/${order.id}/items/${item.id}/cancel`);
+    replaceOrder(order.id, data);
+  } catch (error) {
+    orderError[order.id] = getErrorMessage(error, "Không hủy được món trong đơn.");
+  } finally {
+    cancellingItemOrderId.value = null;
+    cancellingItemId.value = null;
+  }
+}
+
+async function updateConfirmedItemQuantity(order: OrderRecord, itemId: number, quantity: number) {
+  delete orderError[order.id];
+
+  if (quantity <= 0) {
+    cancellingItemOrderId.value = order.id;
+    cancellingItemId.value = itemId;
+    try {
+      const { data } = await api.put(`/orders/my/${order.id}/items/${itemId}/cancel`);
+      replaceOrder(order.id, data);
+    } catch (error) {
+      orderError[order.id] = getErrorMessage(error, "Không cập nhật được số lượng món.");
+    } finally {
+      cancellingItemOrderId.value = null;
+      cancellingItemId.value = null;
+    }
+    return;
+  }
+
+  updatingItemOrderId.value = order.id;
+  try {
+    const { data } = await api.put(`/orders/my/${order.id}/items/${itemId}`, { quantity });
+    replaceOrder(order.id, data);
+  } catch (error) {
+    orderError[order.id] = getErrorMessage(error, "Không cập nhật được số lượng món.");
+  } finally {
+    updatingItemOrderId.value = null;
   }
 }
 
