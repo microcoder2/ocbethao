@@ -151,7 +151,7 @@
           @open-cancel="openCancelDialog(order)"
           @delete-order="deleteOrder(order)"
           @save-items="(items, arrivalTime) => saveOrderItems(order, items, arrivalTime)"
-          @update-item-status="(itemId, status) => updateItemStatus(order, itemId, status)"
+          @move-item-stage="(payload) => updateItemStage(order, payload)"
         />
 
       </div>
@@ -368,8 +368,14 @@ type OrderItem = {
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
+  activeQuantity?: number;
+  waitingQuantity?: number;
+  cookingQuantity?: number;
+  readyQuantity?: number;
+  cancelledQuantity?: number;
   status: string;
   lineTotal: number;
+  activeLineTotal?: number;
 };
 
 type OrderRecord = {
@@ -410,8 +416,37 @@ type OrderChangeEvent = {
   changedFields?: Array<"items" | "arrivalAt">;
   itemId?: number;
   itemName?: string;
+  quantity?: number;
   orderCancelled?: boolean;
   occurredAt: string;
+};
+
+type MoveItemStagePayload = {
+  itemId: number;
+  action: "MOVE_STAGE";
+  fromStage: "WAITING" | "COOKING" | "READY" | "CANCELLED";
+  toStage: "WAITING" | "COOKING" | "READY";
+  quantity: number;
+};
+
+type UpdateOrderItemStageResponse = {
+  success?: boolean;
+  id?: number;
+  status?: string;
+  quantity?: number;
+  waitingQuantity?: number;
+  cookingQuantity?: number;
+  readyQuantity?: number;
+  cancelledQuantity?: number;
+  subtotal?: number;
+  totalAmount?: number;
+  itemProgress?: {
+    total: number;
+    waiting: number;
+    cooking: number;
+    ready: number;
+    cancelled: number;
+  };
 };
 
 type DailyMenuOption = {
@@ -1002,65 +1037,46 @@ async function completeOrder(order: OrderRecord, paymentMethod: string) {
   });
 }
 
-function adjustItemProgress(progress: OrderRecord["itemProgress"], previousStatus: string, nextStatus: string) {
-  if (!progress || previousStatus === nextStatus) return;
-
-  const keyMap: Record<string, "waiting" | "cooking" | "ready" | "cancelled"> = {
-    WAITING: "waiting",
-    COOKING: "cooking",
-    READY: "ready",
-    CANCELLED: "cancelled",
-  };
-
-  const previousKey = keyMap[previousStatus] || "waiting";
-  const nextKey = keyMap[nextStatus] || "waiting";
-  progress[previousKey] = Math.max(0, Number(progress[previousKey] || 0) - 1);
-  progress[nextKey] = Number(progress[nextKey] || 0) + 1;
-  progress.total =
-    Number(progress.waiting || 0) +
-    Number(progress.cooking || 0) +
-    Number(progress.ready || 0);
-}
-
-function patchOrderItemStatusLocally(orderId: number, itemId: number, nextStatus: string) {
+function patchOrderItemStageLocally(orderId: number, payload: UpdateOrderItemStageResponse) {
   const targetOrder = orders.value.find((entry) => entry.id === orderId);
-  const targetItem = targetOrder?.items?.find((entry) => entry.id === itemId);
+  const targetItem = targetOrder?.items?.find((entry) => entry.id === payload.id);
   if (!targetOrder || !targetItem) return;
 
-  const previousStatus = targetItem.status || "WAITING";
-  if (previousStatus === nextStatus) return;
+  targetItem.status = String(payload.status || targetItem.status || "WAITING");
+  targetItem.quantity = Number(payload.quantity ?? targetItem.quantity ?? 0);
+  targetItem.waitingQuantity = Number(payload.waitingQuantity ?? targetItem.waitingQuantity ?? 0);
+  targetItem.cookingQuantity = Number(payload.cookingQuantity ?? targetItem.cookingQuantity ?? 0);
+  targetItem.readyQuantity = Number(payload.readyQuantity ?? targetItem.readyQuantity ?? 0);
+  targetItem.cancelledQuantity = Number(payload.cancelledQuantity ?? targetItem.cancelledQuantity ?? 0);
+  targetItem.activeQuantity =
+    Number(targetItem.waitingQuantity || 0) +
+    Number(targetItem.cookingQuantity || 0) +
+    Number(targetItem.readyQuantity || 0);
+  targetItem.activeLineTotal =
+    Number(targetItem.unitPrice || 0) * Number(targetItem.activeQuantity || 0);
 
-  if (previousStatus === "CANCELLED" && nextStatus !== "CANCELLED") {
-    targetOrder.subtotal = Number(targetOrder.subtotal || 0) + Number(targetItem.lineTotal || 0);
-  } else if (previousStatus !== "CANCELLED" && nextStatus === "CANCELLED") {
-    targetOrder.subtotal = Math.max(0, Number(targetOrder.subtotal || 0) - Number(targetItem.lineTotal || 0));
+  targetOrder.subtotal = Number(payload.subtotal ?? targetOrder.subtotal ?? 0);
+  targetOrder.totalAmount = Number(payload.totalAmount ?? targetOrder.totalAmount ?? 0);
+  if (payload.itemProgress) {
+    targetOrder.itemProgress = payload.itemProgress;
   }
-
-  targetOrder.totalAmount = Math.max(
-    0,
-    Number(targetOrder.subtotal || 0) +
-      Number(targetOrder.serviceFee || 0) -
-      Number(targetOrder.discountAmount || 0)
-  );
-
-  targetItem.status = nextStatus;
-  adjustItemProgress(targetOrder.itemProgress, previousStatus, nextStatus);
 }
 
-async function updateItemStatus(order: OrderRecord, itemId: number, status: string) {
+async function updateItemStage(order: OrderRecord, payload: MoveItemStagePayload) {
   errorMessage.value = "";
   updatingItemStatusOrderId.value = order.id;
-  updatingItemStatusId.value = itemId;
-  updatingItemStatusValue.value = status;
+  updatingItemStatusId.value = payload.itemId;
+  updatingItemStatusValue.value = `${payload.fromStage}->${payload.toStage}`;
 
   try {
-    const { data } = await api.put(`/orders/${order.id}/items/${itemId}/status`, { status });
-    const payload = data as { success?: boolean; id?: number; status?: string };
-    if (payload.success && typeof payload.id === "number" && payload.status) {
-      patchOrderItemStatusLocally(order.id, payload.id, payload.status);
+    const { itemId, ...body } = payload;
+    const { data } = await api.put(`/orders/${order.id}/items/${itemId}/status`, body);
+    const nextState = data as UpdateOrderItemStageResponse;
+    if (nextState.success && typeof nextState.id === "number") {
+      patchOrderItemStageLocally(order.id, nextState);
     }
   } catch (error) {
-    alertApiError(error, "Không cập nhật được trạng thái món.");
+    alertApiError(error, "KhÃ´ng cáº­p nháº­t Ä‘Æ°á»£c tráº¡ng thÃ¡i mÃ³n.");
   } finally {
     updatingItemStatusOrderId.value = null;
     updatingItemStatusId.value = null;

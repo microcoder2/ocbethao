@@ -11,9 +11,103 @@ import { toNumber } from "./serializers";
 
 type AnyRecord = Record<string, any>;
 
+type ItemStageQuantities = {
+  waitingQuantity: number;
+  cookingQuantity: number;
+  readyQuantity: number;
+  cancelledQuantity: number;
+};
+
 function normalizePositiveNumber(value: unknown): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
+}
+
+function getLegacyStageQuantities(
+  quantity: number,
+  status: OrderItemStatus,
+): ItemStageQuantities {
+  if (status === OrderItemStatus.CANCELLED) {
+    return {
+      waitingQuantity: 0,
+      cookingQuantity: 0,
+      readyQuantity: 0,
+      cancelledQuantity: quantity,
+    };
+  }
+
+  if (status === OrderItemStatus.READY) {
+    return {
+      waitingQuantity: 0,
+      cookingQuantity: 0,
+      readyQuantity: quantity,
+      cancelledQuantity: 0,
+    };
+  }
+
+  if (status === OrderItemStatus.COOKING) {
+    return {
+      waitingQuantity: 0,
+      cookingQuantity: quantity,
+      readyQuantity: 0,
+      cancelledQuantity: 0,
+    };
+  }
+
+  return {
+    waitingQuantity: quantity,
+    cookingQuantity: 0,
+    readyQuantity: 0,
+    cancelledQuantity: 0,
+  };
+}
+
+function getStageQuantities(item: AnyRecord): ItemStageQuantities {
+  const quantity = normalizePositiveNumber(item.quantity);
+  const fallbackStatus =
+    (item.status as OrderItemStatus | null) ?? OrderItemStatus.WAITING;
+
+  const waitingQuantity = normalizePositiveNumber(item.waitingQuantity);
+  const cookingQuantity = normalizePositiveNumber(item.cookingQuantity);
+  const readyQuantity = normalizePositiveNumber(item.readyQuantity);
+  const cancelledQuantity = normalizePositiveNumber(item.cancelledQuantity);
+  const sum =
+    waitingQuantity + cookingQuantity + readyQuantity + cancelledQuantity;
+
+  if (sum <= 0 && quantity > 0) {
+    return getLegacyStageQuantities(quantity, fallbackStatus);
+  }
+
+  return {
+    waitingQuantity,
+    cookingQuantity,
+    readyQuantity,
+    cancelledQuantity,
+  };
+}
+
+function getDerivedOrderItemStatus(
+  quantity: number,
+  stages: ItemStageQuantities,
+): OrderItemStatus {
+  if (stages.cancelledQuantity >= quantity && quantity > 0) {
+    return OrderItemStatus.CANCELLED;
+  }
+
+  if (
+    stages.readyQuantity >= quantity &&
+    stages.waitingQuantity === 0 &&
+    stages.cookingQuantity === 0 &&
+    quantity > 0
+  ) {
+    return OrderItemStatus.READY;
+  }
+
+  if (stages.cookingQuantity > 0 || stages.readyQuantity > 0) {
+    return OrderItemStatus.COOKING;
+  }
+
+  return OrderItemStatus.WAITING;
 }
 
 function computeOfferAvailableQuantity(item: AnyRecord): number | null {
@@ -300,31 +394,55 @@ export function serializeDailyMenuSummary(menu: AnyRecord) {
 }
 
 function serializeOrderItems(items: AnyRecord[]) {
-  return items.map((item: AnyRecord) => ({
-    id: item.id,
-    menuItemId: item.menuItemId ?? null,
-    dailyMenuItemId: item.dailyMenuItemId ?? null,
-    itemNameSnapshot: item.itemNameSnapshot,
-    unitPrice: toNumber(item.unitPrice),
-    quantity: item.quantity,
-    status: (item.status as OrderItemStatus | null) ?? OrderItemStatus.WAITING,
-    lineTotal: toNumber(item.lineTotal),
-    note: item.note ?? null,
-    menuItem: item.menuItem ? serializeMenuItem(item.menuItem) : null,
-  }));
+  return items.map((item: AnyRecord) => {
+    const quantity = normalizePositiveNumber(item.quantity);
+    const stages = getStageQuantities(item);
+    const activeQuantity =
+      stages.waitingQuantity + stages.cookingQuantity + stages.readyQuantity;
+    return {
+      id: item.id,
+      menuItemId: item.menuItemId ?? null,
+      dailyMenuItemId: item.dailyMenuItemId ?? null,
+      itemNameSnapshot: item.itemNameSnapshot,
+      unitPrice: toNumber(item.unitPrice),
+      quantity,
+      activeQuantity,
+      waitingQuantity: stages.waitingQuantity,
+      cookingQuantity: stages.cookingQuantity,
+      readyQuantity: stages.readyQuantity,
+      cancelledQuantity: stages.cancelledQuantity,
+      status: getDerivedOrderItemStatus(quantity, stages),
+      lineTotal: toNumber(item.lineTotal),
+      activeLineTotal: Number(item.unitPrice || 0) * activeQuantity,
+      note: item.note ?? null,
+      menuItem: item.menuItem ? serializeMenuItem(item.menuItem) : null,
+    };
+  });
 }
 
 function serializeOrderListItems(items: AnyRecord[]) {
-  return items.map((item: AnyRecord) => ({
-    id: item.id,
-    menuItemId: item.menuItemId ?? null,
-    dailyMenuItemId: item.dailyMenuItemId ?? null,
-    itemNameSnapshot: item.itemNameSnapshot,
-    unitPrice: toNumber(item.unitPrice),
-    quantity: item.quantity,
-    status: (item.status as OrderItemStatus | null) ?? OrderItemStatus.WAITING,
-    lineTotal: toNumber(item.lineTotal),
-  }));
+  return items.map((item: AnyRecord) => {
+    const quantity = normalizePositiveNumber(item.quantity);
+    const stages = getStageQuantities(item);
+    const activeQuantity =
+      stages.waitingQuantity + stages.cookingQuantity + stages.readyQuantity;
+    return {
+      id: item.id,
+      menuItemId: item.menuItemId ?? null,
+      dailyMenuItemId: item.dailyMenuItemId ?? null,
+      itemNameSnapshot: item.itemNameSnapshot,
+      unitPrice: toNumber(item.unitPrice),
+      quantity,
+      activeQuantity,
+      waitingQuantity: stages.waitingQuantity,
+      cookingQuantity: stages.cookingQuantity,
+      readyQuantity: stages.readyQuantity,
+      cancelledQuantity: stages.cancelledQuantity,
+      status: getDerivedOrderItemStatus(quantity, stages),
+      lineTotal: toNumber(item.lineTotal),
+      activeLineTotal: Number(item.unitPrice || 0) * activeQuantity,
+    };
+  });
 }
 
 function buildOrderItemProgress(items: AnyRecord[]) {
@@ -337,23 +455,13 @@ function buildOrderItemProgress(items: AnyRecord[]) {
   };
 
   for (const item of items) {
-    const status = (item.status as OrderItemStatus | null) ?? OrderItemStatus.WAITING;
-    if (status === OrderItemStatus.READY) {
-      progress.total += 1;
-      progress.ready += 1;
-      continue;
-    }
-    if (status === OrderItemStatus.COOKING) {
-      progress.total += 1;
-      progress.cooking += 1;
-      continue;
-    }
-    if (status === OrderItemStatus.CANCELLED) {
-      progress.cancelled += 1;
-      continue;
-    }
-    progress.total += 1;
-    progress.waiting += 1;
+    const stages = getStageQuantities(item);
+    progress.waiting += stages.waitingQuantity;
+    progress.cooking += stages.cookingQuantity;
+    progress.ready += stages.readyQuantity;
+    progress.cancelled += stages.cancelledQuantity;
+    progress.total +=
+      stages.waitingQuantity + stages.cookingQuantity + stages.readyQuantity;
   }
 
   return progress;

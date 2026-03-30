@@ -111,6 +111,42 @@ function getDefaultItemStatus(status: OrderStatus): OrderItemStatus {
   return OrderItemStatus.WAITING;
 }
 
+function buildSeedStageData(quantity: number, status: OrderItemStatus) {
+  if (status === OrderItemStatus.CANCELLED) {
+    return {
+      waitingQuantity: 0,
+      cookingQuantity: 0,
+      readyQuantity: 0,
+      cancelledQuantity: quantity,
+    };
+  }
+
+  if (status === OrderItemStatus.READY) {
+    return {
+      waitingQuantity: 0,
+      cookingQuantity: 0,
+      readyQuantity: quantity,
+      cancelledQuantity: 0,
+    };
+  }
+
+  if (status === OrderItemStatus.COOKING) {
+    return {
+      waitingQuantity: 0,
+      cookingQuantity: quantity,
+      readyQuantity: 0,
+      cancelledQuantity: 0,
+    };
+  }
+
+  return {
+    waitingQuantity: quantity,
+    cookingQuantity: 0,
+    readyQuantity: 0,
+    cancelledQuantity: 0,
+  };
+}
+
 async function cleanDatabase() {
   await prisma.orderItem.deleteMany({});
   await prisma.order.deleteMany({});
@@ -848,6 +884,7 @@ async function seedServiceDay(
       .map((item) => {
         const offer = offerMap.get(item.menuItemSlug);
         if (!offer) return null;
+        const status = item.status ?? getDefaultItemStatus(spec.status);
 
         if (shouldCountTowardsSoldQuantity(spec.status)) {
           soldQuantityByStockSlug.set(
@@ -862,7 +899,8 @@ async function seedServiceDay(
           itemNameSnapshot: offer.itemNameSnapshot,
           unitPrice: money(offer.unitPrice),
           quantity: item.quantity,
-          status: item.status ?? getDefaultItemStatus(spec.status),
+          ...buildSeedStageData(item.quantity, status),
+          status,
           lineTotal: money(offer.unitPrice * item.quantity),
           note: item.note,
         };

@@ -346,6 +346,10 @@ model OrderItem {
   itemNameSnapshot String
   unitPrice       Decimal  @db.Decimal(10, 2)
   quantity        Int
+  waitingQuantity Int      @default(0)
+  cookingQuantity Int      @default(0)
+  readyQuantity   Int      @default(0)
+  cancelledQuantity Int    @default(0)
   status          OrderItemStatus @default(WAITING)
   lineTotal       Decimal  @db.Decimal(10, 2)
   note            String?

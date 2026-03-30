@@ -71,8 +71,11 @@ class UpdateOrderBody {
   arrivalAt?: string;
 }
 
-class UpdateOrderItemStatusBody {
-  status!: OrderItemStatus;
+class UpdateOrderItemStageBody {
+  action!: "MOVE_STAGE";
+  fromStage!: "WAITING" | "COOKING" | "READY" | "CANCELLED";
+  toStage!: "WAITING" | "COOKING" | "READY";
+  quantity!: number;
 }
 
 class UpdateMyOrderItemQuantityBody {
@@ -83,7 +86,30 @@ class UpdateOrderItemStatusResponse {
   success!: boolean;
   id!: number;
   status!: OrderItemStatus;
+  quantity!: number;
+  waitingQuantity!: number;
+  cookingQuantity!: number;
+  readyQuantity!: number;
+  cancelledQuantity!: number;
+  subtotal!: number;
+  totalAmount!: number;
+  itemProgress!: {
+    total: number;
+    waiting: number;
+    cooking: number;
+    ready: number;
+    cancelled: number;
+  };
 }
+
+type ItemStageName = "WAITING" | "COOKING" | "READY" | "CANCELLED";
+
+type ItemStageQuantities = {
+  waitingQuantity: number;
+  cookingQuantity: number;
+  readyQuantity: number;
+  cancelledQuantity: number;
+};
 
 type ResolvedOrderLine = {
   menuItemId: number | null;
@@ -91,6 +117,10 @@ type ResolvedOrderLine = {
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
+  waitingQuantity: number;
+  cookingQuantity: number;
+  readyQuantity: number;
+  cancelledQuantity: number;
   status: OrderItemStatus;
   lineTotal: number;
   note?: string;
@@ -153,6 +183,236 @@ function getAdminItemChangeType(status: OrderItemStatus): OrderChangeType | null
   if (status === OrderItemStatus.COOKING) return "ADMIN_ITEM_COOKING";
   if (status === OrderItemStatus.READY) return "ADMIN_ITEM_READY";
   return null;
+}
+
+function getStageField(stage: ItemStageName) {
+  if (stage === "WAITING") return "waitingQuantity" as const;
+  if (stage === "COOKING") return "cookingQuantity" as const;
+  if (stage === "READY") return "readyQuantity" as const;
+  return "cancelledQuantity" as const;
+}
+
+function buildLegacyStageQuantities(
+  quantity: number,
+  status: OrderItemStatus = OrderItemStatus.WAITING
+): ItemStageQuantities {
+  if (status === OrderItemStatus.CANCELLED) {
+    return {
+      waitingQuantity: 0,
+      cookingQuantity: 0,
+      readyQuantity: 0,
+      cancelledQuantity: quantity,
+    };
+  }
+
+  if (status === OrderItemStatus.READY) {
+    return {
+      waitingQuantity: 0,
+      cookingQuantity: 0,
+      readyQuantity: quantity,
+      cancelledQuantity: 0,
+    };
+  }
+
+  if (status === OrderItemStatus.COOKING) {
+    return {
+      waitingQuantity: 0,
+      cookingQuantity: quantity,
+      readyQuantity: 0,
+      cancelledQuantity: 0,
+    };
+  }
+
+  return {
+    waitingQuantity: quantity,
+    cookingQuantity: 0,
+    readyQuantity: 0,
+    cancelledQuantity: 0,
+  };
+}
+
+function getItemStageQuantities(item: {
+  quantity: number;
+  status?: OrderItemStatus | string | null;
+  waitingQuantity?: number | null;
+  cookingQuantity?: number | null;
+  readyQuantity?: number | null;
+  cancelledQuantity?: number | null;
+}): ItemStageQuantities {
+  const quantity = Math.max(0, Math.floor(Number(item.quantity || 0)));
+  const waitingQuantity = Math.max(0, Number(item.waitingQuantity || 0));
+  const cookingQuantity = Math.max(0, Number(item.cookingQuantity || 0));
+  const readyQuantity = Math.max(0, Number(item.readyQuantity || 0));
+  const cancelledQuantity = Math.max(0, Number(item.cancelledQuantity || 0));
+  const sum =
+    waitingQuantity + cookingQuantity + readyQuantity + cancelledQuantity;
+
+  if (sum <= 0) {
+    return buildLegacyStageQuantities(
+      quantity,
+      (item.status as OrderItemStatus | null) ?? OrderItemStatus.WAITING
+    );
+  }
+
+  return {
+    waitingQuantity,
+    cookingQuantity,
+    readyQuantity,
+    cancelledQuantity,
+  };
+}
+
+function getActiveQuantity(stages: ItemStageQuantities) {
+  return stages.waitingQuantity + stages.cookingQuantity + stages.readyQuantity;
+}
+
+function getActiveLineTotal(item: {
+  unitPrice: number | Prisma.Decimal;
+  quantity: number;
+  status?: OrderItemStatus | string | null;
+  waitingQuantity?: number | null;
+  cookingQuantity?: number | null;
+  readyQuantity?: number | null;
+  cancelledQuantity?: number | null;
+}) {
+  return Number(item.unitPrice || 0) * getActiveQuantity(getItemStageQuantities(item));
+}
+
+function deriveOrderItemStatus(
+  quantity: number,
+  stages: ItemStageQuantities
+): OrderItemStatus {
+  if (stages.cancelledQuantity >= quantity && quantity > 0) {
+    return OrderItemStatus.CANCELLED;
+  }
+
+  if (
+    stages.readyQuantity >= quantity &&
+    stages.waitingQuantity === 0 &&
+    stages.cookingQuantity === 0 &&
+    quantity > 0
+  ) {
+    return OrderItemStatus.READY;
+  }
+
+  if (stages.cookingQuantity > 0 || stages.readyQuantity > 0) {
+    return OrderItemStatus.COOKING;
+  }
+
+  return OrderItemStatus.WAITING;
+}
+
+function buildStageData(
+  quantity: number,
+  status: OrderItemStatus = OrderItemStatus.WAITING
+) {
+  const stages = buildLegacyStageQuantities(quantity, status);
+  return {
+    ...stages,
+    status: deriveOrderItemStatus(quantity, stages),
+  };
+}
+
+function canUpdateWaitingOnlyQuantity(item: {
+  quantity: number;
+  status?: OrderItemStatus | string | null;
+  waitingQuantity?: number | null;
+  cookingQuantity?: number | null;
+  readyQuantity?: number | null;
+  cancelledQuantity?: number | null;
+}) {
+  const quantity = Math.max(0, Math.floor(Number(item.quantity || 0)));
+  const stages = getItemStageQuantities(item);
+  return (
+    stages.waitingQuantity === quantity &&
+    stages.cookingQuantity === 0 &&
+    stages.readyQuantity === 0 &&
+    stages.cancelledQuantity === 0
+  );
+}
+
+function buildReplacementStageData(
+  currentItem: {
+    quantity: number;
+    status?: OrderItemStatus | string | null;
+    waitingQuantity?: number | null;
+    cookingQuantity?: number | null;
+    readyQuantity?: number | null;
+    cancelledQuantity?: number | null;
+  } | undefined,
+  nextQuantity: number
+) {
+  if (!currentItem) {
+    return buildStageData(nextQuantity, OrderItemStatus.WAITING);
+  }
+
+  if (canUpdateWaitingOnlyQuantity(currentItem)) {
+    return buildStageData(nextQuantity, OrderItemStatus.WAITING);
+  }
+
+  if (Math.floor(Number(currentItem.quantity || 0)) !== nextQuantity) {
+    throw new Error("Khong the doi so luong mon da vao bep hoac da huy");
+  }
+
+  const stages = getItemStageQuantities(currentItem);
+  return {
+    ...stages,
+    status: deriveOrderItemStatus(nextQuantity, stages),
+  };
+}
+
+function buildItemProgress(
+  items: Array<{
+    quantity: number;
+    waitingQuantity?: number | null;
+    cookingQuantity?: number | null;
+    readyQuantity?: number | null;
+    cancelledQuantity?: number | null;
+    status?: OrderItemStatus | string | null;
+  }>
+) {
+  return items.reduce(
+    (progress, item) => {
+      const stages = getItemStageQuantities(item);
+      progress.waiting += stages.waitingQuantity;
+      progress.cooking += stages.cookingQuantity;
+      progress.ready += stages.readyQuantity;
+      progress.cancelled += stages.cancelledQuantity;
+      progress.total += getActiveQuantity(stages);
+      return progress;
+    },
+    {
+      total: 0,
+      waiting: 0,
+      cooking: 0,
+      ready: 0,
+      cancelled: 0,
+    }
+  );
+}
+
+function moveItemStageQuantity(
+  stages: ItemStageQuantities,
+  fromStage: ItemStageName,
+  toStage: Exclude<ItemStageName, "CANCELLED">,
+  quantity: number
+) {
+  if (fromStage === toStage) {
+    throw new Error("Khong the chuyen cung mot trang thai");
+  }
+
+  const fromField = getStageField(fromStage);
+  const toField = getStageField(toStage);
+  const availableQuantity = stages[fromField];
+  if (availableQuantity < quantity) {
+    throw new Error("So luong mon trong trang thai nguon khong du");
+  }
+
+  return {
+    ...stages,
+    [fromField]: availableQuantity - quantity,
+    [toField]: stages[toField] + quantity,
+  } satisfies ItemStageQuantities;
 }
 
 function parseOptionalDateTime(value: unknown, fieldName: string) {
@@ -342,13 +602,18 @@ async function resolveOrderLines(
       const unitPrice = Number(
         dailyMenuItem.overridePrice ?? dailyMenuItem.menuItem.basePrice
       );
+      const stageData = buildStageData(quantity, item.status ?? OrderItemStatus.WAITING);
       return {
         menuItemId: dailyMenuItem.menuItemId,
         dailyMenuItemId: dailyMenuItem.id,
         itemNameSnapshot: dailyMenuItem.menuItem.name,
         unitPrice,
         quantity,
-        status: item.status ?? OrderItemStatus.WAITING,
+        waitingQuantity: stageData.waitingQuantity,
+        cookingQuantity: stageData.cookingQuantity,
+        readyQuantity: stageData.readyQuantity,
+        cancelledQuantity: stageData.cancelledQuantity,
+        status: stageData.status,
         lineTotal: unitPrice * quantity,
         note: item.note,
         stockUsage: stockLinks.map((link) => ({
@@ -365,13 +630,18 @@ async function resolveOrderLines(
       }
 
       const unitPrice = Number(menuItem.basePrice);
+      const stageData = buildStageData(quantity, item.status ?? OrderItemStatus.WAITING);
       return {
         menuItemId: menuItem.id,
         dailyMenuItemId: null,
         itemNameSnapshot: menuItem.name,
         unitPrice,
         quantity,
-        status: item.status ?? OrderItemStatus.WAITING,
+        waitingQuantity: stageData.waitingQuantity,
+        cookingQuantity: stageData.cookingQuantity,
+        readyQuantity: stageData.readyQuantity,
+        cancelledQuantity: stageData.cancelledQuantity,
+        status: stageData.status,
         lineTotal: unitPrice * quantity,
         note: item.note,
         stockUsage: [],
@@ -416,6 +686,10 @@ function buildOrderListSelect() {
         itemNameSnapshot: true,
         unitPrice: true,
         quantity: true,
+        waitingQuantity: true,
+        cookingQuantity: true,
+        readyQuantity: true,
+        cancelledQuantity: true,
         status: true,
         lineTotal: true,
       },
@@ -474,6 +748,11 @@ function getStockUsageFromOrder(order: Awaited<ReturnType<typeof getOrderForStoc
 function getStockUsageFromOrderItems(
   items: Array<{
     quantity: number;
+    status?: OrderItemStatus | string | null;
+    waitingQuantity?: number | null;
+    cookingQuantity?: number | null;
+    readyQuantity?: number | null;
+    cancelledQuantity?: number | null;
     dailyMenuItem?: {
       stockLinks?: Array<{
         dailyStockPoolId: number;
@@ -484,12 +763,17 @@ function getStockUsageFromOrderItems(
 ) {
   const usage = new Map<number, number>();
   for (const item of items) {
+    const activeQuantity = getActiveQuantity(getItemStageQuantities(item));
+    if (activeQuantity <= 0) {
+      continue;
+    }
+
     const stockLinks = item.dailyMenuItem?.stockLinks || [];
     for (const link of stockLinks) {
       usage.set(
         link.dailyStockPoolId,
         (usage.get(link.dailyStockPoolId) || 0) +
-          Number(link.consumeQuantity) * item.quantity
+          Number(link.consumeQuantity) * activeQuantity
       );
     }
   }
@@ -608,10 +892,18 @@ export class OrdersController extends Controller {
       await applyStockUsage(tx, stockUsage, -1);
       cancelPoolIds = Array.from(stockUsage.keys());
 
-      await tx.orderItem.updateMany({
-        where: { orderId: id },
-        data: { status: OrderItemStatus.CANCELLED },
-      });
+      for (const item of orderWithStocks.items) {
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: {
+            waitingQuantity: 0,
+            cookingQuantity: 0,
+            readyQuantity: 0,
+            cancelledQuantity: item.quantity,
+            status: OrderItemStatus.CANCELLED,
+          },
+        });
+      }
 
       await tx.order.update({
         where: { id },
@@ -679,7 +971,7 @@ export class OrdersController extends Controller {
         throw new Error("Mon khong thuoc don hang");
       }
 
-      if ((targetItem.status ?? OrderItemStatus.WAITING) !== OrderItemStatus.WAITING) {
+      if (!canUpdateWaitingOnlyQuantity(targetItem)) {
         throw new Error("Chi co the huy mon dang cho");
       }
 
@@ -691,17 +983,17 @@ export class OrdersController extends Controller {
       await tx.orderItem.update({
         where: { id: itemId },
         data: {
+          waitingQuantity: 0,
+          cookingQuantity: 0,
+          readyQuantity: 0,
+          cancelledQuantity: targetItem.quantity,
           status: OrderItemStatus.CANCELLED,
         },
       });
 
-      const remainingActiveItems = current.items.filter(
-        (item) =>
-          item.id !== itemId &&
-          (item.status ?? OrderItemStatus.WAITING) !== OrderItemStatus.CANCELLED
-      );
+      const remainingActiveItems = current.items.filter((item) => item.id !== itemId);
       const nextSubtotal = remainingActiveItems.reduce(
-        (sum, item) => sum + Number(item.lineTotal || 0),
+        (sum, item) => sum + getActiveLineTotal(item),
         0
       );
       const serviceFee = Number(current.serviceFee || 0);
@@ -786,7 +1078,7 @@ export class OrdersController extends Controller {
         throw new Error("Mon khong thuoc don hang");
       }
 
-      if ((targetItem.status ?? OrderItemStatus.WAITING) !== OrderItemStatus.WAITING) {
+      if (!canUpdateWaitingOnlyQuantity(targetItem)) {
         throw new Error("Chi co the cap nhat so luong mon dang cho");
       }
 
@@ -822,6 +1114,11 @@ export class OrdersController extends Controller {
         where: { id: itemId },
         data: {
           quantity: nextQuantity,
+          waitingQuantity: nextQuantity,
+          cookingQuantity: 0,
+          readyQuantity: 0,
+          cancelledQuantity: 0,
+          status: OrderItemStatus.WAITING,
           lineTotal: money(nextLineTotal),
         },
       });
@@ -915,13 +1212,6 @@ export class OrdersController extends Controller {
       const serviceFee = Number(current.serviceFee);
       const discountAmount = Number(current.discountAmount);
       const totalAmount = subtotal + serviceFee - discountAmount;
-      const existingStatuses = new Map(
-        current.items.map((item) => [
-          getOrderItemKey(item.dailyMenuItemId, item.menuItemId),
-          item.status,
-        ])
-      );
-
       await tx.orderItem.deleteMany({ where: { orderId: id } });
 
       await tx.order.update({
@@ -937,10 +1227,11 @@ export class OrdersController extends Controller {
               itemNameSnapshot: line.itemNameSnapshot,
               unitPrice: money(line.unitPrice),
               quantity: line.quantity,
-              status:
-                existingStatuses.get(
-                  getOrderItemKey(line.dailyMenuItemId, line.menuItemId)
-                ) ?? line.status,
+              waitingQuantity: line.waitingQuantity,
+              cookingQuantity: line.cookingQuantity,
+              readyQuantity: line.readyQuantity,
+              cancelledQuantity: line.cancelledQuantity,
+              status: line.status,
               lineTotal: money(line.lineTotal),
               note: line.note,
             })),
@@ -1049,6 +1340,11 @@ export class OrdersController extends Controller {
               itemNameSnapshot: line.itemNameSnapshot,
               unitPrice: money(line.unitPrice),
               quantity: line.quantity,
+              waitingQuantity: line.waitingQuantity,
+              cookingQuantity: line.cookingQuantity,
+              readyQuantity: line.readyQuantity,
+              cancelledQuantity: line.cancelledQuantity,
+              status: line.status,
               lineTotal: money(line.lineTotal),
               note: line.note,
             })),
@@ -1120,12 +1416,6 @@ export class OrdersController extends Controller {
         statusPoolIds = Array.from(stockUsage.keys());
       }
 
-      if (reactivatingOrder) {
-        await ensureStockAvailability(tx, stockUsage);
-        await applyStockUsage(tx, stockUsage, 1);
-        statusPoolIds = Array.from(stockUsage.keys());
-      }
-
       const data: Prisma.OrderUpdateInput = {
         status: body.status,
         paymentStatus: body.paymentStatus,
@@ -1145,26 +1435,68 @@ export class OrdersController extends Controller {
         data.completedAt = current.completedAt ?? new Date();
         data.paymentStatus = PaymentStatus.PAID;
         data.paymentMethod = body.paymentMethod ?? current.paymentMethod;
-        await tx.orderItem.updateMany({
-          where: {
-            orderId: id,
-            status: { not: OrderItemStatus.CANCELLED },
-          },
-          data: {
-            status: OrderItemStatus.READY,
-          },
-        });
+        for (const item of orderWithStocks.items) {
+          const stages = getItemStageQuantities(item);
+          if (stages.cancelledQuantity >= item.quantity) {
+            continue;
+          }
+
+          await tx.orderItem.update({
+            where: { id: item.id },
+            data: {
+              waitingQuantity: 0,
+              cookingQuantity: 0,
+              readyQuantity: item.quantity,
+              cancelledQuantity: 0,
+              status: OrderItemStatus.READY,
+            },
+          });
+        }
       }
 
       if (body.status === OrderStatus.CANCELLED) {
         data.paymentStatus = PaymentStatus.UNPAID;
         data.paymentMethod = null;
-        await tx.orderItem.updateMany({
-          where: { orderId: id },
-          data: {
-            status: OrderItemStatus.CANCELLED,
-          },
-        });
+        for (const item of orderWithStocks.items) {
+          await tx.orderItem.update({
+            where: { id: item.id },
+            data: {
+              waitingQuantity: 0,
+              cookingQuantity: 0,
+              readyQuantity: 0,
+              cancelledQuantity: item.quantity,
+              status: OrderItemStatus.CANCELLED,
+            },
+          });
+        }
+      }
+
+      if (reactivatingOrder) {
+        const restoreUsage = getStockUsageFromOrderItems(
+          orderWithStocks.items.map((item) => ({
+            ...item,
+            waitingQuantity: item.quantity,
+            cookingQuantity: 0,
+            readyQuantity: 0,
+            cancelledQuantity: 0,
+          }))
+        );
+        await ensureStockAvailability(tx, restoreUsage);
+        await applyStockUsage(tx, restoreUsage, 1);
+        statusPoolIds = Array.from(restoreUsage.keys());
+
+        for (const item of orderWithStocks.items) {
+          await tx.orderItem.update({
+            where: { id: item.id },
+            data: {
+              waitingQuantity: item.quantity,
+              cookingQuantity: 0,
+              readyQuantity: 0,
+              cancelledQuantity: 0,
+              status: OrderItemStatus.WAITING,
+            },
+          });
+        }
       }
 
       await tx.order.update({
@@ -1232,10 +1564,10 @@ export class OrdersController extends Controller {
       const serviceFee = Number(current.serviceFee);
       const discountAmount = Number(current.discountAmount);
       const totalAmount = subtotal + serviceFee - discountAmount;
-      const existingStatuses = new Map(
+      const existingItems = new Map(
         current.items.map((item) => [
           getOrderItemKey(item.dailyMenuItemId, item.menuItemId),
-          item.status,
+          item,
         ])
       );
 
@@ -1251,15 +1583,17 @@ export class OrdersController extends Controller {
           totalAmount: money(totalAmount),
           items: {
             create: lines.map((line) => ({
+              ...buildReplacementStageData(
+                existingItems.get(
+                  getOrderItemKey(line.dailyMenuItemId, line.menuItemId)
+                ),
+                line.quantity
+              ),
               menuItemId: line.menuItemId,
               dailyMenuItemId: line.dailyMenuItemId,
               itemNameSnapshot: line.itemNameSnapshot,
               unitPrice: money(line.unitPrice),
               quantity: line.quantity,
-              status:
-                existingStatuses.get(
-                  getOrderItemKey(line.dailyMenuItemId, line.menuItemId)
-                ) ?? line.status,
               lineTotal: money(line.lineTotal),
               note: line.note,
             })),
@@ -1281,10 +1615,11 @@ export class OrdersController extends Controller {
   public async updateOrderItemStatus(
     @Path() orderId: number,
     @Path() itemId: number,
-    @Body() body: UpdateOrderItemStatusBody
+    @Body() body: UpdateOrderItemStageBody
   ): Promise<UpdateOrderItemStatusResponse> {
     let updatePoolIds: number[] = [];
     let itemName = "";
+    const movedQuantity = normalizePositiveInt(body.quantity);
 
     await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUniqueOrThrow({
@@ -1302,7 +1637,7 @@ export class OrdersController extends Controller {
         },
       });
 
-      if (!canEditOrder(order.status)) {
+      if (order.status !== OrderStatus.CONFIRMED) {
         throw new Error("Chi co the cap nhat mon trong don dang xu ly");
       }
 
@@ -1321,23 +1656,39 @@ export class OrdersController extends Controller {
       });
       itemName = targetItem.itemNameSnapshot;
 
-      const currentStatus = targetItem.status ?? OrderItemStatus.WAITING;
-      if (currentStatus === body.status) {
-        return;
+      if (body.action !== "MOVE_STAGE") {
+        throw new Error("Hanh dong cap nhat mon khong hop le");
       }
 
-      if (
-        currentStatus === OrderItemStatus.CANCELLED &&
-        body.status !== OrderItemStatus.WAITING
-      ) {
-        throw new Error("Mon da huy chi co the phuc hoi ve trang thai cho");
+      const currentStages = getItemStageQuantities(targetItem);
+      const availableQuantity = currentStages[getStageField(body.fromStage)];
+      if (availableQuantity < movedQuantity) {
+        throw new Error("So luong mon trong trang thai hien tai khong du");
       }
 
-      if (
-        currentStatus === OrderItemStatus.CANCELLED &&
-        body.status === OrderItemStatus.WAITING
-      ) {
-        const itemUsage = getStockUsageFromOrderItems([targetItem]);
+      let nextStages = currentStages;
+
+      if (body.fromStage === "CANCELLED") {
+        if (body.toStage !== "WAITING") {
+          throw new Error("Mon da huy chi co the phuc hoi ve trang thai cho");
+        }
+
+        if (
+          currentStages.cancelledQuantity !== targetItem.quantity ||
+          movedQuantity !== targetItem.quantity
+        ) {
+          throw new Error("Chi co the phuc hoi toan bo mon da huy");
+        }
+
+        const itemUsage = getStockUsageFromOrderItems([
+          {
+            ...targetItem,
+            waitingQuantity: targetItem.quantity,
+            cookingQuantity: 0,
+            readyQuantity: 0,
+            cancelledQuantity: 0,
+          },
+        ]);
         await ensureStockAvailability(tx, itemUsage);
         await applyStockUsage(tx, itemUsage, 1);
         updatePoolIds = Array.from(itemUsage.keys());
@@ -1354,21 +1705,47 @@ export class OrdersController extends Controller {
             totalAmount: money(nextTotalAmount),
           },
         });
+
+        nextStages = {
+          waitingQuantity: targetItem.quantity,
+          cookingQuantity: 0,
+          readyQuantity: 0,
+          cancelledQuantity: 0,
+        };
+      } else {
+        nextStages = moveItemStageQuantity(
+          currentStages,
+          body.fromStage,
+          body.toStage,
+          movedQuantity
+        );
       }
 
+      const nextStatus = deriveOrderItemStatus(targetItem.quantity, nextStages);
       await tx.orderItem.update({
         where: { id: itemId },
         data: {
-          status: body.status,
+          waitingQuantity: nextStages.waitingQuantity,
+          cookingQuantity: nextStages.cookingQuantity,
+          readyQuantity: nextStages.readyQuantity,
+          cancelledQuantity: nextStages.cancelledQuantity,
+          status: nextStatus,
         },
       });
     });
 
     void broadcastStockUpdate(updatePoolIds);
-    const changeType = getAdminItemChangeType(body.status);
+    const changeType = getAdminItemChangeType(
+      body.toStage === "READY"
+        ? OrderItemStatus.READY
+        : body.toStage === "COOKING"
+          ? OrderItemStatus.COOKING
+          : OrderItemStatus.WAITING
+    );
+    const order = await getOrderDetail(orderId);
+    const serialized = serializeOrder(order);
+    const serializedItem = serialized.items.find((item) => item.id === itemId);
     if (changeType) {
-      const order = await getOrderDetail(orderId);
-      const serialized = serializeOrder(order);
       if (typeof serialized.customerId === "number" && serialized.customerId > 0) {
         broadcastOrderChanged(
           {
@@ -1376,6 +1753,7 @@ export class OrdersController extends Controller {
             order: serialized,
             itemId,
             itemName,
+            quantity: movedQuantity,
             occurredAt: new Date().toISOString(),
           },
           { userIds: [serialized.customerId] }
@@ -1386,7 +1764,15 @@ export class OrdersController extends Controller {
     return {
       success: true,
       id: itemId,
-      status: body.status,
+      status: serializedItem?.status ?? OrderItemStatus.WAITING,
+      quantity: serializedItem?.quantity ?? 0,
+      waitingQuantity: serializedItem?.waitingQuantity ?? 0,
+      cookingQuantity: serializedItem?.cookingQuantity ?? 0,
+      readyQuantity: serializedItem?.readyQuantity ?? 0,
+      cancelledQuantity: serializedItem?.cancelledQuantity ?? 0,
+      subtotal: Number(serialized.subtotal || 0),
+      totalAmount: Number(serialized.totalAmount || 0),
+      itemProgress: serialized.itemProgress,
     };
   }
 

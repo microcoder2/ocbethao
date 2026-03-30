@@ -94,59 +94,86 @@
             <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
             <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
             <div v-if="showItemStatuses" class="order-item-statuses">
-              <template v-if="canRestoreCancelledItem(item)">
-                <span :class="['order-item-status', itemStatusClass(item.status), 'is-active']">
-                  {{ itemStatusLabel(item.status) }}
-                </span>
-                <button
-                  type="button"
-                  :class="['order-item-restore-btn', { 'is-pending': isPendingItemAction(item.id, 'WAITING') }]"
-                  :disabled="props.pendingItemStatusId === item.id"
-                  :aria-busy="isPendingItemAction(item.id, 'WAITING') ? 'true' : 'false'"
-                  @click="$emit('updateItemStatus', item.id!, 'WAITING')"
+              <div class="order-item-stage-summary">
+                <span
+                  v-for="chip in getItemStageChips(item)"
+                  :key="chip.key"
+                  :class="['order-item-stage-chip', chip.toneClass]"
                 >
-                  <span class="order-item-action-label">Phục hồi</span>
-                  <span v-if="isPendingItemAction(item.id, 'WAITING')" class="order-item-action-spinner" aria-hidden="true"></span>
-                </button>
-              </template>
-              <template v-else-if="canUpdateItemStatus(item)">
+                  <span>{{ chip.label }}</span>
+                  <strong>{{ chip.count }}</strong>
+                </span>
+              </div>
+              <div v-if="getItemStageActions(item).length" class="order-item-stage-actions">
                 <button
-                  v-for="s in itemStatusActions.filter(s => !(s.value === 'READY' && simplifyStatus(order.status) === 'COMPLETED'))"
-                  :key="s.value"
+                  v-for="action in getItemStageActions(item)"
+                  :key="action.key"
                   type="button"
                   :class="[
-                    'order-item-status',
-                    itemStatusClass(s.value),
+                    'order-item-stage-action',
+                    action.toneClass,
                     {
-                      'is-active': item.status === s.value,
-                      'is-pending': isPendingItemAction(item.id, s.value),
+                      'is-pending': isPendingItemAction(item.id, action.key),
                     },
                   ]"
                   :disabled="props.pendingItemStatusId === item.id"
-                  :aria-busy="isPendingItemAction(item.id, s.value) ? 'true' : 'false'"
-                  @click="$emit('updateItemStatus', item.id!, s.value)"
+                  :aria-busy="isPendingItemAction(item.id, action.key) ? 'true' : 'false'"
+                  :title="action.hint"
+                  @click="openStagePicker(item, action)"
                 >
-                  <span class="order-item-action-label">{{ s.label }}</span>
-                  <span v-if="isPendingItemAction(item.id, s.value)" class="order-item-action-spinner" aria-hidden="true"></span>
+                  <span class="order-item-action-label">{{ action.label }}</span>
+                  <span class="order-item-action-count">{{ action.count }}</span>
+                  <span
+                    v-if="isPendingItemAction(item.id, action.key)"
+                    class="order-item-action-spinner"
+                    aria-hidden="true"
+                  ></span>
                 </button>
-              </template>
-              <span
-                v-else
-                :class="['order-item-status', itemStatusClass(item.id ? item.status : 'WAITING'), 'is-active']"
+              </div>
+              <div
+                v-if="stagePicker.visible && stagePicker.itemId === item.id"
+                class="order-item-stage-picker"
               >
-                {{ item.id ? itemStatusLabel(item.status) : "Chờ lưu món" }}
-              </span>
+                <div class="order-item-stage-picker-copy">
+                  <strong>{{ stagePicker.label }}</strong>
+                  <span>{{ stagePicker.hint }}</span>
+                </div>
+                <div class="order-item-stage-picker-controls">
+                  <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(-1)">-</button>
+                  <span class="order-item-picker-value">{{ stagePicker.quantity }}</span>
+                  <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(1)">+</button>
+                </div>
+                <div class="order-item-stage-picker-quick">
+                  <button type="button" class="order-item-stage-picker-chip" @click="setStagePickerQuantity(1)">1</button>
+                  <button
+                    v-if="stagePicker.max > 2"
+                    type="button"
+                    class="order-item-stage-picker-chip"
+                    @click="setStagePickerQuantity(Math.ceil(stagePicker.max / 2))"
+                  >{{ Math.ceil(stagePicker.max / 2) }}</button>
+                  <button
+                    v-if="stagePicker.max > 1"
+                    type="button"
+                    class="order-item-stage-picker-chip"
+                    @click="setStagePickerQuantity(stagePicker.max)"
+                  >Tất cả</button>
+                </div>
+                <div class="order-item-stage-picker-actions">
+                  <button type="button" class="btn btn-dark btn-sm" @click="confirmStagePicker">Xác nhận</button>
+                  <button type="button" class="btn btn-outline-dark btn-sm" @click="closeStagePicker">Bỏ qua</button>
+                </div>
+              </div>
             </div>
           </div>
-          <span class="order-item-total">{{ formatMoney(item.status === "CANCELLED" ? 0 : item.lineTotal) }}</span>
+          <span class="order-item-total">{{ formatMoney(getItemDisplayedTotal(item)) }}</span>
         </div>
 
-        <div v-if="canEdit" class="order-item-editor">
+        <div v-if="canAdjustDraftItem(item)" class="order-item-editor">
           <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, -1)">-</button>
           <span class="order-item-qty">{{ item.quantity }}</span>
           <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, 1)">+</button>
         </div>
-        <span v-else class="order-item-qty-read">{{ item.quantity }}</span>
+        <span v-else class="order-item-qty-read">{{ getItemQuantityLabel(item) }}</span>
       </li>
     </ul>
 
@@ -281,8 +308,14 @@ type OrderItem = {
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
+  activeQuantity?: number;
+  waitingQuantity?: number;
+  cookingQuantity?: number;
+  readyQuantity?: number;
+  cancelledQuantity?: number;
   status: string;
   lineTotal: number;
+  activeLineTotal?: number;
 };
 
 type OrderRecord = {
@@ -325,11 +358,41 @@ type EditableItem = {
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
+  activeQuantity?: number;
+  waitingQuantity?: number;
+  cookingQuantity?: number;
+  readyQuantity?: number;
+  cancelledQuantity?: number;
   status: string;
   lineTotal: number;
+  activeLineTotal?: number;
 };
 
 type SavePayload = { dailyMenuItemId?: number; menuItemId?: number; quantity: number };
+type ItemStageName = "WAITING" | "COOKING" | "READY" | "CANCELLED";
+type ActiveItemStageName = Exclude<ItemStageName, "CANCELLED">;
+type MoveItemStagePayload = {
+  itemId: number;
+  action: "MOVE_STAGE";
+  fromStage: ItemStageName;
+  toStage: ActiveItemStageName;
+  quantity: number;
+};
+type StageChip = {
+  key: ItemStageName;
+  label: string;
+  count: number;
+  toneClass: string;
+};
+type StageAction = {
+  key: `${ItemStageName}->${ActiveItemStageName}`;
+  label: string;
+  hint: string;
+  fromStage: ItemStageName;
+  toStage: ActiveItemStageName;
+  count: number;
+  toneClass: string;
+};
 
 // ─── Props / Emits ──────────────────────────────────────────────────────
 const props = defineProps<{
@@ -349,7 +412,7 @@ const emit = defineEmits<{
   openCancel: [];
   deleteOrder: [];
   saveItems: [items: SavePayload[], arrivalTime: string | null];
-  updateItemStatus: [itemId: number, status: string];
+  moveItemStage: [payload: MoveItemStagePayload];
 }>();
 
 // ─── Constants ──────────────────────────────────────────────────────────
@@ -360,11 +423,12 @@ const paymentMethodLabels: Record<string, string> = {
   E_WALLET: "Ví điện tử",
 };
 
-const itemStatusActions = [
-  { value: "WAITING", label: "Chờ" },
-  { value: "COOKING", label: "Đang làm" },
-  { value: "READY", label: "Lên món" },
-] as const;
+const stageChipMeta: Record<ItemStageName, { label: string; toneClass: string }> = {
+  WAITING: { label: "Chờ", toneClass: "is-waiting" },
+  COOKING: { label: "Đang làm", toneClass: "is-cooking" },
+  READY: { label: "Lên món", toneClass: "is-ready" },
+  CANCELLED: { label: "Đã hủy", toneClass: "is-cancelled" },
+};
 
 // ─── Internal state ─────────────────────────────────────────────────────
 const collapsed = ref(true);
@@ -408,13 +472,43 @@ function flashItem(key: string | number) {
   setTimeout(() => { highlightedKey.value = null; }, 1200);
 }
 const removeDialog = reactive({ visible: false, index: -1, itemName: "" });
+const stagePicker = reactive<{
+  visible: boolean;
+  itemId: number | null;
+  fromStage: ItemStageName;
+  toStage: ActiveItemStageName;
+  quantity: number;
+  max: number;
+  label: string;
+  hint: string;
+}>({
+  visible: false,
+  itemId: null,
+  fromStage: "WAITING",
+  toStage: "COOKING",
+  quantity: 1,
+  max: 1,
+  label: "",
+  hint: "",
+});
 
 // Reset draft when server items change (after save or status update)
 watch(
-  () => props.order.items?.map((i) => `${i.dailyMenuItemId ?? i.menuItemId}:${i.quantity}`).join("|"),
+  () => props.order.items?.map((i) =>
+    [
+      i.dailyMenuItemId ?? i.menuItemId,
+      i.quantity,
+      i.waitingQuantity ?? "",
+      i.cookingQuantity ?? "",
+      i.readyQuantity ?? "",
+      i.cancelledQuantity ?? "",
+      i.status,
+    ].join(":")
+  ).join("|"),
   () => {
     draft.value = null;
     addSelection.value = "";
+    closeStagePicker();
   }
 );
 
@@ -441,8 +535,14 @@ function cloneItems(items: OrderItem[] = []): EditableItem[] {
     itemNameSnapshot: item.itemNameSnapshot,
     unitPrice: Number(item.unitPrice || 0),
     quantity: Number(item.quantity || 0),
+    activeQuantity: Number(item.activeQuantity ?? 0),
+    waitingQuantity: Number(item.waitingQuantity ?? 0),
+    cookingQuantity: Number(item.cookingQuantity ?? 0),
+    readyQuantity: Number(item.readyQuantity ?? 0),
+    cancelledQuantity: Number(item.cancelledQuantity ?? 0),
     status: item.status || "WAITING",
     lineTotal: Number(item.lineTotal || 0),
+    activeLineTotal: Number(item.activeLineTotal ?? 0),
   }));
 }
 
@@ -453,6 +553,7 @@ function ensureDraft() {
 function discardDraft() {
   draft.value = null;
   addSelection.value = "";
+  closeStagePicker();
 }
 
 // ─── Computed ───────────────────────────────────────────────────────────
@@ -528,43 +629,271 @@ function progressPct(key: "waiting" | "cooking" | "ready") {
   return (Number(props.order.itemProgress?.[key] || 0) / total) * 100;
 }
 
-function itemStatusLabel(status?: string | null) {
-  if (status === "READY") return "Lên món";
-  if (status === "COOKING") return "Đang làm";
-  if (status === "CANCELLED") return "Đã hủy";
-  return "Chờ";
+function getFallbackStageCounts(item: EditableItem) {
+  const quantity = Math.max(0, Number(item.quantity || 0));
+  if (item.status === "CANCELLED") {
+    return { waiting: 0, cooking: 0, ready: 0, cancelled: quantity };
+  }
+  if (item.status === "READY") {
+    return { waiting: 0, cooking: 0, ready: quantity, cancelled: 0 };
+  }
+  if (item.status === "COOKING") {
+    return { waiting: 0, cooking: quantity, ready: 0, cancelled: 0 };
+  }
+  return { waiting: quantity, cooking: 0, ready: 0, cancelled: 0 };
 }
 
-function itemStatusClass(status?: string | null) {
-  return `is-${String(status || "WAITING").toLowerCase()}`;
+function getItemStageCounts(item: EditableItem) {
+  const hasStageBreakdown =
+    item.waitingQuantity != null ||
+    item.cookingQuantity != null ||
+    item.readyQuantity != null ||
+    item.cancelledQuantity != null;
+
+  if (!hasStageBreakdown) {
+    return getFallbackStageCounts(item);
+  }
+
+  const waiting = Math.max(0, Number(item.waitingQuantity || 0));
+  const cooking = Math.max(0, Number(item.cookingQuantity || 0));
+  const ready = Math.max(0, Number(item.readyQuantity || 0));
+  const cancelled = Math.max(0, Number(item.cancelledQuantity || 0));
+  const total = waiting + cooking + ready + cancelled;
+  const quantity = Math.max(0, Number(item.quantity || 0));
+
+  if (!total && quantity > 0) {
+    return getFallbackStageCounts(item);
+  }
+
+  return {
+    waiting,
+    cooking,
+    ready,
+    cancelled: total > quantity ? Math.max(0, quantity - waiting - cooking - ready) : cancelled,
+  };
 }
 
-function canUpdateItemStatus(item: EditableItem) {
+function getItemActiveQuantity(item: EditableItem) {
+  const stages = getItemStageCounts(item);
+  return stages.waiting + stages.cooking + stages.ready;
+}
+
+function getItemDisplayedTotal(item: EditableItem) {
+  if (!item.id) {
+    return Number(item.lineTotal || 0);
+  }
+
+  const activeQuantity = getItemActiveQuantity(item);
+  if (item.activeLineTotal != null && item.activeLineTotal > 0) {
+    return Number(item.activeLineTotal || 0);
+  }
+  if (activeQuantity <= 0) {
+    return 0;
+  }
+  return Number(item.unitPrice || 0) * activeQuantity;
+}
+
+function getItemQuantityLabel(item: EditableItem) {
+  const activeQuantity = getItemActiveQuantity(item);
+  const quantity = Math.max(0, Number(item.quantity || 0));
+  if (!item.id || activeQuantity === quantity || quantity <= 0) {
+    return String(quantity);
+  }
+  return `${activeQuantity}/${quantity}`;
+}
+
+function isWaitingOnlyItem(item: EditableItem) {
+  const stages = getItemStageCounts(item);
   return (
-    canEdit.value &&
-    !draftChanged.value &&
-    item.status !== "CANCELLED" &&
-    typeof item.id === "number" &&
-    item.id > 0
+    stages.waiting === Math.max(0, Number(item.quantity || 0)) &&
+    stages.cooking === 0 &&
+    stages.ready === 0 &&
+    stages.cancelled === 0
   );
 }
 
-function canRestoreCancelledItem(item: EditableItem) {
+function canMoveItemStages(item: EditableItem) {
   return (
     simplifyStatus(props.order.status) === "CONFIRMED" &&
     !draftChanged.value &&
-    item.status === "CANCELLED" &&
     typeof item.id === "number" &&
     item.id > 0
   );
 }
 
-function isPendingItemAction(itemId?: number | null, nextStatus?: string | null) {
+function canAdjustDraftItem(item: EditableItem) {
+  return (
+    canEdit.value &&
+    (simplifyStatus(props.order.status) === "PENDING" || !item.id || isWaitingOnlyItem(item))
+  );
+}
+
+function getItemStageChips(item: EditableItem): StageChip[] {
+  const stages = getItemStageCounts(item);
+  return (Object.keys(stageChipMeta) as ItemStageName[])
+    .map((stage) => ({
+      key: stage,
+      label: stageChipMeta[stage].label,
+      toneClass: stageChipMeta[stage].toneClass,
+      count:
+        stage === "WAITING" ? stages.waiting :
+        stage === "COOKING" ? stages.cooking :
+        stage === "READY" ? stages.ready :
+        stages.cancelled,
+    }))
+    .filter((chip) => chip.count > 0);
+}
+
+function getSuggestedMoveQuantity(action: StageAction) {
+  if (action.fromStage === "COOKING" && action.toStage === "READY") {
+    return 1;
+  }
+  if (action.fromStage === "READY" && action.toStage === "COOKING") {
+    return 1;
+  }
+  return action.count;
+}
+
+function getItemStageActions(item: EditableItem): StageAction[] {
+  if (!canMoveItemStages(item)) {
+    return [];
+  }
+
+  const stages = getItemStageCounts(item);
+  const quantity = Math.max(0, Number(item.quantity || 0));
+  const actions: StageAction[] = [];
+
+  if (stages.cancelled === quantity && quantity > 0) {
+    actions.push({
+      key: "CANCELLED->WAITING",
+      label: "Phục hồi",
+      hint: `Khôi phục ${quantity} món về hàng chờ`,
+      fromStage: "CANCELLED",
+      toStage: "WAITING",
+      count: quantity,
+      toneClass: "is-ready",
+    });
+    return actions;
+  }
+
+  if (stages.waiting > 0) {
+    actions.push({
+      key: "WAITING->COOKING",
+      label: "Bắt đầu làm",
+      hint: `${stages.waiting} món đang chờ`,
+      fromStage: "WAITING",
+      toStage: "COOKING",
+      count: stages.waiting,
+      toneClass: "is-waiting",
+    });
+  }
+
+  if (stages.cooking > 0) {
+    actions.push({
+      key: "COOKING->READY",
+      label: "Lên món",
+      hint: `${stages.cooking} món đang làm`,
+      fromStage: "COOKING",
+      toStage: "READY",
+      count: stages.cooking,
+      toneClass: "is-cooking",
+    });
+    actions.push({
+      key: "COOKING->WAITING",
+      label: "Trả chờ",
+      hint: `Đưa ${stages.cooking} món về hàng chờ`,
+      fromStage: "COOKING",
+      toStage: "WAITING",
+      count: stages.cooking,
+      toneClass: "is-muted",
+    });
+  }
+
+  if (stages.ready > 0) {
+    actions.push({
+      key: "READY->COOKING",
+      label: "Trả bếp",
+      hint: `Đưa ${stages.ready} món về bếp`,
+      fromStage: "READY",
+      toStage: "COOKING",
+      count: stages.ready,
+      toneClass: "is-muted",
+    });
+  }
+
+  return actions;
+}
+
+function openStagePicker(item: EditableItem, action: StageAction) {
+  if (!item.id || props.busy) {
+    return;
+  }
+
+  if (action.count <= 1) {
+    emit("moveItemStage", {
+      itemId: item.id,
+      action: "MOVE_STAGE",
+      fromStage: action.fromStage,
+      toStage: action.toStage,
+      quantity: 1,
+    });
+    return;
+  }
+
+  stagePicker.visible = true;
+  stagePicker.itemId = item.id;
+  stagePicker.fromStage = action.fromStage;
+  stagePicker.toStage = action.toStage;
+  stagePicker.max = action.count;
+  stagePicker.quantity = Math.min(action.count, Math.max(1, getSuggestedMoveQuantity(action)));
+  stagePicker.label = action.label;
+  stagePicker.hint = action.hint;
+}
+
+function closeStagePicker() {
+  stagePicker.visible = false;
+  stagePicker.itemId = null;
+  stagePicker.fromStage = "WAITING";
+  stagePicker.toStage = "COOKING";
+  stagePicker.quantity = 1;
+  stagePicker.max = 1;
+  stagePicker.label = "";
+  stagePicker.hint = "";
+}
+
+function nudgeStagePicker(delta: number) {
+  if (!stagePicker.visible) {
+    return;
+  }
+  const nextQuantity = stagePicker.quantity + delta;
+  stagePicker.quantity = Math.min(stagePicker.max, Math.max(1, nextQuantity));
+}
+
+function setStagePickerQuantity(value: number) {
+  stagePicker.quantity = Math.min(stagePicker.max, Math.max(1, value));
+}
+
+function confirmStagePicker() {
+  if (!stagePicker.visible || !stagePicker.itemId) {
+    return;
+  }
+
+  emit("moveItemStage", {
+    itemId: stagePicker.itemId,
+    action: "MOVE_STAGE",
+    fromStage: stagePicker.fromStage,
+    toStage: stagePicker.toStage,
+    quantity: stagePicker.quantity,
+  });
+  closeStagePicker();
+}
+
+function isPendingItemAction(itemId?: number | null, actionKey?: string | null) {
   return (
     typeof itemId === "number" &&
     itemId > 0 &&
     props.pendingItemStatusId === itemId &&
-    props.pendingItemStatusValue === String(nextStatus || "")
+    props.pendingItemStatusValue === String(actionKey || "")
   );
 }
 
@@ -578,7 +907,18 @@ function changeQty(index: number, delta: number) {
     removeDialog.index = index;
     removeDialog.itemName = item.itemNameSnapshot;
   } else {
-    draft.value![index] = { ...item, quantity: next, lineTotal: next * item.unitPrice };
+    draft.value![index] = {
+      ...item,
+      quantity: next,
+      activeQuantity: next,
+      waitingQuantity: next,
+      cookingQuantity: 0,
+      readyQuantity: 0,
+      cancelledQuantity: 0,
+      lineTotal: next * item.unitPrice,
+      activeLineTotal: next * item.unitPrice,
+      status: "WAITING",
+    };
   }
 }
 
@@ -600,7 +940,19 @@ function addItem() {
   const existing = draft.value!.findIndex((i) => i.dailyMenuItemId === opt.id);
   if (existing >= 0) {
     const cur = draft.value![existing];
-    draft.value![existing] = { ...cur, quantity: cur.quantity + 1, lineTotal: (cur.quantity + 1) * cur.unitPrice };
+    const nextQuantity = cur.quantity + 1;
+    draft.value![existing] = {
+      ...cur,
+      quantity: nextQuantity,
+      activeQuantity: nextQuantity,
+      waitingQuantity: nextQuantity,
+      cookingQuantity: 0,
+      readyQuantity: 0,
+      cancelledQuantity: 0,
+      status: "WAITING",
+      lineTotal: nextQuantity * cur.unitPrice,
+      activeLineTotal: nextQuantity * cur.unitPrice,
+    };
     flashItem(cur.key);
   } else {
     const newKey = `new-${opt.id}`;
@@ -612,8 +964,14 @@ function addItem() {
       itemNameSnapshot: opt.menuItem.name,
       unitPrice: Number(opt.sellingPrice || 0),
       quantity: 1,
+      activeQuantity: 1,
+      waitingQuantity: 1,
+      cookingQuantity: 0,
+      readyQuantity: 0,
+      cancelledQuantity: 0,
       status: "WAITING",
       lineTotal: Number(opt.sellingPrice || 0),
+      activeLineTotal: Number(opt.sellingPrice || 0),
     });
     flashItem(newKey);
   }
@@ -1036,65 +1394,165 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 .order-item-meta   { color: var(--muted); font-size: 0.84rem; }
 
 .order-item-statuses {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: grid;
+  gap: 8px;
   margin-top: 4px;
 }
 
-.order-item-restore-btn {
+.order-item-stage-summary,
+.order-item-stage-actions,
+.order-item-stage-picker-quick,
+.order-item-stage-picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.order-item-stage-chip,
+.order-item-stage-action,
+.order-item-stage-picker-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   min-height: 28px;
   padding: 0 10px;
-  border: 1px solid rgba(66, 133, 104, 0.22);
   border-radius: 999px;
-  background: rgba(66, 133, 104, 0.1);
-  color: var(--green);
   font-size: 0.76rem;
   font-weight: 700;
-  transition: background 0.18s, border-color 0.18s, color 0.18s;
+  border: 1px solid transparent;
 }
 
-.order-item-restore-btn:hover,
-.order-item-restore-btn:focus-visible {
-  background: rgba(66, 133, 104, 0.16);
-  border-color: rgba(66, 133, 104, 0.32);
+.order-item-stage-chip {
+  background: rgba(var(--text-rgb), 0.06);
+  color: var(--muted);
+}
+
+.order-item-stage-chip strong,
+.order-item-action-count {
+  min-width: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.order-item-stage-action {
+  position: relative;
+  transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.18s;
+}
+
+.order-item-stage-action:hover,
+.order-item-stage-action:focus-visible,
+.order-item-stage-picker-chip:hover,
+.order-item-stage-picker-chip:focus-visible,
+.order-item-picker-btn:hover,
+.order-item-picker-btn:focus-visible {
+  transform: translateY(-1px);
   outline: none;
 }
 
-.order-item-restore-btn:disabled {
-  cursor: default;
+.order-item-stage-action:disabled {
   opacity: 1;
+  cursor: default;
 }
 
-.order-item-status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid transparent;
+.order-item-stage-action.is-pending .order-item-action-label,
+.order-item-stage-action.is-pending .order-item-action-count {
+  opacity: 0.28;
+}
+
+.order-item-stage-action.is-waiting,
+.order-item-stage-chip.is-waiting {
+  background: rgba(203, 165, 81, 0.12);
+  border-color: rgba(203, 165, 81, 0.2);
+  color: #8b6517;
+}
+
+.order-item-stage-action.is-cooking,
+.order-item-stage-chip.is-cooking {
+  background: rgba(201, 126, 71, 0.13);
+  border-color: rgba(201, 126, 71, 0.2);
+  color: #8a451f;
+}
+
+.order-item-stage-action.is-ready,
+.order-item-stage-chip.is-ready {
+  background: rgba(66, 133, 104, 0.14);
+  border-color: rgba(66, 133, 104, 0.2);
+  color: var(--green);
+}
+
+.order-item-stage-action.is-cancelled,
+.order-item-stage-chip.is-cancelled {
+  background: rgba(148, 88, 88, 0.14);
+  border-color: rgba(148, 88, 88, 0.2);
+  color: #8f2f15;
+}
+
+.order-item-stage-action.is-muted {
   background: rgba(var(--text-rgb), 0.06);
+  border-color: rgba(var(--text-rgb), 0.12);
+  color: var(--muted);
+}
+
+.order-item-stage-picker {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--line-rgb), 0.8);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.order-item-stage-picker-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.order-item-stage-picker-copy strong {
+  font-size: 0.82rem;
+}
+
+.order-item-stage-picker-copy span {
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.order-item-stage-picker-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.order-item-picker-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(var(--text-rgb), 0.12);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+}
+
+.order-item-picker-value {
+  min-width: 32px;
+  text-align: center;
+  font-size: 0.9rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
-.order-item-restore-btn,
-.order-item-status {
-  position: relative;
+.order-item-stage-picker-chip {
+  background: rgba(var(--text-rgb), 0.05);
+  color: var(--text);
 }
 
-.order-item-action-label {
+.order-item-stage-picker-actions .btn {
+  min-height: 32px;
+}
+
+.order-item-action-label,
+.order-item-action-count {
   transition: opacity 0.18s ease;
-}
-
-.order-item-restore-btn.is-pending .order-item-action-label,
-.order-item-status.is-pending .order-item-action-label {
-  opacity: 0.28;
 }
 
 .order-item-action-spinner {
@@ -1112,46 +1570,8 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   pointer-events: none;
 }
 
-.order-item-status.is-waiting  { background: rgba(203, 165, 81, 0.12); color: #8b6517; }
-.order-item-status.is-cooking  { background: rgba(201, 126, 71, 0.13); color: #8a451f; }
-.order-item-status.is-ready    { background: rgba(66, 133, 104, 0.14); color: var(--green); }
-.order-item-status.is-cancelled{ background: rgba(148, 88, 88, 0.14); color: #8f2f15; }
-.order-item-status.is-active {
-  border-color: currentColor;
-  position: relative;
-  overflow: hidden;
-}
-
-.order-item-status.is-active::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 80%;
-  height: 100%;
-  background: linear-gradient(
-    to right,
-    transparent,
-    rgba(255, 255, 255, 0.55),
-    transparent
-  );
-  will-change: transform;
-  animation: glass-shine 1.2s linear infinite;
-  pointer-events: none;
-}
-
-.order-item-status:disabled {
-  opacity: 1;
-  cursor: default;
-}
-
 @keyframes order-item-spin {
   to { transform: rotate(360deg); }
-}
-
-@keyframes glass-shine {
-  from { transform: skewX(-18deg) translateX(-150%); }
-  to   { transform: skewX(-18deg) translateX(280%); }
 }
 
 .order-item-total {

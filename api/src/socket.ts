@@ -22,6 +22,7 @@ export type OrderChangedPayload = {
   changedFields?: OrderChangeField[];
   itemId?: number;
   itemName?: string;
+  quantity?: number;
   orderCancelled?: boolean;
   occurredAt: string;
 };
