@@ -61,6 +61,39 @@ function buildMenuCode(serviceDate: string): string {
   return `MENU-${serviceDate}`;
 }
 
+function getLocalDateInputValue(base = new Date()) {
+  const local = new Date(base.getTime() - base.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
+function parseDateOnly(value: string, fieldName = "Ngay") {
+  const normalized = String(value || "").trim();
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    throw new Error(`${fieldName} khong hop le`);
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
+
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    throw new Error(`${fieldName} khong hop le`);
+  }
+
+  return parsed;
+}
+
+function getRemainingQuantity(pool: { quantity: number | Prisma.Decimal; soldQuantity: number | Prisma.Decimal }) {
+  return Math.max(Number(pool.quantity) - Number(pool.soldQuantity), 0);
+}
+
 function buildDailyMenuInclude(publicOnly = false) {
   return {
     stockPools: {
@@ -104,6 +137,38 @@ async function getDailyMenuDetail(id: number, publicOnly = false) {
     where: { id },
     include: buildDailyMenuInclude(publicOnly),
   });
+}
+
+async function getStockBaselineForDate(date: string) {
+  const targetCode = buildMenuCode(date);
+  const previousMenu = await prisma.dailyMenu.findFirst({
+    where: {
+      code: { lt: targetCode },
+    },
+    include: {
+      stockPools: {
+        include: {
+          ingredient: true,
+        },
+        orderBy: { id: "asc" },
+      },
+    },
+    orderBy: [{ code: "desc" }, { createdAt: "desc" }],
+  });
+
+  if (!previousMenu) {
+    return [];
+  }
+
+  return previousMenu.stockPools.map((pool) => ({
+    ingredientId: pool.ingredientId,
+    label: pool.label ?? pool.ingredient?.name ?? null,
+    quantity: getRemainingQuantity(pool),
+    isAvailable: Boolean(pool.isAvailable),
+    note: pool.note ?? null,
+    sourceMenuId: previousMenu.id,
+    sourceServiceDate: previousMenu.serviceDate,
+  }));
 }
 
 function normalizeStockPools(inputs: DailyMenuStockPoolInput[]) {
@@ -384,10 +449,10 @@ async function syncDailyMenuResources(
 export class DailyMenusController extends Controller {
   @Get("public/today")
   public async getPublicToday(@Query() date?: string) {
-    const targetDate = date || new Date().toISOString().slice(0, 10);
+    const targetDate = date || getLocalDateInputValue();
     const menu = await prisma.dailyMenu.findFirst({
       where: {
-        serviceDate: new Date(targetDate),
+        code: buildMenuCode(targetDate),
         status: DailyMenuStatus.PUBLISHED,
       },
       include: buildDailyMenuInclude(true),
@@ -409,7 +474,7 @@ export class DailyMenusController extends Controller {
       where.status = status;
     }
     if (date) {
-      where.serviceDate = new Date(date);
+      where.code = buildMenuCode(date);
     }
 
     const menus = await prisma.dailyMenu.findMany({
@@ -418,6 +483,13 @@ export class DailyMenusController extends Controller {
       orderBy: [{ serviceDate: "desc" }, { createdAt: "desc" }],
     });
     return menus.map(serializeDailyMenu);
+  }
+
+  @Get("stock-baseline")
+  @Security("bearerAuth", ["ADMIN", "STAFF"])
+  public async getStockBaseline(@Query() date?: string) {
+    const targetDate = date || getLocalDateInputValue();
+    return getStockBaselineForDate(targetDate);
   }
 
   @Get("{id}")
@@ -435,6 +507,7 @@ export class DailyMenusController extends Controller {
   ) {
     const authUser = (req as any).user;
     const code = body.code || buildMenuCode(body.serviceDate);
+    const serviceDate = parseDateOnly(body.serviceDate, "Ngay menu");
 
     const created = await prisma.$transaction(async (tx) => {
       const menu = await tx.dailyMenu.upsert({
@@ -442,7 +515,7 @@ export class DailyMenusController extends Controller {
         create: {
           code,
           title: body.title,
-          serviceDate: new Date(body.serviceDate),
+          serviceDate,
           status: body.status ?? DailyMenuStatus.DRAFT,
           note: body.note,
           bannerText: body.bannerText,
@@ -450,7 +523,7 @@ export class DailyMenusController extends Controller {
         },
         update: {
           title: body.title,
-          serviceDate: new Date(body.serviceDate),
+          serviceDate,
           note: body.note,
           bannerText: body.bannerText,
         },
@@ -469,13 +542,14 @@ export class DailyMenusController extends Controller {
   @Put("{id}")
   @Security("bearerAuth", ["ADMIN"])
   public async updateDailyMenu(@Path() id: number, @Body() body: DailyMenuBody) {
+    const serviceDate = parseDateOnly(body.serviceDate, "Ngay menu");
     await prisma.$transaction(async (tx) => {
       await tx.dailyMenu.update({
         where: { id },
         data: {
           code: body.code || buildMenuCode(body.serviceDate),
           title: body.title,
-          serviceDate: new Date(body.serviceDate),
+          serviceDate,
           status: body.status ?? DailyMenuStatus.DRAFT,
           note: body.note,
           bannerText: body.bannerText,

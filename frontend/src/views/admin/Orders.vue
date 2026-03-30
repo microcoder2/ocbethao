@@ -33,13 +33,16 @@
                 >Đã xem</button>
               </div>
               <ul v-if="unreadOrders.length" class="orders-bell-list">
-                <li v-for="o in unreadOrders" :key="o.id" class="orders-bell-item">
+                <li v-for="o in unreadOrders" :key="o.key" class="orders-bell-item">
                   <div class="orders-bell-item-row">
                     <span class="orders-bell-item-name">{{ o.customer?.fullName || o.guestName || "Khách lẻ" }}</span>
-                    <span class="orders-bell-item-time">{{ formatHM(o.createdAt) }}</span>
+                    <span class="orders-bell-item-name orders-bell-item-name--notify">{{ o.customerName }}</span>
+                    <span class="orders-bell-item-time">{{ formatHM(o.occurredAt) }}</span>
                   </div>
+                  <div class="orders-bell-item-note">{{ o.title }}</div>
                   <div class="orders-bell-item-meta">
-                    <span v-if="o.guestPhone || o.customer?.phone">{{ o.guestPhone || o.customer?.phone }}</span>
+                    <span>{{ o.detail }}</span>
+                    <span v-if="o.phone">{{ o.phone }}</span>
                     <span>{{ o.items?.length ?? "?" }} món</span>
                     <span class="orders-bell-item-total">{{ formatMoney(o.totalAmount) }}</span>
                   </div>
@@ -424,11 +427,13 @@ type OrderItem = {
 type OrderRecord = {
   id: number;
   orderNumber: string;
+  source?: string;
   status: string;
   paymentStatus: string;
   paymentMethod?: string | null;
   totalAmount: number;
   tableLabel?: string | null;
+  guestCount?: number | null;
   guestName?: string | null;
   guestPhone?: string | null;
   createdAt: string;
@@ -446,6 +451,30 @@ type OrderRecord = {
     phone?: string | null;
   } | null;
   items?: OrderItem[];
+};
+
+type OrderChangeEvent = {
+  type: "CUSTOMER_UPDATED" | "CUSTOMER_CANCELLED";
+  order: OrderRecord;
+  changedFields?: Array<"items" | "arrivalAt">;
+  occurredAt: string;
+};
+
+type OrderNotification = {
+  key: string;
+  orderId: number;
+  customerName: string;
+  phone: string;
+  itemCount: number;
+  totalAmount: number;
+  title: string;
+  detail: string;
+  occurredAt: string;
+  guestName?: string | null;
+  customer?: {
+    fullName?: string | null;
+  } | null;
+  items?: Array<unknown>;
 };
 
 type DailyMenuOption = {
@@ -519,6 +548,61 @@ function getOrderDateValue(value?: string | null) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function getCustomerName(order: OrderRecord) {
+  return order.customer?.fullName || order.guestName || "Khách lẻ";
+}
+
+function getCustomerPhone(order: OrderRecord) {
+  return order.guestPhone || order.customer?.phone || "";
+}
+
+function buildOrderNotification(order: OrderRecord, title: string, detail: string, occurredAt: string) {
+  return {
+    key: `${order.id}-${occurredAt}-${title}`,
+    orderId: order.id,
+    customerName: getCustomerName(order),
+    phone: getCustomerPhone(order),
+    itemCount: order.items?.length ?? 0,
+    totalAmount: Number(order.totalAmount || 0),
+    title,
+    detail,
+    occurredAt,
+    guestName: order.guestName || null,
+    customer: order.customer || null,
+    items: Array.from({ length: order.items?.length ?? 0 }),
+  };
+}
+
+function buildNotificationFromNewOrder(order: OrderRecord) {
+  const detail = order.arrivalAt
+    ? `Đơn mới, giờ hẹn ${formatHM(order.arrivalAt)}`
+    : "Đơn mới từ khách";
+  return buildOrderNotification(order, "Khách vừa tạo đơn", detail, order.createdAt);
+}
+
+function buildNotificationFromOrderChange(event: OrderChangeEvent) {
+  if (event.type === "CUSTOMER_CANCELLED") {
+    return buildOrderNotification(
+      event.order,
+      "Khách vừa hủy đơn",
+      "Đơn đã được khách hủy",
+      event.occurredAt
+    );
+  }
+
+  const fields = new Set(event.changedFields || []);
+  let detail = "Khách vừa cập nhật đơn";
+  if (fields.has("items") && fields.has("arrivalAt")) {
+    detail = "Khách đổi món và sửa giờ hẹn";
+  } else if (fields.has("items")) {
+    detail = "Khách vừa thay đổi món trong đơn";
+  } else if (fields.has("arrivalAt")) {
+    detail = `Khách đổi giờ hẹn sang ${event.order.arrivalAt ? formatHM(event.order.arrivalAt) : "chưa xác định"}`;
+  }
+
+  return buildOrderNotification(event.order, "Khách vừa cập nhật đơn", detail, event.occurredAt);
+}
+
 const orders = ref<OrderRecord[]>([]);
 const dailyMenus = ref<DailyMenuRecord[]>([]);
 const advancedFiltersOpen = ref(false);
@@ -535,7 +619,7 @@ function scrollSchedule(dir: -1 | 1) {
   scheduleStripRef.value?.scrollBy({ left: dir * 180, behavior: "smooth" });
 }
 const bellOpen = ref(false);
-const unreadOrders = ref<OrderRecord[]>([]);
+const unreadOrders = ref<OrderNotification[]>([]);
 
 function toggleBellPanel() {
   bellOpen.value = !bellOpen.value;
@@ -930,16 +1014,26 @@ function orderMatchesCurrentFilter(order: OrderRecord): boolean {
   return true;
 }
 
-function handleNewOrder(order: OrderRecord) {
-  // Always add to unread bell list
-  if (!unreadOrders.value.some((o) => o.id === order.id)) {
-    unreadOrders.value = [order, ...unreadOrders.value];
-    playNewOrderSound();
+function pushUnreadOrder(notification: OrderNotification) {
+  if (unreadOrders.value.some((entry) => entry.key === notification.key)) {
+    return;
   }
-  // Prepend to visible list only if matches current filter
+  unreadOrders.value = [notification, ...unreadOrders.value].slice(0, 50);
+  playNewOrderSound();
+}
+
+function handleNewOrder(order: OrderRecord) {
+  if (order.source !== "CUSTOMER_APP") return;
+  pushUnreadOrder(buildNotificationFromNewOrder(order));
   if (!orderMatchesCurrentFilter(order)) return;
   if (orders.value.some((o) => o.id === order.id)) return;
   orders.value = [order, ...orders.value];
+}
+
+function handleOrderChanged(event: OrderChangeEvent) {
+  if (event.order.source !== "CUSTOMER_APP") return;
+  pushUnreadOrder(buildNotificationFromOrderChange(event));
+  void loadOrders();
 }
 
 function sortOrdersByQueue(a: OrderRecord, b: OrderRecord) {
@@ -1084,6 +1178,7 @@ onMounted(() => {
   void loadOrders();
   socket.on("stock:update", handleStockUpdate);
   socket.on("order:new", handleNewOrder);
+  socket.on("order:changed", handleOrderChanged);
   document.addEventListener("click", closeBellOnOutsideClick);
 });
 
@@ -1091,6 +1186,7 @@ onBeforeUnmount(() => {
   clearSearchDebounce();
   socket.off("stock:update", handleStockUpdate);
   socket.off("order:new", handleNewOrder);
+  socket.off("order:changed", handleOrderChanged);
   document.removeEventListener("click", closeBellOnOutsideClick);
 });
 </script>
@@ -1292,10 +1388,26 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.orders-bell-item-name--notify {
+  flex: 1 1 auto;
+}
+
+.orders-bell-item-row > .orders-bell-item-name:not(.orders-bell-item-name--notify) {
+  display: none;
+}
+
 .orders-bell-item-time {
   font-size: 0.8rem;
   color: var(--muted);
   flex-shrink: 0;
+}
+
+.orders-bell-item-note {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ember-strong);
 }
 
 .orders-bell-item-meta {

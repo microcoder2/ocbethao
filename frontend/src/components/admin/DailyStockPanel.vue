@@ -88,28 +88,59 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, reactive } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, reactive, watch } from "vue";
 import { api } from "../../api";
+import { socket } from "../../socket";
 import CropDialog from "./CropDialog.vue";
 import StockIngredientCard from "./StockIngredientCard.vue";
 
 // ── types ──────────────────────────────────────────────────────────────────
 
 type Ingredient = { id: number; name: string; slug: string; unit: string; imageUrl: string | null };
-type StockPool  = { id: number; quantity: number; isAvailable: boolean; ingredient: Ingredient | null };
+type StockPool  = {
+  id: number;
+  quantity: number;
+  soldQuantity?: number;
+  remainingQuantity?: number;
+  isAvailable: boolean;
+  label?: string | null;
+  note?: string | null;
+  ingredient: Ingredient | null;
+};
 type DailyMenu  = { id: number; stockPools: StockPool[] };
-type Draft      = { active: boolean; quantity: string };
+type StockBaseline = {
+  ingredientId: number;
+  label?: string | null;
+  quantity: number;
+  isAvailable: boolean;
+  note?: string | null;
+  sourceServiceDate?: string | null;
+};
+type Draft      = {
+  active: boolean;
+  quantity: string;
+  poolId: number | null;
+  soldQuantity: number;
+  label: string;
+  note: string;
+  saving: boolean;
+};
 
 export type PoolSummary = {
-  id: number;
+  id: number | null;
   ingredientId: number;
   label: string;
   quantity: number;
+  soldQuantity: number;
   isAvailable: boolean;
   note: string;
 };
 
 // ── emits ──────────────────────────────────────────────────────────────────
+
+const props = withDefaults(defineProps<{ serviceDate?: string }>(), {
+  serviceDate: "",
+});
 
 const emit = defineEmits<{
   updated: [pools: PoolSummary[]];
@@ -136,10 +167,13 @@ function toSlug(name: string): string {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-function todayDate() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function getLocalDateValue(base = new Date()) {
+  const local = new Date(base.getTime() - base.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
 }
+
+const targetDate = computed(() => props.serviceDate || getLocalDateValue());
+const isLiveDate = computed(() => targetDate.value === getLocalDateValue());
 
 // ── state ──────────────────────────────────────────────────────────────────
 
@@ -193,24 +227,64 @@ const sortedIngredients = computed(() => {
 
 // ── data loading ───────────────────────────────────────────────────────────
 
+let loadSeq = 0;
+
 async function loadData() {
+  const requestId = ++loadSeq;
   loading.value = true;
   errorMessage.value = "";
   try {
-    const [ingRes, menuRes] = await Promise.all([
+    const [ingRes, menuRes, baselineRes] = await Promise.all([
       api.get("/ingredients?activeOnly=true"),
-      api.get(`/daily-menus?date=${todayDate()}`),
+      api.get("/daily-menus", {
+        params: { date: targetDate.value },
+      }),
+      api.get("/daily-menus/stock-baseline", {
+        params: { date: targetDate.value },
+      }),
     ]);
+    if (requestId !== loadSeq) return;
     ingredients.value = ingRes.data as Ingredient[];
     const menus = menuRes.data as DailyMenu[];
-    const todayMenu = menus.length > 0 ? menus[0] : null;
+    const baseline = baselineRes.data as StockBaseline[];
+    const currentMenu = menus.length > 0 ? menus[0] : null;
+    const baselineMap = new Map(baseline.map((pool) => [pool.ingredientId, pool]));
+    const shouldRecoverUnavailablePools = Boolean(currentMenu?.stockPools.length) &&
+      currentMenu!.stockPools.every((pool) => !pool.isAvailable) &&
+      currentMenu!.stockPools.some((pool) =>
+        Math.max(
+          Number(
+            pool.remainingQuantity ??
+              Number(pool.quantity || 0) - Number(pool.soldQuantity || 0)
+          ),
+          0
+        ) > 0
+      );
 
     const init: Record<number, Draft> = {};
     for (const ing of ingredients.value) {
-      const pool = todayMenu?.stockPools.find(p => p.ingredient?.id === ing.id);
+      const pool = currentMenu?.stockPools.find((entry) => entry.ingredient?.id === ing.id);
+      const fallback = !pool ? baselineMap.get(ing.id) : null;
+      const remainingQuantity = pool
+        ? Math.max(
+            Number(
+              pool.remainingQuantity ??
+                Number(pool.quantity || 0) - Number(pool.soldQuantity || 0)
+            ),
+            0
+          )
+        : Math.max(Number(fallback?.quantity || 0), 0);
+
       init[ing.id] = {
-        active: pool?.isAvailable ?? false,
-        quantity: pool ? String(pool.quantity) : "1",
+        active: pool
+          ? Boolean(pool.isAvailable || (shouldRecoverUnavailablePools && remainingQuantity > 0))
+          : Boolean(fallback?.isAvailable && remainingQuantity > 0),
+        quantity: String(remainingQuantity),
+        poolId: pool?.id ?? null,
+        soldQuantity: Number(pool?.soldQuantity || 0),
+        label: String(pool?.label || fallback?.label || ing.name),
+        note: String(pool?.note || fallback?.note || ing.unit || ""),
+        saving: false,
       };
     }
     drafts.value = init;
@@ -218,14 +292,31 @@ async function loadData() {
   } catch (e) {
     errorMessage.value = getErrorMessage(e, "Không tải được dữ liệu.");
   } finally {
-    loading.value = false;
+    if (requestId === loadSeq) {
+      loading.value = false;
+    }
   }
 }
 
-onMounted(loadData);
+function handleStockUpdate() {
+  if (!isLiveDate.value) return;
+  void loadData();
+}
+
+watch(targetDate, () => {
+  void loadData();
+}, { immediate: true });
+
+onMounted(() => {
+  socket.on("stock:update", handleStockUpdate);
+});
+
+onBeforeUnmount(() => {
+  socket.off("stock:update", handleStockUpdate);
+});
 
 function toggleImg() { showImg.value = !showImg.value; }
-defineExpose({ showImg, allActive, toggleAll, toggleImg });
+defineExpose({ showImg, allActive, toggleAll, toggleImg, reload: loadData });
 
 // ── ingredient list ────────────────────────────────────────────────────────
 
@@ -233,12 +324,13 @@ defineExpose({ showImg, allActive, toggleAll, toggleImg });
 
 function emitUpdated() {
   const pools: PoolSummary[] = ingredients.value.map(ing => ({
-    id: 0,
+    id: drafts.value[ing.id]?.poolId ?? null,
     ingredientId: ing.id,
-    label: ing.name,
-    quantity: Number(drafts.value[ing.id]?.quantity) || 1,
+    label: drafts.value[ing.id]?.label || ing.name,
+    quantity: Math.max(Number(drafts.value[ing.id]?.quantity) || 0, 0),
+    soldQuantity: Math.max(Number(drafts.value[ing.id]?.soldQuantity) || 0, 0),
     isAvailable: drafts.value[ing.id]?.active ?? false,
-    note: ing.unit || "",
+    note: drafts.value[ing.id]?.note || ing.unit || "",
   }));
   emit("updated", pools);
 }
@@ -330,6 +422,7 @@ async function deleteIngredient(ing: Ingredient) {
     await api.delete(`/ingredients/${ing.id}`);
     ingredients.value = ingredients.value.filter(i => i.id !== ing.id);
     delete drafts.value[ing.id];
+    emitUpdated();
   } catch (e) {
     errorMessage.value = getErrorMessage(e, "Không xóa được nguyên liệu.");
   }
@@ -366,7 +459,15 @@ async function createIngredient() {
     const { data } = await api.post("/ingredients", body);
     const created = data as Ingredient;
     ingredients.value = [...ingredients.value, created];
-    drafts.value[created.id] = { active: true, quantity: "1" };
+    drafts.value[created.id] = {
+      active: true,
+      quantity: "1",
+      poolId: null,
+      soldQuantity: 0,
+      label: created.name,
+      note: created.unit || "",
+      saving: false,
+    };
     closeNewForm();
     emitUpdated();
   } catch (e) {

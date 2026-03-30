@@ -43,7 +43,7 @@
 
     <!-- Status line -->
     <div class="order-status-line">
-      <span class="order-arrival-chip">{{ order.arrivalAt ? `Giờ hẹn ${queueTime}` : 'Chưa xác định' }}</span>
+      <span class="order-arrival-chip"><i class="bi bi-clock"></i> {{ order.arrivalAt ? queueTime : 'Chưa xác định' }}</span>
       <span v-if="showPaymentMethod && order.paymentMethod" class="order-pill is-muted">{{ paymentMethodLabel }}</span>
       <span class="order-item-count-chip">{{ editableItems.length }} món</span>
       <span :class="['order-pill', simpleStatusClass]">{{ statusLabel }}</span>
@@ -56,7 +56,7 @@
     <div v-show="!collapsed" class="order-collapsible">
 
     <!-- Progress -->
-    <div v-if="order.itemProgress?.total" class="order-progress">
+    <div v-if="order.itemProgress?.total && simplifyStatus(order.status) === 'CONFIRMED'" class="order-progress">
       <div class="order-progress-head">
         <strong>{{ progressText }}</strong>
       </div>
@@ -86,10 +86,10 @@
           <div class="order-item-copy">
             <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
             <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
-            <div class="order-item-statuses">
+            <div v-if="simplifyStatus(order.status) === 'CONFIRMED'" class="order-item-statuses">
               <template v-if="canUpdateItemStatus(item)">
                 <button
-                  v-for="s in itemStatusActions"
+                  v-for="s in itemStatusActions.filter(s => !(s.value === 'READY' && simplifyStatus(order.status) === 'COMPLETED'))"
                   :key="s.value"
                   type="button"
                   :class="['order-item-status', itemStatusClass(s.value), { 'is-active': item.status === s.value }]"
@@ -821,6 +821,8 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   line-height: 1;
   overflow: hidden;
 }
+
+.order-arrival-chip i { margin-right: 4px; }
 
 .order-arrival-chip {
   position: relative;

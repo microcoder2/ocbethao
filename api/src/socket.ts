@@ -4,9 +4,22 @@ import { prisma } from "./utils/prisma";
 
 let io: SocketIOServer | null = null;
 
+export type OrderChangeField = "items" | "arrivalAt";
+export type OrderChangeType = "CUSTOMER_UPDATED" | "CUSTOMER_CANCELLED";
+
+export type OrderChangedPayload = {
+  type: OrderChangeType;
+  order: unknown;
+  changedFields?: OrderChangeField[];
+  occurredAt: string;
+};
+
 export function initSocket(
   httpServer: HttpServer,
-  corsOriginFn: (origin: string, cb: (err: Error | null, allow?: boolean) => void) => void
+  corsOriginFn: (
+    origin: string | undefined,
+    cb: (err: Error | null, allow?: boolean) => void
+  ) => void
 ): SocketIOServer {
   io = new SocketIOServer(httpServer, {
     path: "/socket.io",
@@ -15,6 +28,19 @@ export function initSocket(
       credentials: true,
     },
   });
+
+  io.on('connection', (socket) => {
+    console.log('a user connected');
+
+    socket.on('disconnect', () => {
+      console.log('user disconnected');
+    });
+
+    socket.on('chat:send_message', (msg) => {
+      socket.broadcast.emit('chat:receive_message', msg);
+    });
+  });
+
   return io;
 }
 
@@ -28,6 +54,11 @@ export function getIo(): SocketIOServer | null {
 export function broadcastNewOrder(order: unknown): void {
   if (!io) return;
   io.emit("order:new", order);
+}
+
+export function broadcastOrderChanged(payload: OrderChangedPayload): void {
+  if (!io) return;
+  io.emit("order:changed", payload);
 }
 
 /**

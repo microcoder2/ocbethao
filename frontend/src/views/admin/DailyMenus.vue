@@ -42,7 +42,7 @@
           </span>
           <span v-if="enabledDraftCount > 0" class="dm-meta-count">{{ enabledDraftCount }} món bật</span>
         </div>
-        <DailyStockPanel ref="panelRef" @updated="onStockUpdated" />
+        <DailyStockPanel ref="panelRef" :service-date="form.serviceDate" @updated="onStockUpdated" />
       </div>
     </div>
 
@@ -201,7 +201,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { api } from "../../api";
 import { formatMoneyShort } from "../../utils/format";
 import { API_BASE_URL } from "../../config";
@@ -314,7 +314,12 @@ const form = reactive<{
 
 // ── computed ───────────────────────────────────────────────────────────────
 const selectedIngredientIds = computed(() =>
-  new Set(stockPools.value.filter(p => p.isAvailable).map(p => Number(p.ingredientId || 0)).filter(id => id > 0))
+  new Set(
+    stockPools.value
+      .filter(p => p.isAvailable && Number(p.quantity || 0) > 0)
+      .map(p => Number(p.ingredientId || 0))
+      .filter(id => id > 0)
+  )
 );
 
 const enabledDraftCount = computed(() => draftItems.value.filter(i => i.enabled).length);
@@ -398,7 +403,9 @@ function getPoolDisplayName(pool: StockPoolDraft) {
 // ── stock panel integration ────────────────────────────────────────────────
 function applyStockSuggestions() {
   const activeIngIds = new Set(
-    stockPools.value.filter(p => p.isAvailable).map(p => p.ingredientId)
+    stockPools.value
+      .filter(p => p.isAvailable && Number(p.quantity || 0) > 0)
+      .map(p => p.ingredientId)
   );
   for (const row of draftItems.value) {
     if (row.defaultIngredientId <= 0) continue;
@@ -418,12 +425,12 @@ function applyStockSuggestions() {
 
 function onStockUpdated(pools: PoolSummary[]) {
   stockPools.value = pools.map(p => ({
-    id: null,
-    key: `ing-${p.ingredientId}`,
+    id: p.id ?? null,
+    key: p.id ? `id-${p.id}` : `ing-${p.ingredientId}`,
     ingredientId: p.ingredientId,
     label: p.label,
     quantity: p.quantity,
-    soldQuantity: 0,
+    soldQuantity: Number(p.soldQuantity || 0),
     isAvailable: p.isAvailable,
     note: p.note,
   }));
@@ -529,7 +536,7 @@ function editMenu(menu: MenuRecord) {
     id: p.id, key: makePoolKey(),
     ingredientId: p.ingredient?.id || 0,
     label: p.label || p.ingredient?.name || "",
-    quantity: Number(p.quantity || 0),
+    quantity: Number(p.remainingQuantity ?? Number(p.quantity || 0) - Number(p.soldQuantity || 0)),
     soldQuantity: Number(p.soldQuantity || 0),
     isAvailable: p.isAvailable ?? true,
     note: p.note || "",
@@ -546,6 +553,9 @@ function editMenu(menu: MenuRecord) {
     row.consumeQuantity = Number(matched.stockLinks?.[0]?.consumeQuantity || row.consumeQuantity);
     row.stockPoolRef  = matched.stockLinks?.[0]?.stockPool?.id ? `id:${matched.stockLinks[0].stockPool.id}` : "";
   }
+  void nextTick(() => {
+    (panelRef.value as (InstanceType<typeof DailyStockPanel> & { reload?: () => void | Promise<void> }) | null)?.reload?.();
+  });
 }
 
 function buildStockLinkPayload(ref: string, qty: number) {
@@ -575,7 +585,7 @@ function buildPayload() {
       id: p.id || undefined, key: p.key,
       ingredientId: p.ingredientId,
       label: p.label || undefined,
-      quantity: Number(p.quantity || 0),
+      quantity: Number(p.quantity || 0) + Number(p.soldQuantity || 0),
       isAvailable: p.isAvailable,
       note: p.note || undefined,
     })),

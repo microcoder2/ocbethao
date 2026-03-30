@@ -23,7 +23,12 @@ import {
 } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { serializeOrder } from "../utils/mappers";
-import { broadcastStockUpdate, broadcastNewOrder } from "../socket";
+import {
+  broadcastStockUpdate,
+  broadcastNewOrder,
+  broadcastOrderChanged,
+  type OrderChangeField,
+} from "../socket";
 
 class OrderItemInput {
   dailyMenuItemId?: number;
@@ -157,6 +162,37 @@ function normalizePositiveInt(value: number): number {
     throw new Error("So luong mon phai lon hon 0");
   }
   return normalized;
+}
+
+function buildOrderItemsSignature(
+  items: Array<{
+    dailyMenuItemId?: number | null;
+    menuItemId?: number | null;
+    quantity: number;
+  }>
+) {
+  return [...(items || [])]
+    .map((item) => ({
+      dailyMenuItemId:
+        typeof item.dailyMenuItemId === "number" ? item.dailyMenuItemId : null,
+      menuItemId: typeof item.menuItemId === "number" ? item.menuItemId : null,
+      quantity: normalizePositiveInt(item.quantity),
+    }))
+    .sort((a, b) => {
+      if (a.dailyMenuItemId !== b.dailyMenuItemId) {
+        return (a.dailyMenuItemId ?? 0) - (b.dailyMenuItemId ?? 0);
+      }
+      if (a.menuItemId !== b.menuItemId) {
+        return (a.menuItemId ?? 0) - (b.menuItemId ?? 0);
+      }
+      return a.quantity - b.quantity;
+    })
+    .map((item) => `${item.dailyMenuItemId ?? "none"}:${item.menuItemId ?? "none"}:${item.quantity}`)
+    .join("|");
+}
+
+function isSameDateTime(a?: Date | null, b?: Date | null) {
+  return (a?.getTime() ?? null) === (b?.getTime() ?? null);
 }
 
 function aggregateStockUsage(lines: ResolvedOrderLine[]) {
@@ -532,8 +568,14 @@ export class OrdersController extends Controller {
     });
 
     const order = await getOrderDetail(id);
+    const serialized = serializeOrder(order);
     void broadcastStockUpdate(cancelPoolIds);
-    return serializeOrder(order);
+    broadcastOrderChanged({
+      type: "CUSTOMER_CANCELLED",
+      order: serialized,
+      occurredAt: new Date().toISOString(),
+    });
+    return serialized;
   }
 
   @Put("my/{id}")
@@ -552,6 +594,7 @@ export class OrdersController extends Controller {
     const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
 
     let updatePoolIds: number[] = [];
+    let changedFields: OrderChangeField[] = [];
     await prisma.$transaction(async (tx) => {
       const current = await tx.order.findUniqueOrThrow({
         where: { id },
@@ -569,6 +612,18 @@ export class OrdersController extends Controller {
       if (current.status !== OrderStatus.PENDING) {
         throw new Error("Chi co the sua don dang cho xac nhan");
       }
+
+      const nextChangedFields = new Set<OrderChangeField>();
+      if (
+        buildOrderItemsSignature(current.items) !==
+        buildOrderItemsSignature(body.items)
+      ) {
+        nextChangedFields.add("items");
+      }
+      if (!isSameDateTime(current.arrivalAt, arrivalAt)) {
+        nextChangedFields.add("arrivalAt");
+      }
+      changedFields = Array.from(nextChangedFields);
 
       const currentUsage = getStockUsageFromOrder(
         current as Awaited<ReturnType<typeof getOrderForStockSync>>
@@ -623,8 +678,17 @@ export class OrdersController extends Controller {
     });
 
     const order = await getOrderDetail(id);
+    const serialized = serializeOrder(order);
     void broadcastStockUpdate(updatePoolIds);
-    return serializeOrder(order);
+    if (changedFields.length) {
+      broadcastOrderChanged({
+        type: "CUSTOMER_UPDATED",
+        order: serialized,
+        changedFields,
+        occurredAt: new Date().toISOString(),
+      });
+    }
+    return serialized;
   }
 
   @Get("{id}")
