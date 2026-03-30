@@ -63,12 +63,24 @@
       <div class="cust-modal">
         <div class="cust-modal-title">Xác nhận hủy đơn?</div>
         <p class="cust-modal-text">Sau khi hủy, đơn hàng sẽ không thể khôi phục.</p>
-        <div class="cust-modal-actions">
-          <button class="cust-btn cust-btn-ghost" type="button" @click="closeCancelConfirm">
-            Quay lại
+        <div class="cust-modal-actions cust-modal-actions--icon">
+          <button
+            class="cust-icon-btn cust-icon-btn-ghost"
+            type="button"
+            aria-label="Không hủy đơn"
+            title="Không hủy đơn"
+            @click="closeCancelConfirm"
+          >
+            <i class="bi bi-x-lg"></i>
           </button>
-          <button class="cust-btn cust-btn-cancel" type="button" @click="confirmCancel">
-            Xác nhận hủy
+          <button
+            class="cust-icon-btn cust-icon-btn-confirm"
+            type="button"
+            aria-label="Xác nhận hủy đơn"
+            title="Xác nhận hủy đơn"
+            @click="confirmCancel"
+          >
+            <i class="bi bi-check-lg"></i>
           </button>
         </div>
       </div>
@@ -84,24 +96,49 @@
       <div class="cust-modal">
         <div class="cust-modal-title">Xác nhận hủy món?</div>
         <p class="cust-modal-text">
-          Món <strong>{{ cancelItemConfirm.item.itemNameSnapshot }}</strong> đang chờ sẽ bị hủy khỏi đơn.
+          <template v-if="cancelItemConfirm.reason === 'quantity-zero'">
+            Giảm <strong>{{ cancelItemConfirm.item.itemNameSnapshot }}</strong> về 0 sẽ hủy món này khỏi đơn.
+          </template>
+          <template v-else>
+            Món <strong>{{ cancelItemConfirm.item.itemNameSnapshot }}</strong> đang chờ sẽ bị hủy khỏi đơn.
+          </template>
         </p>
-        <div class="cust-modal-actions">
-          <button class="cust-btn cust-btn-ghost" type="button" @click="closeCancelItemConfirm">
-            Quay lại
+        <div class="cust-modal-actions cust-modal-actions--icon">
+          <button
+            class="cust-icon-btn cust-icon-btn-ghost"
+            type="button"
+            aria-label="Không hủy món"
+            title="Không hủy món"
+            @click="closeCancelItemConfirm"
+          >
+            <i class="bi bi-x-lg"></i>
           </button>
-          <button class="cust-btn cust-btn-cancel" type="button" @click="confirmCancelItem">
-            Xác nhận hủy món
+          <button
+            class="cust-icon-btn cust-icon-btn-confirm"
+            type="button"
+            aria-label="Xác nhận hủy món"
+            title="Xác nhận hủy món"
+            @click="confirmCancelItem"
+          >
+            <i class="bi bi-check-lg"></i>
           </button>
         </div>
       </div>
     </div>
+
+    <Transition name="cust-toast">
+      <div v-if="actionToast.visible" class="cust-toast" role="status" aria-live="polite">
+        <i class="bi bi-info-circle"></i>
+        <span>{{ actionToast.message }}</span>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { api } from "../../api";
+import { socket } from "../../socket";
 import CustomerOrderCard from "../../components/customer/CustomerOrderCard.vue";
 
 type OrderItem = {
@@ -141,6 +178,19 @@ type SavePayload = {
   quantity: number;
 };
 
+type OrderChangeEvent = {
+  type:
+    | "ADMIN_CONFIRMED_ORDER"
+    | "ADMIN_COMPLETED_ORDER"
+    | "ADMIN_CANCELLED_ORDER"
+    | "ADMIN_ITEM_COOKING"
+    | "ADMIN_ITEM_READY";
+  order: OrderRecord;
+  itemId?: number;
+  itemName?: string;
+  occurredAt: string;
+};
+
 const statusTabs = [
   { value: "", label: "Tất cả" },
   { value: "PENDING", label: "Chờ xác nhận" },
@@ -173,11 +223,18 @@ const cancelItemConfirm = reactive<{
   visible: boolean;
   order: OrderRecord | null;
   item: OrderItem | null;
+  reason: "button" | "quantity-zero";
 }>({
   visible: false,
   order: null,
   item: null,
+  reason: "button",
 });
+const actionToast = reactive({
+  visible: false,
+  message: "",
+});
+let toastTimerId: number | null = null;
 
 const filteredOrders = computed(() =>
   allOrders.value.filter((order) => {
@@ -204,7 +261,10 @@ function replaceOrder(orderId: number, payload: unknown) {
   const index = allOrders.value.findIndex((entry) => entry.id === orderId);
   if (index >= 0) {
     allOrders.value[index] = payload as OrderRecord;
+    return;
   }
+
+  allOrders.value = [payload as OrderRecord, ...allOrders.value];
 }
 
 function buildArrivalAtForOrder(order: OrderRecord, time?: string) {
@@ -245,18 +305,36 @@ function closeCancelConfirm() {
   cancelConfirm.order = null;
 }
 
-function openCancelItemConfirm(order: OrderRecord, itemId: number) {
+function showActionToast(message: string) {
+  actionToast.message = message;
+  actionToast.visible = true;
+  if (typeof toastTimerId === "number") {
+    window.clearTimeout(toastTimerId);
+  }
+  toastTimerId = window.setTimeout(() => {
+    actionToast.visible = false;
+    toastTimerId = null;
+  }, 3200);
+}
+
+function openCancelItemConfirm(
+  order: OrderRecord,
+  itemId: number,
+  reason: "button" | "quantity-zero" = "button"
+) {
   const item = (order.items || []).find((entry) => entry.id === itemId);
   if (!item) return;
   cancelItemConfirm.visible = true;
   cancelItemConfirm.order = order;
   cancelItemConfirm.item = item;
+  cancelItemConfirm.reason = reason;
 }
 
 function closeCancelItemConfirm() {
   cancelItemConfirm.visible = false;
   cancelItemConfirm.order = null;
   cancelItemConfirm.item = null;
+  cancelItemConfirm.reason = "button";
 }
 
 async function confirmCancel() {
@@ -300,19 +378,11 @@ async function confirmCancelItem() {
 
 async function updateConfirmedItemQuantity(order: OrderRecord, itemId: number, quantity: number) {
   delete orderError[order.id];
+  const currentItem = (order.items || []).find((entry) => entry.id === itemId);
+  const isIncrease = quantity > Number(currentItem?.quantity || 0);
 
   if (quantity <= 0) {
-    cancellingItemOrderId.value = order.id;
-    cancellingItemId.value = itemId;
-    try {
-      const { data } = await api.put(`/orders/my/${order.id}/items/${itemId}/cancel`);
-      replaceOrder(order.id, data);
-    } catch (error) {
-      orderError[order.id] = getErrorMessage(error, "Không cập nhật được số lượng món.");
-    } finally {
-      cancellingItemOrderId.value = null;
-      cancellingItemId.value = null;
-    }
+    openCancelItemConfirm(order, itemId, "quantity-zero");
     return;
   }
 
@@ -320,6 +390,9 @@ async function updateConfirmedItemQuantity(order: OrderRecord, itemId: number, q
   try {
     const { data } = await api.put(`/orders/my/${order.id}/items/${itemId}`, { quantity });
     replaceOrder(order.id, data);
+    if (isIncrease) {
+      showActionToast("Đã tăng số lượng. Món thêm sẽ xuống sau hàng đợi của các đơn confirmed khác.");
+    }
   } catch (error) {
     orderError[order.id] = getErrorMessage(error, "Không cập nhật được số lượng món.");
   } finally {
@@ -348,7 +421,21 @@ async function loadOrders() {
   }
 }
 
-onMounted(loadOrders);
+function handleOrderChanged(event: OrderChangeEvent) {
+  replaceOrder(event.order.id, event.order);
+}
+
+onMounted(() => {
+  void loadOrders();
+  socket.on("order:changed", handleOrderChanged);
+});
+
+onBeforeUnmount(() => {
+  if (typeof toastTimerId === "number") {
+    window.clearTimeout(toastTimerId);
+  }
+  socket.off("order:changed", handleOrderChanged);
+});
 </script>
 
 <style scoped>
@@ -483,6 +570,10 @@ onMounted(loadOrders);
   padding-top: 4px;
 }
 
+.cust-modal-actions--icon {
+  justify-content: center;
+}
+
 .cust-btn {
   padding: 7px 14px;
   font-size: 0.84rem;
@@ -504,9 +595,72 @@ onMounted(loadOrders);
   color: var(--danger);
 }
 
+.cust-icon-btn {
+  width: 46px;
+  height: 46px;
+  border: none;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  transition: transform 0.15s, background 0.15s, color 0.15s;
+}
+
+.cust-icon-btn:hover {
+  transform: translateY(-1px);
+}
+
+.cust-icon-btn-ghost {
+  background: rgba(var(--text-rgb), 0.06);
+  color: var(--muted);
+}
+
+.cust-icon-btn-confirm {
+  background: rgba(var(--danger-rgb), 0.1);
+  color: var(--danger);
+}
+
+.cust-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 520;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: min(420px, calc(100vw - 32px));
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border: 1px solid rgba(var(--ember-rgb), 0.18);
+  border-radius: 16px;
+  background: rgba(255, 247, 241, 0.98);
+  box-shadow: 0 16px 32px rgba(var(--text-rgb), 0.12);
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.cust-toast i {
+  color: var(--ember-strong);
+}
+
+.cust-toast-enter-active,
+.cust-toast-leave-active {
+  transition: opacity 0.18s, transform 0.18s;
+}
+
+.cust-toast-enter-from,
+.cust-toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 10px);
+}
+
 @media (max-width: 767px) {
   .cust-list {
-    padding: 12px;
+    padding: 0;
+    gap: 8px;
   }
 
   .cust-filter-tabs {
@@ -515,6 +669,13 @@ onMounted(loadOrders);
 
   .cust-filter-date-row {
     padding: 8px 12px 12px;
+  }
+
+  .cust-toast {
+    bottom: 16px;
+    min-width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    padding: 11px 14px;
   }
 }
 </style>

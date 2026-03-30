@@ -12,6 +12,14 @@ export type AuthUser = {
 
 const memoryStore: Record<string, string> = {};
 
+function notifyAuthChanged(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new Event("auth:changed"));
+}
+
 function getStorageCandidates(): Storage[] {
   const stores: Storage[] = [];
   if (typeof window === "undefined") {
@@ -102,9 +110,11 @@ export function saveAuth(payload: {
   if (payload.user) {
     writeValue("user", JSON.stringify(payload.user));
   }
+  notifyAuthChanged();
 }
 
 export function logout(): void {
   removeValue("accessToken");
   removeValue("user");
+  notifyAuthChanged();
 }

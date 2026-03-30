@@ -5,56 +5,6 @@
         <div class="orders-toolbar-head">
           <span class="orders-field-label">{{ statusFieldLabel }}</span>
 
-          <!-- Bell notification -->
-          <div ref="bellWrapRef" class="orders-bell-wrap">
-            <button
-              class="orders-bell-btn"
-              type="button"
-              aria-label="Đơn hàng mới"
-              title="Đơn hàng mới"
-              @click="toggleBellPanel"
-            >
-              <i class="bi bi-bell-fill"></i>
-              <span v-if="unreadOrders.length && !bellOpen" class="orders-bell-badge">
-                {{ unreadOrders.length > 99 ? "99+" : unreadOrders.length }}
-              </span>
-            </button>
-
-            <div v-if="bellOpen" class="orders-bell-panel" @click.stop>
-              <div class="orders-bell-panel-head">
-                <span class="orders-bell-panel-title">
-                  {{ unreadOrders.length ? `${unreadOrders.length} đơn mới` : "Không có đơn mới" }}
-                </span>
-                <button
-                  v-if="unreadOrders.length"
-                  class="orders-bell-clear-btn"
-                  type="button"
-                  @click="clearUnread"
-                >Đã xem</button>
-              </div>
-              <ul v-if="unreadOrders.length" class="orders-bell-list">
-                <li v-for="o in unreadOrders" :key="o.key" class="orders-bell-item">
-                  <div class="orders-bell-item-row">
-                    <span class="orders-bell-item-name">{{ o.customer?.fullName || o.guestName || "Khách lẻ" }}</span>
-                    <span class="orders-bell-item-name orders-bell-item-name--notify">{{ o.customerName }}</span>
-                    <span class="orders-bell-item-time">{{ formatHM(o.occurredAt) }}</span>
-                  </div>
-                  <div class="orders-bell-item-note">{{ o.title }}</div>
-                  <div class="orders-bell-item-meta">
-                    <span>{{ o.detail }}</span>
-                    <span v-if="o.phone">{{ o.phone }}</span>
-                    <span>{{ o.items?.length ?? "?" }} món</span>
-                    <span class="orders-bell-item-total">{{ formatMoney(o.totalAmount) }}</span>
-                  </div>
-                </li>
-              </ul>
-              <div v-else class="orders-bell-empty">
-                <i class="bi bi-bell-slash"></i>
-                <span>Chưa có đơn mới từ khách</span>
-              </div>
-            </div>
-          </div>
-
           <button
             class="orders-toolbar-collapse"
             type="button"
@@ -162,7 +112,7 @@
       </header>
 
       <div v-if="scheduleBuckets.length" class="orders-schedule-wrap">
-        <button class="orders-schedule-nav" type="button" aria-label="Cuộn trái" @click="scrollSchedule(-1)">‹</button>
+        <button v-if="scheduleBuckets.length > 2" class="orders-schedule-nav" type="button" aria-label="Cuộn trái" @click="scrollSchedule(-1)">‹</button>
         <div ref="scheduleStripRef" class="orders-schedule-strip">
           <div v-for="bucket in scheduleBuckets" :key="bucket.key" class="orders-schedule-chip">
             <strong>{{ bucket.label }}</strong>
@@ -171,7 +121,7 @@
             <span>{{ bucket.waiting + bucket.cooking }} món đang chạy</span>
           </div>
         </div>
-        <button class="orders-schedule-nav" type="button" aria-label="Cuộn phải" @click="scrollSchedule(1)">›</button>
+        <button v-if="scheduleBuckets.length > 2" class="orders-schedule-nav" type="button" aria-label="Cuộn phải" @click="scrollSchedule(1)">›</button>
       </div>
 
       <div v-if="isLoading && !orders.length" class="orders-state">
@@ -410,11 +360,6 @@ import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import OrderCard from "../../components/admin/OrderCard.vue";
 import { formatMoney } from "../../utils/format";
 
-function formatHM(value: string) {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "--:--";
-  return new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit" }).format(d);
-}
 
 type OrderItem = {
   id: number;
@@ -467,23 +412,6 @@ type OrderChangeEvent = {
   itemName?: string;
   orderCancelled?: boolean;
   occurredAt: string;
-};
-
-type OrderNotification = {
-  key: string;
-  orderId: number;
-  customerName: string;
-  phone: string;
-  itemCount: number;
-  totalAmount: number;
-  title: string;
-  detail: string;
-  occurredAt: string;
-  guestName?: string | null;
-  customer?: {
-    fullName?: string | null;
-  } | null;
-  items?: Array<unknown>;
 };
 
 type DailyMenuOption = {
@@ -557,74 +485,6 @@ function getOrderDateValue(value?: string | null) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function getCustomerName(order: OrderRecord) {
-  return order.customer?.fullName || order.guestName || "Khách lẻ";
-}
-
-function getCustomerPhone(order: OrderRecord) {
-  return order.guestPhone || order.customer?.phone || "";
-}
-
-function buildOrderNotification(order: OrderRecord, title: string, detail: string, occurredAt: string) {
-  return {
-    key: `${order.id}-${occurredAt}-${title}`,
-    orderId: order.id,
-    customerName: getCustomerName(order),
-    phone: getCustomerPhone(order),
-    itemCount: order.items?.length ?? 0,
-    totalAmount: Number(order.totalAmount || 0),
-    title,
-    detail,
-    occurredAt,
-    guestName: order.guestName || null,
-    customer: order.customer || null,
-    items: Array.from({ length: order.items?.length ?? 0 }),
-  };
-}
-
-function buildNotificationFromNewOrder(order: OrderRecord) {
-  const detail = order.arrivalAt
-    ? `Đơn mới, giờ hẹn ${formatHM(order.arrivalAt)}`
-    : "Đơn mới từ khách";
-  return buildOrderNotification(order, "Khách vừa tạo đơn", detail, order.createdAt);
-}
-
-function buildNotificationFromOrderChange(event: OrderChangeEvent) {
-  if (event.type === "CUSTOMER_CANCELLED") {
-    return buildOrderNotification(
-      event.order,
-      "Khách vừa hủy đơn",
-      "Đơn đã được khách hủy",
-      event.occurredAt
-    );
-  }
-
-  if (event.type === "CUSTOMER_ITEM_CANCELLED") {
-    const itemName = event.itemName?.trim() || "một món";
-    const detail = event.orderCancelled
-      ? `Khách hủy ${itemName}, đơn không còn món và đã đóng`
-      : `Khách vừa hủy ${itemName} khỏi đơn`;
-    return buildOrderNotification(
-      event.order,
-      "Khách vừa hủy món",
-      detail,
-      event.occurredAt
-    );
-  }
-
-  const fields = new Set(event.changedFields || []);
-  let detail = "Khách vừa cập nhật đơn";
-  if (fields.has("items") && fields.has("arrivalAt")) {
-    detail = "Khách đổi món và sửa giờ hẹn";
-  } else if (fields.has("items")) {
-    detail = "Khách vừa thay đổi món trong đơn";
-  } else if (fields.has("arrivalAt")) {
-    detail = `Khách đổi giờ hẹn sang ${event.order.arrivalAt ? formatHM(event.order.arrivalAt) : "chưa xác định"}`;
-  }
-
-  return buildOrderNotification(event.order, "Khách vừa cập nhật đơn", detail, event.occurredAt);
-}
-
 const orders = ref<OrderRecord[]>([]);
 const dailyMenus = ref<DailyMenuRecord[]>([]);
 const advancedFiltersOpen = ref(false);
@@ -635,32 +495,12 @@ const updatingItemStatusId = ref<number | null>(null);
 const updatingItemStatusValue = ref<string | null>(null);
 const savingOrderId = ref<number | null>(null);
 const errorMessage = ref("");
-
-// Bell / unread
-const bellWrapRef = ref<HTMLElement | null>(null);
 const scheduleStripRef = ref<HTMLElement | null>(null);
 const cancelledItemFlashMap = reactive<Record<number, number | null>>({});
 const cancelledItemFlashTimers = new Map<number, number>();
 
 function scrollSchedule(dir: -1 | 1) {
   scheduleStripRef.value?.scrollBy({ left: dir * 180, behavior: "smooth" });
-}
-const bellOpen = ref(false);
-const unreadOrders = ref<OrderNotification[]>([]);
-
-function toggleBellPanel() {
-  bellOpen.value = !bellOpen.value;
-}
-
-function clearUnread() {
-  unreadOrders.value = [];
-  bellOpen.value = false;
-}
-
-function closeBellOnOutsideClick(e: MouseEvent) {
-  if (bellWrapRef.value && !bellWrapRef.value.contains(e.target as Node)) {
-    bellOpen.value = false;
-  }
 }
 
 function flashCancelledItem(orderId: number, itemId: number) {
@@ -1025,25 +865,6 @@ function handleStockUpdate(pools: Array<{ id: number; remainingQuantity: number 
   }
 }
 
-function playNewOrderSound() {
-  try {
-    const ctx = new AudioContext();
-    const times = [0, 0.18, 0.36];
-    for (const t of times) {
-      const osc  = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(880, ctx.currentTime + t);
-      gain.gain.setValueAtTime(0.28, ctx.currentTime + t);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.14);
-      osc.start(ctx.currentTime + t);
-      osc.stop(ctx.currentTime + t + 0.14);
-    }
-  } catch (_) { /* browser blocked audio */ }
-}
-
 function orderMatchesCurrentFilter(order: OrderRecord): boolean {
   if (filter.date) {
     const orderDate = new Date(order.createdAt);
@@ -1057,17 +878,8 @@ function orderMatchesCurrentFilter(order: OrderRecord): boolean {
   return true;
 }
 
-function pushUnreadOrder(notification: OrderNotification) {
-  if (unreadOrders.value.some((entry) => entry.key === notification.key)) {
-    return;
-  }
-  unreadOrders.value = [notification, ...unreadOrders.value].slice(0, 50);
-  playNewOrderSound();
-}
-
 function handleNewOrder(order: OrderRecord) {
   if (order.source !== "CUSTOMER_APP") return;
-  pushUnreadOrder(buildNotificationFromNewOrder(order));
   if (!orderMatchesCurrentFilter(order)) return;
   if (orders.value.some((o) => o.id === order.id)) return;
   orders.value = [order, ...orders.value];
@@ -1078,7 +890,6 @@ function handleOrderChanged(event: OrderChangeEvent) {
   if (event.type === "CUSTOMER_ITEM_CANCELLED" && typeof event.itemId === "number") {
     flashCancelledItem(event.order.id, event.itemId);
   }
-  pushUnreadOrder(buildNotificationFromOrderChange(event));
   void loadOrders();
 }
 
@@ -1274,7 +1085,6 @@ onMounted(() => {
   socket.on("stock:update", handleStockUpdate);
   socket.on("order:new", handleNewOrder);
   socket.on("order:changed", handleOrderChanged);
-  document.addEventListener("click", closeBellOnOutsideClick);
 });
 
 onBeforeUnmount(() => {
@@ -1286,7 +1096,6 @@ onBeforeUnmount(() => {
   socket.off("stock:update", handleStockUpdate);
   socket.off("order:new", handleNewOrder);
   socket.off("order:changed", handleOrderChanged);
-  document.removeEventListener("click", closeBellOnOutsideClick);
 });
 </script>
 

@@ -718,9 +718,9 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   justify-content: center;
   width: 30px;
   height: 30px;
-  border: 1px solid rgba(126, 86, 65, 0.18);
+  border: none;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  background: transparent;
   color: var(--muted);
   transition: color 0.18s, border-color 0.18s, background 0.18s;
 }

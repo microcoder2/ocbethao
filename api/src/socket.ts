@@ -1,4 +1,5 @@
 import type { Server as HttpServer } from "http";
+import jwt from "jsonwebtoken";
 import { Server as SocketIOServer } from "socket.io";
 import { prisma } from "./utils/prisma";
 
@@ -8,7 +9,12 @@ export type OrderChangeField = "items" | "arrivalAt";
 export type OrderChangeType =
   | "CUSTOMER_UPDATED"
   | "CUSTOMER_CANCELLED"
-  | "CUSTOMER_ITEM_CANCELLED";
+  | "CUSTOMER_ITEM_CANCELLED"
+  | "ADMIN_CONFIRMED_ORDER"
+  | "ADMIN_COMPLETED_ORDER"
+  | "ADMIN_CANCELLED_ORDER"
+  | "ADMIN_ITEM_COOKING"
+  | "ADMIN_ITEM_READY";
 
 export type OrderChangedPayload = {
   type: OrderChangeType;
@@ -19,6 +25,34 @@ export type OrderChangedPayload = {
   orderCancelled?: boolean;
   occurredAt: string;
 };
+
+type SocketTokenPayload = {
+  sub?: number | string;
+  role?: string;
+};
+
+type OrderChangedTarget = {
+  roles?: string[];
+  userIds?: number[];
+};
+
+function getRoleRoom(role: string) {
+  return `role:${String(role || "").toUpperCase()}`;
+}
+
+function getUserRoom(userId: number) {
+  return `user:${userId}`;
+}
+
+function emitToRooms(eventName: string, payload: unknown, rooms: string[]) {
+  if (!io || !rooms.length) return;
+
+  let emitter = io.to(rooms[0]);
+  for (const room of rooms.slice(1)) {
+    emitter = emitter.to(room);
+  }
+  emitter.emit(eventName, payload);
+}
 
 export function initSocket(
   httpServer: HttpServer,
@@ -35,17 +69,45 @@ export function initSocket(
     },
   });
 
-  // io.on('connection', (socket) => {
-  //   console.log('a user connected');
+  io.use((socket, next) => {
+    const token = String(socket.handshake.auth?.token || "").trim();
+    const secret = process.env.JWT_SECRET;
 
-  //   socket.on('disconnect', () => {
-  //     console.log('user disconnected');
-  //   });
+    if (!token || !secret) {
+      next(new Error("Unauthorized"));
+      return;
+    }
 
-  //   socket.on('chat:send_message', (msg) => {
-  //     socket.broadcast.emit('chat:receive_message', msg);
-  //   });
-  // });
+    try {
+      const decoded = jwt.verify(token, secret) as SocketTokenPayload;
+      const userId = Number(decoded.sub);
+      const role = String(decoded.role || "").toUpperCase();
+
+      if (!Number.isFinite(userId) || !role) {
+        next(new Error("Unauthorized"));
+        return;
+      }
+
+      socket.data.authUser = {
+        id: userId,
+        role,
+      };
+      next();
+    } catch {
+      next(new Error("Unauthorized"));
+    }
+  });
+
+  io.on("connection", (socket) => {
+    const authUser = socket.data.authUser as { id?: number; role?: string } | undefined;
+    if (!authUser?.id || !authUser.role) {
+      socket.disconnect();
+      return;
+    }
+
+    socket.join(getUserRoom(authUser.id));
+    socket.join(getRoleRoom(authUser.role));
+  });
 
   return io;
 }
@@ -58,13 +120,23 @@ export function getIo(): SocketIOServer | null {
  * Broadcast a newly created order to all connected clients.
  */
 export function broadcastNewOrder(order: unknown): void {
-  if (!io) return;
-  io.emit("order:new", order);
+  emitToRooms("order:new", order, [getRoleRoom("ADMIN"), getRoleRoom("STAFF")]);
 }
 
-export function broadcastOrderChanged(payload: OrderChangedPayload): void {
-  if (!io) return;
-  io.emit("order:changed", payload);
+export function broadcastOrderChanged(
+  payload: OrderChangedPayload,
+  target: OrderChangedTarget = {}
+): void {
+  const rooms = [
+    ...new Set([
+      ...(target.roles || []).map(getRoleRoom),
+      ...(target.userIds || [])
+        .filter((userId) => Number.isFinite(userId) && userId > 0)
+        .map(getUserRoom),
+    ]),
+  ];
+
+  emitToRooms("order:changed", payload, rooms);
 }
 
 /**

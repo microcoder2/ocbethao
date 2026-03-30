@@ -22,12 +22,13 @@ import {
   Prisma,
 } from "@prisma/client";
 import { prisma } from "../utils/prisma";
-import { serializeOrder } from "../utils/mappers";
+import { serializeOrder, serializeOrderList } from "../utils/mappers";
 import {
   broadcastStockUpdate,
   broadcastNewOrder,
   broadcastOrderChanged,
   type OrderChangeField,
+  type OrderChangeType,
 } from "../socket";
 
 class OrderItemInput {
@@ -139,6 +140,19 @@ function getOrderItemKey(
   menuItemId: number | null | undefined
 ) {
   return `${dailyMenuItemId ?? "none"}:${menuItemId ?? "none"}`;
+}
+
+function getAdminOrderChangeType(status: OrderStatus): OrderChangeType | null {
+  if (status === OrderStatus.CONFIRMED) return "ADMIN_CONFIRMED_ORDER";
+  if (status === OrderStatus.COMPLETED) return "ADMIN_COMPLETED_ORDER";
+  if (status === OrderStatus.CANCELLED) return "ADMIN_CANCELLED_ORDER";
+  return null;
+}
+
+function getAdminItemChangeType(status: OrderItemStatus): OrderChangeType | null {
+  if (status === OrderItemStatus.COOKING) return "ADMIN_ITEM_COOKING";
+  if (status === OrderItemStatus.READY) return "ADMIN_ITEM_READY";
+  return null;
 }
 
 function parseOptionalDateTime(value: unknown, fieldName: string) {
@@ -368,6 +382,47 @@ async function resolveOrderLines(
   });
 }
 
+function buildOrderListSelect() {
+  return {
+    id: true,
+    orderNumber: true,
+    source: true,
+    status: true,
+    paymentStatus: true,
+    paymentMethod: true,
+    tableLabel: true,
+    guestCount: true,
+    guestName: true,
+    guestPhone: true,
+    arrivalAt: true,
+    subtotal: true,
+    serviceFee: true,
+    discountAmount: true,
+    totalAmount: true,
+    createdAt: true,
+    dailyMenuId: true,
+    customer: {
+      select: {
+        fullName: true,
+        phone: true,
+      },
+    },
+    items: {
+      orderBy: { id: "asc" as const },
+      select: {
+        id: true,
+        menuItemId: true,
+        dailyMenuItemId: true,
+        itemNameSnapshot: true,
+        unitPrice: true,
+        quantity: true,
+        status: true,
+        lineTotal: true,
+      },
+    },
+  };
+}
+
 async function getOrderDetail(id: number) {
   return prisma.order.findUniqueOrThrow({
     where: { id },
@@ -483,30 +538,10 @@ export class OrdersController extends Controller {
 
     const orders = await prisma.order.findMany({
       where,
-      include: {
-        customer: true,
-        assignedStaff: true,
-        items: {
-          include: {
-            menuItem: {
-              include: {
-                category: true,
-                ingredientPresets: {
-                  include: { ingredient: true },
-                  orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-                },
-                priceHistories: {
-                  orderBy: { effectiveFrom: "desc" },
-                  take: 1,
-                },
-              },
-            },
-          },
-        },
-      },
+      select: buildOrderListSelect(),
       orderBy: { createdAt: "desc" },
     });
-    return orders.map(serializeOrder);
+    return orders.map(serializeOrderList);
   }
 
   @Get("my")
@@ -591,11 +626,14 @@ export class OrdersController extends Controller {
     const order = await getOrderDetail(id);
     const serialized = serializeOrder(order);
     void broadcastStockUpdate(cancelPoolIds);
-    broadcastOrderChanged({
-      type: "CUSTOMER_CANCELLED",
-      order: serialized,
-      occurredAt: new Date().toISOString(),
-    });
+    broadcastOrderChanged(
+      {
+        type: "CUSTOMER_CANCELLED",
+        order: serialized,
+        occurredAt: new Date().toISOString(),
+      },
+      { roles: ["ADMIN", "STAFF"] }
+    );
     return serialized;
   }
 
@@ -691,14 +729,17 @@ export class OrdersController extends Controller {
     const order = await getOrderDetail(orderId);
     const serialized = serializeOrder(order);
     void broadcastStockUpdate(cancelPoolIds);
-    broadcastOrderChanged({
-      type: "CUSTOMER_ITEM_CANCELLED",
-      order: serialized,
-      itemId,
-      itemName: cancelledItemName,
-      orderCancelled,
-      occurredAt: new Date().toISOString(),
-    });
+    broadcastOrderChanged(
+      {
+        type: "CUSTOMER_ITEM_CANCELLED",
+        order: serialized,
+        itemId,
+        itemName: cancelledItemName,
+        orderCancelled,
+        occurredAt: new Date().toISOString(),
+      },
+      { roles: ["ADMIN", "STAFF"] }
+    );
     return serialized;
   }
 
@@ -801,12 +842,15 @@ export class OrdersController extends Controller {
     const serialized = serializeOrder(order);
     void broadcastStockUpdate(updatePoolIds);
     if (changedFields.length) {
-      broadcastOrderChanged({
-        type: "CUSTOMER_UPDATED",
-        order: serialized,
-        changedFields,
-        occurredAt: new Date().toISOString(),
-      });
+      broadcastOrderChanged(
+        {
+          type: "CUSTOMER_UPDATED",
+          order: serialized,
+          changedFields,
+          occurredAt: new Date().toISOString(),
+        },
+        { roles: ["ADMIN", "STAFF"] }
+      );
     }
     return serialized;
   }
@@ -914,12 +958,15 @@ export class OrdersController extends Controller {
     const serialized = serializeOrder(order);
     void broadcastStockUpdate(updatePoolIds);
     if (changedFields.length) {
-      broadcastOrderChanged({
-        type: "CUSTOMER_UPDATED",
-        order: serialized,
-        changedFields,
-        occurredAt: new Date().toISOString(),
-      });
+      broadcastOrderChanged(
+        {
+          type: "CUSTOMER_UPDATED",
+          order: serialized,
+          changedFields,
+          occurredAt: new Date().toISOString(),
+        },
+        { roles: ["ADMIN", "STAFF"] }
+      );
     }
     return serialized;
   }
@@ -1028,6 +1075,7 @@ export class OrdersController extends Controller {
     @Body() body: UpdateOrderStatusBody
   ) {
     const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
+    const changeType = getAdminOrderChangeType(body.status);
 
     let statusPoolIds: number[] = [];
     await prisma.$transaction(async (tx) => {
@@ -1126,8 +1174,19 @@ export class OrdersController extends Controller {
     });
 
     const order = await getOrderDetail(id);
+    const serialized = serializeOrder(order);
     void broadcastStockUpdate(statusPoolIds);
-    return serializeOrder(order);
+    if (changeType && typeof serialized.customerId === "number" && serialized.customerId > 0) {
+      broadcastOrderChanged(
+        {
+          type: changeType,
+          order: serialized,
+          occurredAt: new Date().toISOString(),
+        },
+        { userIds: [serialized.customerId] }
+      );
+    }
+    return serialized;
   }
 
   @Put("{id}")
@@ -1225,6 +1284,7 @@ export class OrdersController extends Controller {
     @Body() body: UpdateOrderItemStatusBody
   ): Promise<UpdateOrderItemStatusResponse> {
     let updatePoolIds: number[] = [];
+    let itemName = "";
 
     await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUniqueOrThrow({
@@ -1259,6 +1319,7 @@ export class OrdersController extends Controller {
           },
         },
       });
+      itemName = targetItem.itemNameSnapshot;
 
       const currentStatus = targetItem.status ?? OrderItemStatus.WAITING;
       if (currentStatus === body.status) {
@@ -1304,6 +1365,24 @@ export class OrdersController extends Controller {
     });
 
     void broadcastStockUpdate(updatePoolIds);
+    const changeType = getAdminItemChangeType(body.status);
+    if (changeType) {
+      const order = await getOrderDetail(orderId);
+      const serialized = serializeOrder(order);
+      if (typeof serialized.customerId === "number" && serialized.customerId > 0) {
+        broadcastOrderChanged(
+          {
+            type: changeType,
+            order: serialized,
+            itemId,
+            itemName,
+            occurredAt: new Date().toISOString(),
+          },
+          { userIds: [serialized.customerId] }
+        );
+      }
+    }
+
     return {
       success: true,
       id: itemId,

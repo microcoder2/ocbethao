@@ -23,6 +23,7 @@
     </div>
 
     <div class="topbar-actions">
+      <div class="topbar-user">{{ displayName }}</div>
       <button
         class="btn topbar-icon-button topbar-account-button"
         type="button"
@@ -32,7 +33,11 @@
       >
         <i class="bi bi-person-circle"></i>
       </button>
-      <div class="topbar-user">{{ displayName }}</div>
+      <OrderNotificationBell
+        v-if="showOrderBell"
+        :orders-path="ordersPath"
+        :role="role"
+      />
       <button
         class="btn topbar-icon-button topbar-logout-button"
         type="button"
@@ -60,6 +65,7 @@ import logoUrl from "../assets/logo.header.svg";
 import { api } from "../api";
 import { getUser, logout } from "../utils/auth";
 import ProfileModal from "./ProfileModal.vue";
+import OrderNotificationBell from "./OrderNotificationBell.vue";
 
 withDefaults(defineProps<{ showBrand?: boolean }>(), {
   showBrand: false,
@@ -72,6 +78,13 @@ const user        = ref(getUser());
 const showProfile = ref(false);
 
 const displayName = computed(() => user.value?.fullName || APP_NAME);
+const role = computed(() => String(user.value?.role || "").toUpperCase());
+const showOrderBell = computed(() => ["ADMIN", "STAFF", "CUSTOMER"].includes(role.value));
+const ordersPath = computed(() => {
+  if (role.value === "STAFF") return "/staff/orders";
+  if (role.value === "CUSTOMER") return "/customer/orders";
+  return "/admin/orders";
+});
 
 function onProfileSaved() {
   user.value = getUser();

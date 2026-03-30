@@ -167,8 +167,8 @@
             <div class="dm-history-date">{{ formatServiceDate(menu.serviceDate) }}</div>
             <div class="dm-history-title">{{ menu.title }}</div>
             <div class="dm-history-meta">
-              <span class="dm-tag">{{ menu.stockPools?.length || 0 }} kho</span>
-              <span class="dm-tag">{{ menu.items?.length || 0 }} món</span>
+              <span class="dm-tag">{{ menu.stockPoolCount ?? menu.stockPools?.length ?? 0 }} kho</span>
+              <span class="dm-tag">{{ menu.itemCount ?? menu.items?.length ?? 0 }} món</span>
             </div>
           </div>
           <div class="dm-history-actions">
@@ -270,6 +270,8 @@ interface MenuRecord {
   status: DailyMenuStatus;
   bannerText?: string | null;
   note?: string | null;
+  stockPoolCount?: number;
+  itemCount?: number;
   stockPools?: any[];
   items?: any[];
 }
@@ -523,39 +525,64 @@ function resetForm() {
   resetDraftItems();
 }
 
-function editMenu(menu: MenuRecord) {
+async function editMenu(menu: MenuRecord) {
   errorMessage.value = "";
-  itemSearch.value   = "";
-  itemFilter.value   = "enabled";
-  Object.assign(form, {
-    id: menu.id, title: menu.title,
-    serviceDate: String(menu.serviceDate || "").slice(0, 10),
-    bannerText: menu.bannerText || "", note: menu.note || "", status: menu.status,
-  });
-  stockPools.value = (menu.stockPools || []).map((p: any) => ({
-    id: p.id, key: makePoolKey(),
-    ingredientId: p.ingredient?.id || 0,
-    label: p.label || p.ingredient?.name || "",
-    quantity: Number(p.remainingQuantity ?? Number(p.quantity || 0) - Number(p.soldQuantity || 0)),
-    soldQuantity: Number(p.soldQuantity || 0),
-    isAvailable: p.isAvailable ?? true,
-    note: p.note || "",
-  }));
-  resetDraftItems();
-  for (const row of draftItems.value) {
-    const matched = (menu.items || []).find((i: any) => i.menuItem?.id === row.menuItemId);
-    if (!matched) continue;
-    row.id            = matched.id;
-    row.enabled       = true;
-    row.overridePrice = Number(matched.overridePrice || matched.sellingPrice || row.overridePrice);
-    row.highlightLabel = matched.highlightLabel || "";
-    row.isAvailable   = matched.isAvailable ?? true;
-    row.consumeQuantity = Number(matched.stockLinks?.[0]?.consumeQuantity || row.consumeQuantity);
-    row.stockPoolRef  = matched.stockLinks?.[0]?.stockPool?.id ? `id:${matched.stockLinks[0].stockPool.id}` : "";
+  itemSearch.value = "";
+  itemFilter.value = "enabled";
+  loading.value = true;
+
+  try {
+    const { data } = await api.get(`/daily-menus/${menu.id}`);
+    const detail = data as MenuRecord;
+
+    Object.assign(form, {
+      id: detail.id,
+      title: detail.title,
+      serviceDate: String(detail.serviceDate || "").slice(0, 10),
+      bannerText: detail.bannerText || "",
+      note: detail.note || "",
+      status: detail.status,
+    });
+
+    stockPools.value = (detail.stockPools || []).map((p: any) => ({
+      id: p.id,
+      key: makePoolKey(),
+      ingredientId: p.ingredientId || p.ingredient?.id || 0,
+      label: p.label || p.ingredient?.name || "",
+      quantity: Number(
+        p.remainingQuantity ?? Number(p.quantity || 0) - Number(p.soldQuantity || 0)
+      ),
+      soldQuantity: Number(p.soldQuantity || 0),
+      isAvailable: p.isAvailable ?? true,
+      note: p.note || "",
+    }));
+
+    resetDraftItems();
+    for (const row of draftItems.value) {
+      const matched = (detail.items || []).find((i: any) => i.menuItem?.id === row.menuItemId);
+      if (!matched) continue;
+      row.id = matched.id;
+      row.enabled = true;
+      row.overridePrice = Number(matched.overridePrice || matched.sellingPrice || row.overridePrice);
+      row.highlightLabel = matched.highlightLabel || "";
+      row.isAvailable = matched.isAvailable ?? true;
+      row.consumeQuantity = Number(matched.stockLinks?.[0]?.consumeQuantity || row.consumeQuantity);
+      row.stockPoolRef = matched.stockLinks?.[0]?.stockPool?.id
+        ? `id:${matched.stockLinks[0].stockPool.id}`
+        : "";
+    }
+
+    await nextTick();
+    await (
+      panelRef.value as
+        | (InstanceType<typeof DailyStockPanel> & { reload?: () => void | Promise<void> })
+        | null
+    )?.reload?.();
+  } catch (error) {
+    errorMessage.value = getErrorMessage(error, "Không tải được chi tiết menu.");
+  } finally {
+    loading.value = false;
   }
-  void nextTick(() => {
-    (panelRef.value as (InstanceType<typeof DailyStockPanel> & { reload?: () => void | Promise<void> }) | null)?.reload?.();
-  });
 }
 
 function buildStockLinkPayload(ref: string, qty: number) {

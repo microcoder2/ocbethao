@@ -216,6 +216,89 @@ export function serializeDailyMenu(menu: AnyRecord) {
   };
 }
 
+function serializeDailyStockPoolSummary(pool: AnyRecord) {
+  const quantity = normalizePositiveNumber(toNumber(pool.quantity));
+  const soldQuantity = normalizePositiveNumber(toNumber(pool.soldQuantity));
+  return {
+    id: pool.id,
+    ingredientId: pool.ingredientId ?? null,
+    label: pool.label ?? null,
+    quantity,
+    soldQuantity,
+    remainingQuantity: Math.max(quantity - soldQuantity, 0),
+    isAvailable: Boolean(pool.isAvailable),
+    note: pool.note ?? null,
+  };
+}
+
+function serializeDailyStockPoolLink(pool: AnyRecord) {
+  const quantity = normalizePositiveNumber(toNumber(pool.quantity));
+  const soldQuantity = normalizePositiveNumber(toNumber(pool.soldQuantity));
+  return {
+    id: pool.id,
+    label: pool.label ?? null,
+    remainingQuantity: Math.max(quantity - soldQuantity, 0),
+  };
+}
+
+function serializeDailyMenuItemSummary(item: AnyRecord) {
+  const availableQuantity = computeOfferAvailableQuantity(item);
+  return {
+    id: item.id,
+    availableQuantity,
+    overridePrice: toNumber(item.overridePrice),
+    sellingPrice: toNumber(item.overridePrice ?? item.menuItem?.basePrice),
+    isAvailable: Boolean(item.isAvailable) && availableQuantity !== 0,
+    highlightLabel: item.highlightLabel ?? null,
+    menuItem: item.menuItem
+      ? {
+          id: item.menuItem.id,
+          name: item.menuItem.name,
+        }
+      : null,
+    stockLinks: Array.isArray(item.stockLinks)
+      ? item.stockLinks.map((link: AnyRecord) => ({
+          id: link.id,
+          dailyStockPoolId: link.dailyStockPoolId,
+          consumeQuantity: toNumber(link.consumeQuantity),
+          stockPool: link.dailyStockPool
+            ? serializeDailyStockPoolLink(link.dailyStockPool)
+            : null,
+        }))
+      : [],
+  };
+}
+
+export function serializeDailyMenuWorkspace(menu: AnyRecord) {
+  return {
+    id: menu.id,
+    title: menu.title,
+    serviceDate: menu.serviceDate,
+    status: menu.status as DailyMenuStatus,
+    note: menu.note ?? null,
+    bannerText: menu.bannerText ?? null,
+    stockPools: Array.isArray(menu.stockPools)
+      ? menu.stockPools.map(serializeDailyStockPoolSummary)
+      : [],
+    items: Array.isArray(menu.items)
+      ? menu.items.map(serializeDailyMenuItemSummary)
+      : [],
+  };
+}
+
+export function serializeDailyMenuSummary(menu: AnyRecord) {
+  return {
+    id: menu.id,
+    title: menu.title,
+    serviceDate: menu.serviceDate,
+    status: menu.status as DailyMenuStatus,
+    note: menu.note ?? null,
+    bannerText: menu.bannerText ?? null,
+    stockPoolCount: Number(menu._count?.stockPools || 0),
+    itemCount: Number(menu._count?.items || 0),
+  };
+}
+
 function serializeOrderItems(items: AnyRecord[]) {
   return items.map((item: AnyRecord) => ({
     id: item.id,
@@ -228,6 +311,19 @@ function serializeOrderItems(items: AnyRecord[]) {
     lineTotal: toNumber(item.lineTotal),
     note: item.note ?? null,
     menuItem: item.menuItem ? serializeMenuItem(item.menuItem) : null,
+  }));
+}
+
+function serializeOrderListItems(items: AnyRecord[]) {
+  return items.map((item: AnyRecord) => ({
+    id: item.id,
+    menuItemId: item.menuItemId ?? null,
+    dailyMenuItemId: item.dailyMenuItemId ?? null,
+    itemNameSnapshot: item.itemNameSnapshot,
+    unitPrice: toNumber(item.unitPrice),
+    quantity: item.quantity,
+    status: (item.status as OrderItemStatus | null) ?? OrderItemStatus.WAITING,
+    lineTotal: toNumber(item.lineTotal),
   }));
 }
 
@@ -261,6 +357,39 @@ function buildOrderItemProgress(items: AnyRecord[]) {
   }
 
   return progress;
+}
+
+export function serializeOrderList(order: AnyRecord) {
+  const items = Array.isArray(order.items) ? serializeOrderListItems(order.items) : [];
+  const itemProgress = buildOrderItemProgress(items);
+
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    source: order.source,
+    status: order.status as OrderStatus,
+    paymentStatus: order.paymentStatus as PaymentStatus,
+    paymentMethod: order.paymentMethod ?? null,
+    tableLabel: order.tableLabel ?? null,
+    guestCount: order.guestCount ?? null,
+    guestName: order.guestName ?? null,
+    guestPhone: order.guestPhone ?? null,
+    arrivalAt: order.arrivalAt ?? null,
+    subtotal: toNumber(order.subtotal),
+    serviceFee: toNumber(order.serviceFee),
+    discountAmount: toNumber(order.discountAmount),
+    totalAmount: toNumber(order.totalAmount),
+    dailyMenuId: order.dailyMenuId ?? null,
+    createdAt: order.createdAt,
+    customer: order.customer
+      ? {
+          fullName: order.customer.fullName,
+          phone: order.customer.phone ?? null,
+        }
+      : null,
+    itemProgress,
+    items,
+  };
 }
 
 export function serializeOrder(order: AnyRecord) {

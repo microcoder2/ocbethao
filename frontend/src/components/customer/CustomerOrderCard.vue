@@ -135,6 +135,7 @@
                 type="time"
                 class="form-control order-arrival-time-input"
                 :disabled="busy"
+                placeholder="--:--"
                 min="10:00"
                 max="23:00"
               />
@@ -433,10 +434,7 @@ const editableItems = computed(() => draft.value ?? cloneItems(props.order.items
 const initialArrivalTime = computed(() => (props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""));
 const hasProgress = computed(() => Boolean(props.order.itemProgress?.total));
 const showProgressBar = computed(() => hasProgress.value && simpleStatus.value === "CONFIRMED");
-const showItemStatuses = computed(() =>
-  simpleStatus.value === "CONFIRMED" ||
-  editableItems.value.some((item) => item.status === "CANCELLED")
-);
+const showItemStatuses = computed(() => simpleStatus.value === "CONFIRMED");
 const readyCount = computed(() => Number(props.order.itemProgress?.ready || 0));
 const pendingCount = computed(() => Math.max(0, Number(props.order.itemProgress?.total || 0) - readyCount.value));
 const readyPct = computed(() => {
@@ -458,11 +456,7 @@ const headInfoLabel = computed(() => {
   if (simpleStatus.value === "CONFIRMED") return "Quán đang chuẩn bị món";
   return "";
 });
-const arrivalInfoLabel = computed(() => {
-  if (props.order.arrivalAt) return `Giờ hẹn ${queueTime.value}`;
-  if (simpleStatus.value === "PENDING") return "Chưa chốt giờ hẹn";
-  return "Không có giờ hẹn";
-});
+const arrivalInfoLabel = computed(() => `Giờ hẹn ${queueTime.value}`);
 const statusInfoLabel = computed(() => {
   if (simpleStatus.value === "PENDING") return "Có thể thêm món, đổi giờ hẹn";
   if (simpleStatus.value === "CONFIRMED") return hasProgress.value ? progressText.value : "Quán đang chuẩn bị món";
@@ -711,6 +705,23 @@ function canAdjustWaitingItem(item: EditableItem) {
   color: rgba(143, 47, 21, 0.78);
 }
 
+.order-card.is-status-cancelled .order-item-row.is-cancelled {
+  padding-inline: 0;
+  border-radius: 0;
+  background: transparent;
+  opacity: 1;
+}
+
+.order-card.is-status-cancelled .order-item-row.is-cancelled .order-item-name,
+.order-card.is-status-cancelled .order-item-row.is-cancelled .order-item-total {
+  color: var(--text);
+}
+
+.order-card.is-status-cancelled .order-item-row.is-cancelled .order-item-meta,
+.order-card.is-status-cancelled .order-item-row.is-cancelled .order-item-qty-read {
+  color: var(--muted);
+}
+
 .order-item-row.is-cancel-pending {
   animation: cancelled-item-pulse 1.2s ease-in-out infinite;
 }
@@ -923,6 +934,17 @@ function canAdjustWaitingItem(item: EditableItem) {
   border-radius: 16px;
 }
 
+@media (pointer: coarse) {
+  .order-arrival-time-input {
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .order-arrival-time-input::-webkit-calendar-picker-indicator {
+    opacity: 0;
+  }
+}
+
 .order-add-hint {
   color: var(--muted);
   font-size: 0.85rem;
@@ -986,7 +1008,7 @@ function canAdjustWaitingItem(item: EditableItem) {
 @media (max-width: 767px) {
   .order-card {
     padding: 16px;
-    border-radius: 18px;
+    border-radius: 0;
   }
 
   .order-card-head {

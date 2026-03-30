@@ -15,7 +15,11 @@ import {
 import type { Request as ExRequest } from "express";
 import { DailyMenuStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma";
-import { serializeDailyMenu } from "../utils/mappers";
+import {
+  serializeDailyMenu,
+  serializeDailyMenuSummary,
+  serializeDailyMenuWorkspace,
+} from "../utils/mappers";
 
 class DailyMenuStockPoolInput {
   id?: number;
@@ -128,6 +132,79 @@ function buildDailyMenuInclude(publicOnly = false) {
         },
       },
       orderBy: { id: "asc" as const },
+    },
+  };
+}
+
+function buildDailyMenuSummarySelect() {
+  return {
+    id: true,
+    title: true,
+    serviceDate: true,
+    status: true,
+    note: true,
+    bannerText: true,
+    _count: {
+      select: {
+        stockPools: true,
+        items: true,
+      },
+    },
+  };
+}
+
+function buildDailyMenuWorkspaceSelect() {
+  return {
+    id: true,
+    title: true,
+    serviceDate: true,
+    status: true,
+    note: true,
+    bannerText: true,
+    stockPools: {
+      orderBy: { id: "asc" as const },
+      select: {
+        id: true,
+        ingredientId: true,
+        label: true,
+        quantity: true,
+        soldQuantity: true,
+        isAvailable: true,
+        note: true,
+      },
+    },
+    items: {
+      orderBy: { id: "asc" as const },
+      select: {
+        id: true,
+        overridePrice: true,
+        isAvailable: true,
+        highlightLabel: true,
+        menuItem: {
+          select: {
+            id: true,
+            name: true,
+            basePrice: true,
+          },
+        },
+        stockLinks: {
+          orderBy: { id: "asc" as const },
+          select: {
+            id: true,
+            dailyStockPoolId: true,
+            consumeQuantity: true,
+            dailyStockPool: {
+              select: {
+                id: true,
+                label: true,
+                quantity: true,
+                soldQuantity: true,
+                isAvailable: true,
+              },
+            },
+          },
+        },
+      },
     },
   };
 }
@@ -477,12 +554,21 @@ export class DailyMenusController extends Controller {
       where.code = buildMenuCode(date);
     }
 
+    if (date) {
+      const menus = await prisma.dailyMenu.findMany({
+        where,
+        select: buildDailyMenuWorkspaceSelect(),
+        orderBy: [{ serviceDate: "desc" }, { createdAt: "desc" }],
+      });
+      return menus.map(serializeDailyMenuWorkspace);
+    }
+
     const menus = await prisma.dailyMenu.findMany({
       where,
-      include: buildDailyMenuInclude(),
+      select: buildDailyMenuSummarySelect(),
       orderBy: [{ serviceDate: "desc" }, { createdAt: "desc" }],
     });
-    return menus.map(serializeDailyMenu);
+    return menus.map(serializeDailyMenuSummary);
   }
 
   @Get("stock-baseline")

@@ -99,13 +99,13 @@ import StockIngredientCard from "./StockIngredientCard.vue";
 type Ingredient = { id: number; name: string; slug: string; unit: string; imageUrl: string | null };
 type StockPool  = {
   id: number;
+  ingredientId?: number | null;
   quantity: number;
   soldQuantity?: number;
   remainingQuantity?: number;
   isAvailable: boolean;
   label?: string | null;
   note?: string | null;
-  ingredient: Ingredient | null;
 };
 type DailyMenu  = { id: number; stockPools: StockPool[] };
 type StockBaseline = {
@@ -263,7 +263,9 @@ async function loadData() {
 
     const init: Record<number, Draft> = {};
     for (const ing of ingredients.value) {
-      const pool = currentMenu?.stockPools.find((entry) => entry.ingredient?.id === ing.id);
+      const pool = currentMenu?.stockPools.find((entry) =>
+        Number(entry.ingredientId ?? 0) === ing.id
+      );
       const fallback = !pool ? baselineMap.get(ing.id) : null;
       const remainingQuantity = pool
         ? Math.max(
