@@ -94,41 +94,35 @@
             <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
             <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
             <div v-if="showItemStatuses" class="order-item-statuses">
-              <div class="order-item-stage-summary">
-                <span
-                  v-for="chip in getItemStageChips(item)"
-                  :key="chip.key"
-                  :class="['order-item-stage-chip', chip.toneClass]"
-                >
-                  <span>{{ chip.label }}</span>
-                  <strong>{{ chip.count }}</strong>
-                </span>
-              </div>
-              <div v-if="getItemStageActions(item).length" class="order-item-stage-actions">
-                <button
-                  v-for="action in getItemStageActions(item)"
-                  :key="action.key"
-                  type="button"
-                  :class="[
-                    'order-item-stage-action',
-                    action.toneClass,
-                    {
-                      'is-pending': isPendingItemAction(item.id, action.key),
-                    },
-                  ]"
-                  :disabled="props.pendingItemStatusId === item.id"
-                  :aria-busy="isPendingItemAction(item.id, action.key) ? 'true' : 'false'"
-                  :title="action.hint"
-                  @click="openStagePicker(item, action)"
-                >
-                  <span class="order-item-action-label">{{ action.label }}</span>
-                  <span class="order-item-action-count">{{ action.count }}</span>
-                  <span
-                    v-if="isPendingItemAction(item.id, action.key)"
-                    class="order-item-action-spinner"
-                    aria-hidden="true"
-                  ></span>
-                </button>
+              <div v-if="canMoveItemStages(item)" class="order-item-status-block is-action">
+                <div class="order-item-stage-actions">
+                  <button
+                    v-for="control in getItemStageControls(item)"
+                    :key="control.key"
+                    type="button"
+                    :class="[
+                      'order-item-stage-action',
+                      control.toneClass,
+                      {
+                        'is-active': control.activeCount > 0,
+                        'is-actionable': !!control.action,
+                        'is-pending': isPendingItemAction(item.id, control.action?.key),
+                      },
+                    ]"
+                    :disabled="!control.action || props.pendingItemStatusId === item.id"
+                    :aria-busy="isPendingItemAction(item.id, control.action?.key) ? 'true' : 'false'"
+                    :title="control.action?.hint || `${control.label}: không có thao tác`"
+                    @click="openStageControl(item, control)"
+                  >
+                    <span class="order-item-action-label">{{ control.label }}</span>
+                    <span v-if="control.activeCount > 0" class="order-item-action-count">{{ control.activeCount }}</span>
+                    <span
+                      v-if="isPendingItemAction(item.id, control.action?.key)"
+                      class="order-item-action-spinner"
+                      aria-hidden="true"
+                    ></span>
+                  </button>
+                </div>
               </div>
               <div
                 v-if="stagePicker.visible && stagePicker.itemId === item.id"
@@ -142,21 +136,6 @@
                   <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(-1)">-</button>
                   <span class="order-item-picker-value">{{ stagePicker.quantity }}</span>
                   <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(1)">+</button>
-                </div>
-                <div class="order-item-stage-picker-quick">
-                  <button type="button" class="order-item-stage-picker-chip" @click="setStagePickerQuantity(1)">1</button>
-                  <button
-                    v-if="stagePicker.max > 2"
-                    type="button"
-                    class="order-item-stage-picker-chip"
-                    @click="setStagePickerQuantity(Math.ceil(stagePicker.max / 2))"
-                  >{{ Math.ceil(stagePicker.max / 2) }}</button>
-                  <button
-                    v-if="stagePicker.max > 1"
-                    type="button"
-                    class="order-item-stage-picker-chip"
-                    @click="setStagePickerQuantity(stagePicker.max)"
-                  >Tất cả</button>
                 </div>
                 <div class="order-item-stage-picker-actions">
                   <button type="button" class="btn btn-dark btn-sm" @click="confirmStagePicker">Xác nhận</button>
@@ -378,20 +357,20 @@ type MoveItemStagePayload = {
   toStage: ActiveItemStageName;
   quantity: number;
 };
-type StageChip = {
-  key: ItemStageName;
-  label: string;
-  count: number;
-  toneClass: string;
-};
 type StageAction = {
   key: `${ItemStageName}->${ActiveItemStageName}`;
-  label: string;
   hint: string;
   fromStage: ItemStageName;
   toStage: ActiveItemStageName;
   count: number;
   toneClass: string;
+};
+type StageControl = {
+  key: ItemStageName;
+  label: string;
+  toneClass: string;
+  activeCount: number;
+  action: StageAction | null;
 };
 
 // ─── Props / Emits ──────────────────────────────────────────────────────
@@ -744,6 +723,23 @@ function getItemStageChips(item: EditableItem): StageChip[] {
     .filter((chip) => chip.count > 0);
 }
 
+function buildStageAction(
+  fromStage: ItemStageName,
+  toStage: ActiveItemStageName,
+  count: number,
+  toneClass: string,
+  hint: string
+): StageAction {
+  return {
+    key: `${fromStage}->${toStage}`,
+    fromStage,
+    toStage,
+    count,
+    toneClass,
+    hint,
+  };
+}
+
 function getSuggestedMoveQuantity(action: StageAction) {
   if (action.fromStage === "COOKING" && action.toStage === "READY") {
     return 1;
@@ -754,81 +750,59 @@ function getSuggestedMoveQuantity(action: StageAction) {
   return action.count;
 }
 
-function getItemStageActions(item: EditableItem): StageAction[] {
-  if (!canMoveItemStages(item)) {
-    return [];
-  }
-
+function getItemStageControls(item: EditableItem): StageControl[] {
   const stages = getItemStageCounts(item);
   const quantity = Math.max(0, Number(item.quantity || 0));
-  const actions: StageAction[] = [];
+  const waitingAction =
+    stages.cancelled === quantity && quantity > 0
+      ? buildStageAction("CANCELLED", "WAITING", quantity, "is-ready", `Khôi phục ${quantity} món về chờ`)
+      : stages.cooking > 0
+        ? buildStageAction("COOKING", "WAITING", stages.cooking, "is-muted", `Trả ${stages.cooking} món đang làm về chờ`)
+        : null;
 
-  if (stages.cancelled === quantity && quantity > 0) {
-    actions.push({
-      key: "CANCELLED->WAITING",
-      label: "Phục hồi",
-      hint: `Khôi phục ${quantity} món về hàng chờ`,
-      fromStage: "CANCELLED",
-      toStage: "WAITING",
-      count: quantity,
-      toneClass: "is-ready",
-    });
-    return actions;
-  }
+  const cookingAction =
+    stages.waiting > 0
+      ? buildStageAction("WAITING", "COOKING", stages.waiting, "is-cooking", `Bắt đầu làm ${stages.waiting} món đang chờ`)
+      : stages.ready > 0
+        ? buildStageAction("READY", "COOKING", stages.ready, "is-muted", `Đưa ${stages.ready} món đã lên về bếp`)
+        : null;
 
-  if (stages.waiting > 0) {
-    actions.push({
-      key: "WAITING->COOKING",
-      label: "Bắt đầu làm",
-      hint: `${stages.waiting} món đang chờ`,
-      fromStage: "WAITING",
-      toStage: "COOKING",
-      count: stages.waiting,
+  const readyAction =
+    stages.cooking > 0
+      ? buildStageAction("COOKING", "READY", stages.cooking, "is-ready", `Lên ${stages.cooking} món đang làm`)
+      : null;
+
+  return [
+    {
+      key: "WAITING",
+      label: "Chờ",
       toneClass: "is-waiting",
-    });
-  }
-
-  if (stages.cooking > 0) {
-    actions.push({
-      key: "COOKING->READY",
-      label: "Lên món",
-      hint: `${stages.cooking} món đang làm`,
-      fromStage: "COOKING",
-      toStage: "READY",
-      count: stages.cooking,
+      activeCount: stages.waiting,
+      action: waitingAction,
+    },
+    {
+      key: "COOKING",
+      label: "Đang làm",
       toneClass: "is-cooking",
-    });
-    actions.push({
-      key: "COOKING->WAITING",
-      label: "Trả chờ",
-      hint: `Đưa ${stages.cooking} món về hàng chờ`,
-      fromStage: "COOKING",
-      toStage: "WAITING",
-      count: stages.cooking,
-      toneClass: "is-muted",
-    });
-  }
-
-  if (stages.ready > 0) {
-    actions.push({
-      key: "READY->COOKING",
-      label: "Trả bếp",
-      hint: `Đưa ${stages.ready} món về bếp`,
-      fromStage: "READY",
-      toStage: "COOKING",
-      count: stages.ready,
-      toneClass: "is-muted",
-    });
-  }
-
-  return actions;
+      activeCount: stages.cooking,
+      action: cookingAction,
+    },
+    {
+      key: "READY",
+      label: "Lên món",
+      toneClass: "is-ready",
+      activeCount: stages.ready,
+      action: readyAction,
+    },
+  ];
 }
 
-function openStagePicker(item: EditableItem, action: StageAction) {
-  if (!item.id || props.busy) {
+function openStageControl(item: EditableItem, control: StageControl) {
+  if (!item.id || props.busy || !control.action) {
     return;
   }
 
+  const action = control.action;
   if (action.count <= 1) {
     emit("moveItemStage", {
       itemId: item.id,
@@ -846,7 +820,7 @@ function openStagePicker(item: EditableItem, action: StageAction) {
   stagePicker.toStage = action.toStage;
   stagePicker.max = action.count;
   stagePicker.quantity = Math.min(action.count, Math.max(1, getSuggestedMoveQuantity(action)));
-  stagePicker.label = action.label;
+  stagePicker.label = control.label;
   stagePicker.hint = action.hint;
 }
 
@@ -1395,8 +1369,21 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 
 .order-item-statuses {
   display: grid;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.order-item-status-block {
+  display: grid;
+  gap: 6px;
+}
+
+.order-item-status-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .order-item-stage-summary,
@@ -1424,8 +1411,9 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 }
 
 .order-item-stage-chip {
-  background: rgba(var(--text-rgb), 0.06);
+  background: rgba(var(--text-rgb), 0.035);
   color: var(--muted);
+  border-style: dashed;
 }
 
 .order-item-stage-chip strong,
@@ -1437,7 +1425,12 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 
 .order-item-stage-action {
   position: relative;
-  transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.18s;
+  min-width: 86px;
+  justify-content: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.9);
+  transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.18s, box-shadow 0.18s;
+  box-shadow: 0 1px 2px rgba(var(--text-rgb), 0.06);
 }
 
 .order-item-stage-action:hover,
@@ -1453,11 +1446,39 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 .order-item-stage-action:disabled {
   opacity: 1;
   cursor: default;
+  box-shadow: none;
 }
 
 .order-item-stage-action.is-pending .order-item-action-label,
 .order-item-stage-action.is-pending .order-item-action-count {
   opacity: 0.28;
+}
+
+.order-item-stage-action.is-actionable {
+  border-style: solid;
+}
+
+.order-item-stage-action.is-active {
+  border-color: currentColor;
+  overflow: hidden;
+}
+
+.order-item-stage-action.is-active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 80%;
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(255, 255, 255, 0.55),
+    transparent
+  );
+  will-change: transform;
+  animation: glass-shine 1.2s linear infinite;
+  pointer-events: none;
 }
 
 .order-item-stage-action.is-waiting,
@@ -1572,6 +1593,11 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 
 @keyframes order-item-spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes glass-shine {
+  from { transform: skewX(-18deg) translateX(-150%); }
+  to   { transform: skewX(-18deg) translateX(280%); }
 }
 
 .order-item-total {
@@ -1738,6 +1764,16 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   }
 
   .order-add-control { grid-template-columns: auto minmax(0, 1fr) auto; }
+
+  .order-item-stage-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .order-item-stage-action {
+    min-width: 0;
+    width: 100%;
+  }
 
   .orders-modal { padding: 18px; }
 }

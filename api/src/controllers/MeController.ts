@@ -16,8 +16,9 @@ import { serializeUser } from "../utils/mappers";
 
 class UpdateMeBody {
   fullName!: string;
-  phone?: string;
-  email?: string;
+  username?: string | null;
+  phone?: string | null;
+  email?: string | null;
   currentPassword?: string;
   password?: string;
 }
@@ -59,21 +60,41 @@ export class MeController extends Controller {
       }
     }
 
+    if (body.username != null) {
+      const trimmed = body.username.trim().toLowerCase();
+      if (trimmed && !/^[a-z0-9_]{3,20}$/.test(trimmed)) {
+        this.setStatus(400);
+        return { message: "Tên đăng nhập chỉ gồm a-z, 0-9, dấu _ và 3–20 ký tự." };
+      }
+    }
+
     const data: Prisma.UserUpdateInput = {
       fullName: body.fullName,
-      phone: body.phone ?? null,
-      email: body.email?.toLowerCase() ?? null,
+      username: body.username != null ? (body.username.trim().toLowerCase() || null) : undefined,
+      phone: body.phone != null ? (body.phone.trim() || null) : undefined,
+      email: body.email != null ? (body.email.trim().toLowerCase() || null) : undefined,
     };
     if (body.password) {
       data.password = await bcrypt.hash(body.password, 10);
     }
 
-    const updated = await prisma.user.update({
-      where: { id: authUser.id },
-      data,
-      include: { authIdentities: true },
-    });
-
-    return serializeUser(updated);
+    try {
+      const updated = await prisma.user.update({
+        where: { id: authUser.id },
+        data,
+        include: { authIdentities: true },
+      });
+      return serializeUser(updated);
+    } catch (e: any) {
+      if (e?.code === "P2002") {
+        const fields: string[] = e?.meta?.target ?? [];
+        this.setStatus(409);
+        if (fields.includes("username")) return { message: "Tên đăng nhập đã được dùng bởi tài khoản khác." };
+        if (fields.includes("phone"))    return { message: "Số điện thoại đã được dùng bởi tài khoản khác." };
+        if (fields.includes("email"))    return { message: "Email đã được dùng bởi tài khoản khác." };
+        return { message: "Thông tin đã tồn tại trong hệ thống." };
+      }
+      throw e;
+    }
   }
 }

@@ -112,16 +112,26 @@
       </small>
     </div>
 
-    <label v-if="showNote" class="order-draft-panel__field">
+    <div v-if="showNote" class="order-draft-panel__field">
       <span>{{ noteLabel }}</span>
+      <div class="order-draft-panel__note-chips">
+        <button
+          v-for="chip in NOTE_CHIPS"
+          :key="chip"
+          type="button"
+          :class="['order-draft-panel__note-chip', { 'is-active': isChipActive(chip) }]"
+          :disabled="disabled || submitting"
+          @click="toggleChip(chip)"
+        >{{ chip }}</button>
+      </div>
       <textarea
         :value="note"
-        rows="4"
+        rows="3"
         :placeholder="notePlaceholder"
         :disabled="disabled || submitting"
         @input="$emit('update:note', ($event.target as HTMLTextAreaElement).value)"
       ></textarea>
-    </label>
+    </div>
 
     <div class="order-draft-panel__totals">
       <div class="order-draft-panel__total-row">
@@ -220,7 +230,7 @@ const props = withDefaults(
   }
 );
 
-defineEmits<{
+const emit = defineEmits<{
   "change-qty": [{ key: string | number; delta: number }];
   "remove-line": [key: string | number];
   "update:arrivalTime": [value: string];
@@ -235,6 +245,23 @@ const itemCount = computed(() =>
 const totalAmount = computed(() =>
   props.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0)
 );
+
+const NOTE_CHIPS = ["Không cay", "Ít cay", "Cay vừa", "Cay đậm", "Thêm rau", "Ít nước chấm", "Không rau", "Ít đường", "Không đường", "Ít muối/hạt nêm"];
+
+function isChipActive(chip: string): boolean {
+  if (!props.note) return false;
+  return props.note.split(",").map((s) => s.trim()).includes(chip);
+}
+
+function toggleChip(chip: string) {
+  if (isChipActive(chip)) {
+    const parts = props.note.split(",").map((s) => s.trim()).filter((s) => s !== chip);
+    emit("update:note", parts.join(", "));
+  } else {
+    const current = props.note?.trim() || "";
+    emit("update:note", current ? `${current}, ${chip}` : chip);
+  }
+}
 
 </script>
 
@@ -567,9 +594,50 @@ const totalAmount = computed(() =>
   color: var(--muted);
 }
 
+.order-draft-panel__note-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.order-draft-panel__note-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--muted-rgb), 0.2);
+  background: rgba(var(--panel-rgb), 0.8);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.order-draft-panel__note-chip:hover:not(:disabled):not(.is-active) {
+  background: rgba(var(--ember-rgb), 0.1);
+  border-color: rgba(var(--ember-rgb), 0.3);
+  color: var(--ember-strong);
+}
+
+.order-draft-panel__note-chip.is-active {
+  background: rgba(var(--ember-rgb), 0.15);
+  border-color: rgba(var(--ember-rgb), 0.5);
+  color: var(--ember-strong);
+  font-weight: 700;
+}
+
+.order-draft-panel__note-chip.is-active:hover:not(:disabled) {
+  background: rgba(var(--ember-rgb), 0.08);
+  border-color: rgba(var(--ember-rgb), 0.3);
+}
+
+.order-draft-panel__note-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .order-draft-panel__field textarea {
   resize: vertical;
-  min-height: 116px;
+  min-height: 84px;
 }
 
 .order-draft-panel__field textarea:focus,

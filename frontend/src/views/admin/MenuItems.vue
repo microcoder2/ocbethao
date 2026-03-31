@@ -209,8 +209,8 @@
               </div>
             </div>
 
-            <!-- ── unit + time + spicy ── -->
-            <div class="mi-row3">
+            <!-- ── unit + time ── -->
+            <div class="mi-row2">
               <div class="mi-field">
                 <label class="mi-label">Đơn vị bán</label>
                 <div class="mi-select-group">
@@ -225,19 +225,6 @@
               <div class="mi-field">
                 <label class="mi-label">Chuẩn bị (phút)</label>
                 <input v-model.number="modal.form.preparationTimeMin" class="mi-input" type="number" min="0" />
-              </div>
-              <div class="mi-field">
-                <label class="mi-label">Độ cay</label>
-                <div class="mi-select-group">
-                  <select v-model.number="modal.form.spicyLevel" class="mi-select">
-                    <option v-for="sl in spicyLevels.items.value" :key="sl.id" :value="Number(sl.id)">
-                      {{ sl.name }}
-                    </option>
-                  </select>
-                  <button class="mi-manage-btn" title="Đặt tên mức cay" @click.stop="managing = 'spicyLevel'">
-                    <i class="bi bi-sliders"></i>
-                  </button>
-                </div>
               </div>
             </div>
 
@@ -449,14 +436,6 @@ const units = makeLocalList("oc_units", [
   { id: "chiec", name: "chiếc" },
 ]);
 
-const spicyLevels = makeLocalList("oc_spicy_levels", [
-  { id: "0", name: "Không cay" },
-  { id: "1", name: "Hơi cay" },
-  { id: "2", name: "Cay nhẹ" },
-  { id: "3", name: "Cay vừa" },
-  { id: "4", name: "Cay" },
-  { id: "5", name: "Rất cay" },
-]);
 
 // ── db state ───────────────────────────────────────────────────────────
 const categories  = ref<Category[]>([]);
@@ -538,7 +517,7 @@ const viewModal = reactive<{ open: boolean; item: MenuItem | null }>({
 });
 
 // ── quick manager state ────────────────────────────────────────────────
-type ManagingType = "cookingMethod" | "unit" | "spicyLevel" | "category" | null;
+type ManagingType = "cookingMethod" | "unit" | "category" | null;
 const managing = ref<ManagingType>(null);
 const categoryManagerBusy = ref(false);
 
@@ -564,13 +543,6 @@ const activeManager = computed<{
         items: units.items.value,
         fields: [{ key: "name", label: "Đơn vị", placeholder: "Vd: đĩa, tô, con..." }],
         allowAdd: true, allowDelete: true, busy: false,
-      };
-    case "spicyLevel":
-      return {
-        title: "Mức độ cay",
-        items: spicyLevels.items.value,
-        fields: [{ key: "name", label: "Tên mức", placeholder: "Tên hiển thị" }],
-        allowAdd: false, allowDelete: false, busy: false,
       };
     case "category":
       return {
@@ -603,8 +575,6 @@ function onManagerUpdate(id: string | number, data: Record<string, any>) {
     cookingMethods.update(id, data.name);
   } else if (managing.value === "unit") {
     units.update(id, data.name);
-  } else if (managing.value === "spicyLevel") {
-    spicyLevels.update(id, data.name);
   } else if (managing.value === "category") {
     saveCategoryUpdate(Number(id), data);
   }

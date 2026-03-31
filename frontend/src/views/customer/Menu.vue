@@ -225,6 +225,7 @@
           link-label="Đơn của tôi"
           :lines="cartDraftLines"
           :arrival-time="arrivalTime"
+          :arrival-mode="arrivalMode"
           :note="note"
           :sticky="true"
           :disabled="cart.length === 0 || submitting || !menu?.id"
@@ -237,6 +238,7 @@
           @change-qty="handleCartLineChange"
           @remove-line="removeLine"
           @update:arrival-time="arrivalTime = $event"
+          @update:arrival-mode="arrivalMode = $event"
           @update:note="note = $event"
           @submit="submitOrder"
         />
@@ -324,6 +326,7 @@ const menu = ref<DailyMenuData | null>(null);
 const cart = ref<CartLine[]>([]);
 const note = ref("");
 const arrivalTime = ref("");
+const arrivalMode = ref<"scheduled" | "unknown" | "arrived">("unknown");
 const loading = ref(true);
 const loadError = ref("");
 const searchQuery = ref("");
@@ -604,9 +607,16 @@ async function submitOrder() {
   feedback.value = null;
 
   try {
+    const arrivalAt =
+      arrivalMode.value === "scheduled"
+        ? buildArrivalAt(menu.value.serviceDate, arrivalTime.value)
+        : arrivalMode.value === "arrived"
+          ? new Date().toISOString()
+          : undefined;
+
     await api.post("/orders", {
       dailyMenuId: menu.value.id,
-      arrivalAt: buildArrivalAt(menu.value.serviceDate, arrivalTime.value),
+      arrivalAt,
       note: note.value,
       items: cart.value.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
@@ -617,6 +627,7 @@ async function submitOrder() {
     cart.value = [];
     note.value = "";
     arrivalTime.value = "";
+    arrivalMode.value = "unknown";
     feedback.value = {
       type: "success",
       text: "Đơn của bạn đã được gửi tới bếp. Bạn có thể theo dõi trạng thái trong mục Đơn của tôi.",

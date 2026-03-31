@@ -27,13 +27,21 @@
                 <input v-model="form.fullName" type="text" :disabled="!canEdit" placeholder="Họ và tên" />
               </label>
 
-              <!-- username: read-only always -->
+              <!-- username: editable -->
               <label class="pm-field pm-field--full">
                 <span>
                   Tên đăng nhập
-                  <span class="pm-field-lock"><i class="bi bi-lock-fill"></i> không thể đổi</span>
+                  <span class="pm-field-hint">a-z, 0-9, dấu _ · 3–20 ký tự</span>
                 </span>
-                <input :value="user?.username || '—'" type="text" disabled class="pm-input--readonly" />
+                <input
+                  v-model.trim="form.username"
+                  type="text"
+                  autocomplete="username"
+                  :disabled="!canEdit"
+                  placeholder="ten_dang_nhap"
+                  :class="{ 'pm-input--invalid': usernameError }"
+                />
+                <span v-if="usernameError" class="pm-field-error">{{ usernameError }}</span>
               </label>
 
               <label class="pm-field">
@@ -138,9 +146,10 @@ const emit = defineEmits<{ close: []; saved: [] }>();
 const user = ref(getUser());
 
 const form = reactive({
-  fullName:        user.value?.fullName ?? "",
-  phone:           user.value?.phone    ?? "",
-  email:           user.value?.email    ?? "",
+  fullName:        user.value?.fullName  ?? "",
+  username:        user.value?.username  ?? "",
+  phone:           user.value?.phone     ?? "",
+  email:           user.value?.email     ?? "",
   currentPassword: "",
   newPassword:     "",
   confirmPassword: "",
@@ -149,17 +158,19 @@ const form = reactive({
 // eye visibility toggles
 const show = reactive({ current: false, newPw: false, confirm: false });
 
-const saving    = ref(false);
-const saveOk    = ref(false);
-const saveError = ref("");
-const pwError   = ref("");
+const saving       = ref(false);
+const saveOk       = ref(false);
+const saveError    = ref("");
+const pwError      = ref("");
+const usernameError = ref("");
 
 const canEdit = computed(() => !!user.value);
 
 const isDirty = computed(() => {
-  if (form.fullName.trim() !== (user.value?.fullName ?? "")) return true;
-  if (form.phone.trim()    !== (user.value?.phone    ?? "")) return true;
-  if (form.email.trim()    !== (user.value?.email    ?? "")) return true;
+  if (form.fullName.trim()  !== (user.value?.fullName  ?? "")) return true;
+  if (form.username.trim()  !== (user.value?.username  ?? "")) return true;
+  if (form.phone.trim()     !== (user.value?.phone     ?? "")) return true;
+  if (form.email.trim()     !== (user.value?.email     ?? "")) return true;
   if (form.currentPassword || form.newPassword || form.confirmPassword) return true;
   return false;
 });
@@ -176,16 +187,24 @@ onMounted(async () => {
   try {
     const res = await api.get("/me");
     Object.assign(user.value ??= {} as any, res.data);
-    form.fullName = res.data.fullName ?? form.fullName;
-    form.phone    = res.data.phone    ?? "";
-    form.email    = res.data.email    ?? "";
+    form.fullName = res.data.fullName  ?? form.fullName;
+    form.username = res.data.username  ?? "";
+    form.phone    = res.data.phone     ?? "";
+    form.email    = res.data.email     ?? "";
   } catch { /* keep local data */ }
 });
 
 async function save() {
-  pwError.value   = "";
-  saveError.value = "";
-  saveOk.value    = false;
+  pwError.value      = "";
+  saveError.value    = "";
+  usernameError.value = "";
+  saveOk.value       = false;
+
+  const newUsername = form.username.trim().toLowerCase();
+  if (newUsername && !/^[a-z0-9_]{3,20}$/.test(newUsername)) {
+    usernameError.value = "Chỉ gồm a-z, 0-9, dấu _ và 3–20 ký tự.";
+    return;
+  }
 
   const changingPw = form.newPassword || form.confirmPassword || form.currentPassword;
   if (changingPw) {
@@ -211,6 +230,7 @@ async function save() {
   try {
     const body: Record<string, any> = {
       fullName: form.fullName.trim(),
+      username: newUsername || null,
       phone:    form.phone.trim()  || null,
       email:    form.email.trim()  || null,
     };
@@ -222,6 +242,7 @@ async function save() {
     const res = await api.put("/me", body);
     saveAuth({ user: { ...user.value!, ...res.data } });
     user.value = getUser();
+    form.username        = res.data.username ?? "";
     form.currentPassword = "";
     form.newPassword     = "";
     form.confirmPassword = "";
@@ -230,7 +251,16 @@ async function save() {
     emit("saved");
     setTimeout(() => { saveOk.value = false; }, 3000);
   } catch (e: any) {
-    saveError.value = e?.response?.data?.message || "Lưu thất bại, thử lại sau";
+    const msg = e?.response?.data?.message || "";
+    if (msg.includes("username") || msg.includes("đăng nhập")) {
+      usernameError.value = msg;
+    } else if (msg.includes("phone") || msg.includes("điện thoại")) {
+      saveError.value = msg;
+    } else if (msg.includes("email")) {
+      saveError.value = msg;
+    } else {
+      saveError.value = msg || "Lưu thất bại, thử lại sau";
+    }
   } finally {
     saving.value = false;
   }
@@ -308,6 +338,15 @@ async function save() {
 .pm-field-lock {
   font-size: 0.7rem; font-weight: 500; color: var(--muted);
   display: inline-flex; align-items: center; gap: 3px;
+}
+.pm-field-hint {
+  font-size: 0.7rem; font-weight: 400; color: var(--muted);
+}
+.pm-field-error {
+  font-size: 0.75rem; color: var(--danger); margin-top: -2px;
+}
+.pm-input--invalid {
+  border-color: var(--danger) !important;
 }
 
 .pm-field input,

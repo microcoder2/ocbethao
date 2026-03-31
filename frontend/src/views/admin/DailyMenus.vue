@@ -127,12 +127,14 @@
             <span v-if="!row.enabled" class="dm-price-display">{{ formatMoneyShort(row.overridePrice) }}</span>
             <input
               v-else
-              v-model.number="row.overridePrice"
-              type="number"
-              min="0"
-              step="1000"
+              :value="formatPriceInput(row.overridePrice)"
+              type="text"
+              inputmode="numeric"
               class="dm-price-input"
               @click.stop
+              @focus="(e) => ((e.target as HTMLInputElement).value = String(row.overridePrice || 0))"
+              @blur="(e) => { row.overridePrice = parsePriceInput((e.target as HTMLInputElement).value) }"
+              @keydown.enter.prevent="(e) => (e.target as HTMLInputElement).blur()"
             />
           </div>
 
@@ -204,6 +206,14 @@
 import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { api } from "../../api";
 import { formatMoneyShort } from "../../utils/format";
+
+function formatPriceInput(val: number | undefined): string {
+  if (!val && val !== 0) return "";
+  return new Intl.NumberFormat("vi-VN").format(val);
+}
+function parsePriceInput(val: string): number {
+  return parseInt(val.replace(/\D/g, ""), 10) || 0;
+}
 import { API_BASE_URL } from "../../config";
 import DailyStockPanel, { type PoolSummary } from "../../components/admin/DailyStockPanel.vue";
 

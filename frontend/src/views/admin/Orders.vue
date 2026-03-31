@@ -289,60 +289,65 @@
               @submit="submitCreateOrder"
             >
               <template #before-lines>
-                <div class="orders-create-grid">
-                  <label class="orders-field">
-                    <span class="orders-field-label">Tên khách</span>
+                <!-- guest info: no labels, placeholder only -->
+                <div class="orders-create-guest">
+                  <div>
                     <input
                       v-model.trim="createOrderDialog.guestName"
                       class="form-control orders-select"
                       type="text"
-                      placeholder="Ví dụ: Chị Lan"
+                      placeholder="Tên khách (ví dụ: Chị Lan)"
                     />
-                  </label>
-
-                  <label class="orders-field">
-                    <span class="orders-field-label">Số điện thoại</span>
-                    <input
-                      v-model.trim="createOrderDialog.guestPhone"
-                      class="form-control orders-select"
-                      type="tel"
-                      placeholder="0909..."
-                    />
-                  </label>
-                </div>
-
-                <div class="order-add-row">
-                  <div class="order-add-field">
-                    <span class="orders-field-label">Thêm món vào đơn</span>
-                    <div class="order-add-control">
-                      <select
-                        v-model="createOrderDialog.selectedItemId"
-                        class="form-select orders-select"
-                        :disabled="createOrderSubmitting || !manualMenuOptions.length"
-                      >
-                        <option value="">Chọn món</option>
-                        <template v-for="group in groupByIngredient(manualMenuOptions)" :key="group.label">
-                          <optgroup :label="groupLabel(group)">
-                            <option v-for="item in group.items" :key="item.id" :value="String(item.id)">
-                              {{ item.menuItem.name }} · {{ formatMoney(item.sellingPrice) }}
-                            </option>
-                          </optgroup>
-                        </template>
-                      </select>
+                    <div class="orders-name-chips">
                       <button
-                        class="btn btn-ember order-add-btn"
+                        v-for="name in GUEST_NAME_CHIPS"
+                        :key="name"
                         type="button"
-                        :disabled="createOrderSubmitting || !createOrderDialog.selectedItemId"
-                        @click="addCreateOrderItem"
-                      >
-                        <i class="bi bi-plus-lg"></i>
-                      </button>
-                    </div>
-                    <div v-if="!manualMenu" class="order-add-hint">
-                      Chưa có menu cho ngày đang lọc.
+                        :class="['orders-name-chip', { 'is-active': createOrderDialog.guestName === name }]"
+                        @click="createOrderDialog.guestName = createOrderDialog.guestName === name ? '' : name"
+                      >{{ name }}</button>
                     </div>
                   </div>
+                  <input
+                    v-model.trim="createOrderDialog.guestPhone"
+                    class="form-control orders-select"
+                    type="tel"
+                    placeholder="Số điện thoại (tuỳ chọn)"
+                  />
                 </div>
+
+                <!-- 2-step item picker -->
+                <div v-if="manualMenu" class="order-picker">
+                  <!-- ingredient chips -->
+                  <div class="order-picker-ingredients">
+                    <button
+                      v-for="group in pickerGroups"
+                      :key="group.label"
+                      type="button"
+                      :class="['order-picker-ing', { 'is-active': pickerIngredient === group.label }]"
+                      :disabled="createOrderSubmitting"
+                      @click="pickerIngredient = pickerIngredient === group.label ? null : group.label"
+                    >
+                      {{ group.label }}
+                      <span v-if="group.remaining != null" class="order-picker-rem">{{ group.remaining }}</span>
+                    </button>
+                  </div>
+                  <!-- cooking method chips -->
+                  <div v-if="pickerIngredient" class="order-picker-methods">
+                    <button
+                      v-for="item in pickerIngredientItems"
+                      :key="item.id"
+                      type="button"
+                      class="order-picker-method"
+                      :disabled="createOrderSubmitting"
+                      @click="addItemDirect(item)"
+                    >
+                      <span>{{ methodLabel(item, pickerIngredient) }}</span>
+                      <span class="order-picker-price">{{ formatMoneyShort(item.sellingPrice) }}</span>
+                    </button>
+                  </div>
+                </div>
+                <div v-else class="order-add-hint">Chưa có menu cho ngày đang lọc.</div>
               </template>
             </OrderDraftPanel>
           </div>
@@ -358,7 +363,7 @@ import { api } from "../../api";
 import { socket } from "../../socket";
 import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import OrderCard from "../../components/admin/OrderCard.vue";
-import { formatMoney } from "../../utils/format";
+import { formatMoney, formatMoneyShort } from "../../utils/format";
 
 
 type OrderItem = {
@@ -568,6 +573,52 @@ const canSubmitCreateOrder = computed(
   () => Boolean(manualMenu.value && createOrderDialog.lines.length && createOrderDialog.guestName.trim())
 );
 
+// ── ingredient/method picker ─────────────────────────────────────────
+const pickerIngredient = ref<string | null>(null);
+
+const pickerGroups = computed(() => {
+  const groups = new Map<string, { label: string; poolId: number | null; items: DailyMenuOption[] }>();
+  for (const option of manualMenuOptions.value) {
+    const pool = option.stockLinks?.[0]?.stockPool;
+    const label = pool?.label || "Khác";
+    const poolId = pool?.id ?? null;
+    const key = `${label}::${poolId}`;
+    if (!groups.has(key)) groups.set(key, { label, poolId, items: [] });
+    groups.get(key)!.items.push(option);
+  }
+  return Array.from(groups.values()).map((g) => ({
+    ...g,
+    remaining: g.poolId != null ? stockRemainingMap[g.poolId] ?? null : null,
+  }));
+});
+
+const pickerIngredientItems = computed(() => {
+  if (!pickerIngredient.value) return [];
+  return pickerGroups.value.find((g) => g.label === pickerIngredient.value)?.items ?? [];
+});
+
+function methodLabel(item: DailyMenuOption, ingredientLabel: string): string {
+  const name = item.menuItem?.name ?? "";
+  // strip the ingredient label prefix if the item name contains it, leave just the cooking part
+  const stripped = name.replace(new RegExp(`^${ingredientLabel}\\s*`, "i"), "").trim();
+  return stripped || name;
+}
+
+function addItemDirect(option: DailyMenuOption) {
+  const existing = createOrderDialog.lines.find((line) => line.dailyMenuItemId === option.id);
+  if (existing) {
+    existing.quantity += 1;
+  } else {
+    createOrderDialog.lines.push({
+      key: `manual-${option.id}`,
+      dailyMenuItemId: option.id,
+      name: option.menuItem.name,
+      price: Number(option.sellingPrice || 0),
+      quantity: 1,
+    });
+  }
+}
+
 // poolId → remainingQuantity, updated from API load + socket events
 const stockRemainingMap = reactive<Record<number, number>>({});
 
@@ -578,6 +629,8 @@ const completeDialog = reactive<{
   visible: false,
   order: null,
 });
+
+const GUEST_NAME_CHIPS = ["Khách bàn 1", "Khách bàn 2", "Khách bàn 3", "Khách đem về"];
 
 const createOrderDialog = reactive<{
   visible: boolean;
@@ -698,6 +751,7 @@ function resetCreateOrderDialog() {
   createOrderDialog.note = "";
   createOrderDialog.selectedItemId = "";
   createOrderDialog.lines = [];
+  pickerIngredient.value = null;
 }
 
 function closeCreateOrderDialog() {
@@ -716,32 +770,6 @@ function openCreateOrderDialog() {
   createOrderDialog.visible = true;
 }
 
-function addCreateOrderItem() {
-  const selectedId = Number(createOrderDialog.selectedItemId || 0);
-  if (!selectedId) {
-    return;
-  }
-
-  const option = manualMenuOptions.value.find((item) => item.id === selectedId);
-  if (!option) {
-    return;
-  }
-
-  const existing = createOrderDialog.lines.find((line) => line.dailyMenuItemId === option.id);
-  if (existing) {
-    existing.quantity += 1;
-  } else {
-    createOrderDialog.lines.push({
-      key: `manual-${option.id}`,
-      dailyMenuItemId: option.id,
-      name: option.menuItem.name,
-      price: Number(option.sellingPrice || 0),
-      quantity: 1,
-    });
-  }
-
-  createOrderDialog.selectedItemId = "";
-}
 
 function handleCreateOrderLineChange(payload: { key: string | number; delta: number }) {
   const line = createOrderDialog.lines.find((entry) => entry.key === String(payload.key));
@@ -861,25 +889,6 @@ function getAddableOptions(order: OrderRecord) {
   return (menu?.items || []).filter((item) => item.isAvailable && item.menuItem);
 }
 
-function groupByIngredient(options: DailyMenuOption[]) {
-  const groups = new Map<string, { label: string; poolId: number | null; items: DailyMenuOption[] }>();
-  for (const option of options) {
-    const pool = option.stockLinks?.[0]?.stockPool;
-    const label = pool?.label || "Khác";
-    const poolId = pool?.id ?? null;
-    const key = poolId != null ? `pool-${poolId}` : `label-${label}`;
-    if (!groups.has(key)) {
-      groups.set(key, { label, poolId, items: [] });
-    }
-    groups.get(key)!.items.push(option);
-  }
-  return Array.from(groups.values());
-}
-
-function groupLabel(group: { label: string; poolId: number | null }) {
-  const rem = group.poolId != null ? stockRemainingMap[group.poolId] : undefined;
-  return rem != null ? `${group.label} — còn ${rem}` : group.label;
-}
 
 function syncStockFromMenus(menus: DailyMenuRecord[]) {
   for (const menu of menus) {
@@ -1410,6 +1419,144 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.orders-name-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.orders-name-chip {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--muted-rgb), 0.2);
+  background: rgba(var(--panel-rgb), 0.8);
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.orders-name-chip:hover:not(.is-active) {
+  background: rgba(var(--ember-rgb), 0.1);
+  border-color: rgba(var(--ember-rgb), 0.3);
+  color: var(--ember-strong);
+}
+
+.orders-name-chip.is-active {
+  background: rgba(var(--ember-rgb), 0.15);
+  border-color: rgba(var(--ember-rgb), 0.5);
+  color: var(--ember-strong);
+  font-weight: 700;
+}
+
+.orders-name-chip.is-active:hover {
+  background: rgba(var(--ember-rgb), 0.08);
+  border-color: rgba(var(--ember-rgb), 0.3);
+}
+
+/* ── item picker ── */
+.order-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.order-picker-ingredients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.order-picker-ing {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--muted-rgb), 0.2);
+  background: rgba(var(--panel-rgb), 0.8);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.order-picker-ing:hover:not(:disabled):not(.is-active) {
+  background: rgba(var(--ember-rgb), 0.1);
+  border-color: rgba(var(--ember-rgb), 0.3);
+  color: var(--ember-strong);
+}
+
+.order-picker-ing.is-active {
+  background: rgba(var(--ember-rgb), 0.15);
+  border-color: rgba(var(--ember-rgb), 0.5);
+  color: var(--ember-strong);
+}
+
+.order-picker-ing.is-active:hover:not(:disabled) {
+  background: rgba(var(--ember-rgb), 0.08);
+}
+
+.order-picker-rem {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(var(--ember-rgb), 0.12);
+  color: var(--ember-strong);
+}
+
+.order-picker-ing.is-active .order-picker-rem {
+  background: rgba(255, 255, 255, 0.25);
+  color: inherit;
+}
+
+.order-picker-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(var(--panel-rgb), 0.5);
+  border: 1px solid rgba(var(--muted-rgb), 0.1);
+}
+
+.order-picker-method {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--muted-rgb), 0.18);
+  background: rgba(var(--panel-rgb), 0.9);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.08s;
+}
+
+.order-picker-method:hover:not(:disabled) {
+  background: rgba(var(--ember-rgb), 0.12);
+  border-color: rgba(var(--ember-rgb), 0.4);
+  color: var(--ember-strong);
+  transform: translateY(-1px);
+}
+
+.order-picker-method:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.order-picker-price {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(var(--muted-rgb), 0.08);
+}
+
 .orders-field-label {
   font-size: 0.76rem;
   font-weight: 700;
@@ -1714,6 +1861,11 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 0;
   overflow: auto;
+}
+
+.orders-create-guest {
+  display: grid;
+  gap: 8px;
 }
 
 .orders-create-grid {
