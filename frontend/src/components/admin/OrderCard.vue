@@ -504,6 +504,7 @@ const arrivalEditOpen = ref(false);
 const addSelection = ref("");
 const highlightedKey = ref<string | number | null>(null);
 const openItemNoteKeys = ref<Set<string>>(new Set());
+const draftKeySeed = ref(0);
 
 function flashItem(key: string | number) {
   highlightedKey.value = key;
@@ -534,6 +535,7 @@ const stagePicker = reactive<{
 watch(
   () => props.order.items?.map((i) =>
     [
+      i.id ?? "",
       i.dailyMenuItemId ?? i.menuItemId,
       i.quantity,
       i.waitingQuantity ?? "",
@@ -541,6 +543,7 @@ watch(
       i.readyQuantity ?? "",
       i.cancelledQuantity ?? "",
       i.status,
+      normalizeItemNote(i.note),
     ].join(":")
   ).join("|"),
   () => {
@@ -576,11 +579,15 @@ function formatTime(value: string) {
 }
 
 function hasItemNote(item: EditableItem) {
-  return Boolean(String(item.note || "").trim());
+  return Boolean(normalizeItemNote(item.note));
 }
 
 function getItemNoteChips(note?: string | null) {
   return parseNoteChips(note);
+}
+
+function normalizeItemNote(note?: string | null) {
+  return String(note || "").trim();
 }
 
 function canEditItemNote(item: EditableItem) {
@@ -607,10 +614,18 @@ function openItemNoteEditor(key: string) {
   openItemNoteKeys.value = next;
 }
 
+function buildDraftItemKey(seed: string | number) {
+  draftKeySeed.value += 1;
+  return `draft-${seed}-${draftKeySeed.value}`;
+}
+
 function cloneItems(items: OrderItem[] = []): EditableItem[] {
   return items.map((item, i) => ({
     id: item.id,
-    key: `${item.dailyMenuItemId ?? item.menuItemId ?? "item"}-${i}`,
+    key:
+      typeof item.id === "number" && item.id > 0
+        ? `item-${item.id}`
+        : `item-${item.dailyMenuItemId ?? item.menuItemId ?? "item"}-${i}`,
     menuItemId: item.menuItemId ?? null,
     dailyMenuItemId: item.dailyMenuItemId ?? null,
     itemNameSnapshot: item.itemNameSnapshot,
@@ -1017,7 +1032,12 @@ function addItem() {
   if (!opt) return;
 
   ensureDraft();
-  const existing = draft.value!.findIndex((i) => i.dailyMenuItemId === opt.id);
+  const existing = draft.value!.findIndex(
+    (i) =>
+      i.dailyMenuItemId === opt.id &&
+      normalizeItemNote(i.note) === "" &&
+      canAdjustDraftItem(i)
+  );
   if (existing >= 0) {
     const cur = draft.value![existing];
     const nextQuantity = cur.quantity + 1;
@@ -1036,7 +1056,7 @@ function addItem() {
     flashItem(cur.key);
     openItemNoteEditor(cur.key);
   } else {
-    const newKey = `new-${opt.id}`;
+    const newKey = buildDraftItemKey(opt.id);
     draft.value!.push({
       id: null,
       key: newKey,

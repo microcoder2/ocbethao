@@ -515,6 +515,10 @@ function showItemNote(item: EditableItem) {
   );
 }
 
+function hasItemNote(item: EditableItem) {
+  return Boolean(String(item.note || "").trim());
+}
+
 function getItemNoteChips(note?: string | null) {
   return parseNoteChips(note);
 }

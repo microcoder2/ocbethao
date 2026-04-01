@@ -977,6 +977,11 @@ function toggleLineChip(key: string | number, note: string, chip: string) {
 }
 
 @media (max-width: 767px) {
+  .order-draft-panel {
+    gap: 18px;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+
   .order-draft-panel__summary {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -262,13 +262,15 @@
           </div>
 
           <div class="orders-create-modal-body">
-            <OrderDraftPanel
+            <QuickOrderComposer
               title="Tạo đơn mới"
               summary=""
               :lines="createOrderDialog.lines"
               :arrival-time="createOrderDialog.arrivalTime"
               :arrival-mode="createOrderDialog.arrivalMode"
               :note="createOrderDialog.note"
+              :menu-options="manualMenuOptions"
+              :stock-remaining-map="stockRemainingMap"
               :disabled="createOrderSubmitting || !manualMenu"
               :submit-disabled="createOrderSubmitting || !canSubmitCreateOrder"
               :submitting="createOrderSubmitting"
@@ -277,20 +279,22 @@
               :framed="false"
               :show-header="false"
               :show-summary="false"
+              variant="admin"
               submit-label="Tạo đơn"
               submitting-label="Đang tạo đơn..."
               empty-title="Chưa có món trong đơn"
               empty-description="Chọn món từ danh sách bên dưới để bắt đầu tạo đơn."
+              empty-menu-hint="Chưa có menu cho ngày đang lọc."
               @change-qty="handleCreateOrderLineChange"
               @update-line-note="updateCreateOrderLineNote"
               @remove-line="removeCreateOrderLine"
               @update:arrival-time="createOrderDialog.arrivalTime = $event"
               @update:arrival-mode="createOrderDialog.arrivalMode = $event"
               @update:note="createOrderDialog.note = $event"
+              @select-item="addItemDirect"
               @submit="submitCreateOrder"
             >
-              <template #before-lines>
-                <!-- guest info: no labels, placeholder only -->
+              <template #before-picker>
                 <div class="orders-create-guest">
                   <div>
                     <input
@@ -317,8 +321,7 @@
                   />
                 </div>
 
-                <!-- 2-step item picker -->
-                <div v-if="manualMenu" class="order-picker">
+                <div v-if="false" class="order-picker">
                   <fieldset
                     v-for="cat in pickerCategories"
                     :key="cat.name"
@@ -363,9 +366,9 @@
                     </div>
                   </fieldset>
                 </div>
-                <div v-else class="order-add-hint">Chưa có menu cho ngày đang lọc.</div>
+                <div v-else-if="false" class="order-add-hint">Chưa có menu cho ngày đang lọc.</div>
               </template>
-            </OrderDraftPanel>
+            </QuickOrderComposer>
           </div>
         </div>
       </div>
@@ -377,7 +380,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { api } from "../../api";
 import { socket } from "../../socket";
-import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
+import QuickOrderComposer from "../../components/common/QuickOrderComposer.vue";
 import OrderCard from "../../components/admin/OrderCard.vue";
 import { formatMoney, formatMoneyShort } from "../../utils/format";
 
@@ -655,13 +658,28 @@ function methodLabel(item: DailyMenuOption, ingredientLabel: string): string {
   return stripped || name;
 }
 
+function normalizeDraftLineNote(value?: string | null) {
+  return String(value || "").trim();
+}
+
+const createOrderDraftKeySeed = ref(0);
+
+function buildCreateOrderDraftKey(seed: number) {
+  createOrderDraftKeySeed.value += 1;
+  return `manual-${seed}-${createOrderDraftKeySeed.value}`;
+}
+
 function addItemDirect(option: DailyMenuOption) {
-  const existing = createOrderDialog.lines.find((line) => line.dailyMenuItemId === option.id);
+  const existing = createOrderDialog.lines.find(
+    (line) =>
+      line.dailyMenuItemId === option.id &&
+      normalizeDraftLineNote(line.note) === ""
+  );
   if (existing) {
     existing.quantity += 1;
   } else {
     createOrderDialog.lines.push({
-      key: `manual-${option.id}`,
+      key: buildCreateOrderDraftKey(option.id),
       dailyMenuItemId: option.id,
       name: option.menuItem.name,
       price: Number(option.sellingPrice || 0),
@@ -800,9 +818,11 @@ function resetCreateOrderDialog() {
   createOrderDialog.guestName = "";
   createOrderDialog.guestPhone = "";
   createOrderDialog.arrivalTime = "";
+  createOrderDialog.arrivalMode = "unknown";
   createOrderDialog.note = "";
   createOrderDialog.selectedItemId = "";
   createOrderDialog.lines = [];
+  createOrderDraftKeySeed.value = 0;
   pickerIngredient.value = null;
 }
 
@@ -1989,7 +2009,9 @@ onBeforeUnmount(() => {
   grid-template-rows: auto minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   max-height: none;
+  min-height: 0;
   overflow: hidden;
   gap: 0;
   padding: 0;
@@ -2014,8 +2036,11 @@ onBeforeUnmount(() => {
 .orders-create-modal-body {
   display: grid;
   gap: 10px;
-  padding: 0 12px max(28px, env(safe-area-inset-bottom));
+  min-height: 0;
+  padding: 0 12px calc(40px + env(safe-area-inset-bottom));
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .orders-create-guest {

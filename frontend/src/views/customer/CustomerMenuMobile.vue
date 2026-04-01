@@ -219,7 +219,7 @@
     </Teleport>
 
     <button
-      v-if="cart.length > 0"
+      v-if="cart.length > 0 && !sheetOpen"
       class="mobile-cart-bar"
       type="button"
       @click="sheetOpen = true"
@@ -1095,13 +1095,15 @@ onBeforeUnmount(() => {
   right: 0;
   bottom: 0;
   max-height: min(84vh, 720px);
+  max-height: min(84dvh, 720px);
   overflow: auto;
   display: grid;
   gap: 16px;
-  padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  padding: 18px 16px calc(24px + env(safe-area-inset-bottom));
   border-radius: 24px 24px 0 0;
   background: rgba(var(--panel-rgb), 0.98);
   box-shadow: 0 -20px 40px rgba(var(--panel-alt-rgb), 0.16);
+  overscroll-behavior: contain;
 }
 
 .mobile-cart-sheet__header {

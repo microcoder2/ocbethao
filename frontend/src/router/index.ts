@@ -72,6 +72,11 @@ const routes: RouteRecordRaw[] = [
         meta: { title: "Thực đơn hôm nay" },
       },
       {
+        path: "customer/order-quick",
+        component: () => import("../views/customer/OrderQuickPage.vue"),
+        meta: { title: "Chọn món & gửi bếp" },
+      },
+      {
         path: "customer/orders",
         component: () => import("../views/customer/Orders.vue"),
         meta: { title: "Đơn của tôi" },

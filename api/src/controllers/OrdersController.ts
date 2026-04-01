@@ -170,11 +170,16 @@ function canEditOrder(status: OrderStatus): boolean {
   return status !== OrderStatus.COMPLETED && status !== OrderStatus.CANCELLED;
 }
 
+function normalizeOrderItemNote(note?: string | null) {
+  return String(note || "").trim();
+}
+
 function getOrderItemKey(
   dailyMenuItemId: number | null | undefined,
-  menuItemId: number | null | undefined
+  menuItemId: number | null | undefined,
+  note?: string | null
 ) {
-  return `${dailyMenuItemId ?? "none"}:${menuItemId ?? "none"}`;
+  return `${dailyMenuItemId ?? "none"}:${menuItemId ?? "none"}:${normalizeOrderItemNote(note)}`;
 }
 
 function getAdminOrderChangeType(status: OrderStatus): OrderChangeType | null {
@@ -467,7 +472,7 @@ function buildOrderItemsSignature(
         typeof item.dailyMenuItemId === "number" ? item.dailyMenuItemId : null,
       menuItemId: typeof item.menuItemId === "number" ? item.menuItemId : null,
       quantity: normalizePositiveInt(item.quantity),
-      note: String(item.note || "").trim(),
+      note: normalizeOrderItemNote(item.note),
     }))
     .sort((a, b) => {
       if (a.dailyMenuItemId !== b.dailyMenuItemId) {
@@ -628,7 +633,7 @@ async function resolveOrderLines(
         cancelledQuantity: stageData.cancelledQuantity,
         status: stageData.status,
         lineTotal: unitPrice * quantity,
-        note: item.note,
+        note: normalizeOrderItemNote(item.note) || undefined,
         stockUsage: stockLinks.map((link) => ({
           dailyStockPoolId: link.dailyStockPoolId,
           quantity: Number(link.consumeQuantity) * quantity,
@@ -656,7 +661,7 @@ async function resolveOrderLines(
         cancelledQuantity: stageData.cancelledQuantity,
         status: stageData.status,
         lineTotal: unitPrice * quantity,
-        note: item.note,
+        note: normalizeOrderItemNote(item.note) || undefined,
         stockUsage: [],
       };
     }
@@ -1581,12 +1586,16 @@ export class OrdersController extends Controller {
       const serviceFee = Number(current.serviceFee);
       const discountAmount = Number(current.discountAmount);
       const totalAmount = subtotal + serviceFee - discountAmount;
-      const existingItems = new Map(
-        current.items.map((item) => [
-          getOrderItemKey(item.dailyMenuItemId, item.menuItemId),
-          item,
-        ])
-      );
+      const existingItems = new Map<string, typeof current.items>();
+      for (const item of current.items) {
+        const key = getOrderItemKey(item.dailyMenuItemId, item.menuItemId, item.note);
+        const bucket = existingItems.get(key);
+        if (bucket) {
+          bucket.push(item);
+        } else {
+          existingItems.set(key, [item]);
+        }
+      }
 
       await tx.orderItem.deleteMany({
         where: { orderId: id },
@@ -1599,21 +1608,24 @@ export class OrdersController extends Controller {
           subtotal: money(subtotal),
           totalAmount: money(totalAmount),
           items: {
-            create: lines.map((line) => ({
-              ...buildReplacementStageData(
-                existingItems.get(
-                  getOrderItemKey(line.dailyMenuItemId, line.menuItemId)
-                ),
-                line.quantity
-              ),
-              menuItemId: line.menuItemId,
-              dailyMenuItemId: line.dailyMenuItemId,
-              itemNameSnapshot: line.itemNameSnapshot,
-              unitPrice: money(line.unitPrice),
-              quantity: line.quantity,
-              lineTotal: money(line.lineTotal),
-              note: line.note,
-            })),
+            create: lines.map((line) => {
+              const key = getOrderItemKey(
+                line.dailyMenuItemId,
+                line.menuItemId,
+                line.note
+              );
+              const currentItem = existingItems.get(key)?.shift();
+              return {
+                ...buildReplacementStageData(currentItem, line.quantity),
+                menuItemId: line.menuItemId,
+                dailyMenuItemId: line.dailyMenuItemId,
+                itemNameSnapshot: line.itemNameSnapshot,
+                unitPrice: money(line.unitPrice),
+                quantity: line.quantity,
+                lineTotal: money(line.lineTotal),
+                note: line.note,
+              };
+            }),
           },
         },
       });

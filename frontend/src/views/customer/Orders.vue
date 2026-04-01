@@ -215,7 +215,7 @@ const todayDateValue = new Date(
   Date.now() - new Date().getTimezoneOffset() * 60_000
 ).toISOString().slice(0, 10);
 
-const filter = reactive({ status: "", date: todayDateValue });
+const filter = reactive({ status: "", date: "" });
 
 const cancelConfirm = reactive<{ visible: boolean; order: OrderRecord | null }>({
   visible: false,
@@ -239,12 +239,30 @@ const actionToast = reactive({
 let toastTimerId: number | null = null;
 
 const filteredOrders = computed(() =>
-  allOrders.value.filter((order) => {
-    if (filter.status && order.status !== filter.status) return false;
-    if (filter.date && order.createdAt?.slice(0, 10) !== filter.date) return false;
-    return true;
-  })
+  [...allOrders.value]
+    .filter((order) => {
+      if (filter.status && order.status !== filter.status) return false;
+      if (filter.date && getOrderDateInputValue(order.createdAt) !== filter.date) return false;
+      return true;
+    })
+    .sort((left, right) => {
+      const leftTime = new Date(left.createdAt || 0).getTime();
+      const rightTime = new Date(right.createdAt || 0).getTime();
+      return rightTime - leftTime;
+    })
 );
+
+function getOrderDateInputValue(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value).slice(0, 10);
+  }
+
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 10);
+}
 
 function isBusy(order: OrderRecord) {
   return (

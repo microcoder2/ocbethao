@@ -30,6 +30,7 @@ const MENU: Record<string, AppMenuItem[]> = {
     { label: "Đơn hàng", to: "/staff/orders", icon: "bi-cup-hot-fill" },
   ],
   CUSTOMER: [
+    { label: "Đặt món", to: "/customer/order-quick", icon: "bi-lightning-charge-fill" },
     { label: "Thực đơn", to: "/customer/menu", icon: "bi-egg-fried" },
     { label: "Đơn của tôi", to: "/customer/orders", icon: "bi-bag-check-fill" },
   ],
