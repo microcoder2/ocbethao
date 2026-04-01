@@ -692,6 +692,7 @@ function buildOrderListSelect() {
         cancelledQuantity: true,
         status: true,
         lineTotal: true,
+        note: true,
       },
     },
   };

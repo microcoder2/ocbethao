@@ -50,13 +50,13 @@
         <div class="draft-line__body">
           <div class="draft-line__name">{{ line.name }}</div>
           <div class="draft-line__meta">
-            <span>{{ formatMoney(line.price) }} / món</span>
-            <span>{{ formatMoney(line.price * line.quantity) }}</span>
+            <span>{{ formatMoney(line.price) }}</span>
           </div>
         </div>
 
-        <div class="draft-line__controls">
-          <div class="draft-stepper">
+        <div class="draft-stepper">
+          <span class="draft-stepper__total">{{ formatMoney(line.price * line.quantity) }}</span>
+          <div class="draft-stepper__row">
             <button
               class="draft-stepper__button"
               type="button"
@@ -65,7 +65,7 @@
             >
               <i class="bi bi-dash"></i>
             </button>
-            <span>{{ line.quantity }}</span>
+            <span class="draft-stepper__qty">{{ line.quantity }}</span>
             <button
               class="draft-stepper__button"
               type="button"
@@ -75,15 +75,6 @@
               <i class="bi bi-plus"></i>
             </button>
           </div>
-
-          <button
-            class="draft-remove-button"
-            type="button"
-            :disabled="disabled || submitting"
-            @click="$emit('remove-line', line.key)"
-          >
-            <i class="bi bi-trash3"></i>
-          </button>
         </div>
       </article>
     </div>
@@ -91,22 +82,24 @@
     <div v-if="showArrival" class="order-draft-panel__field order-draft-panel__field--arrival">
       <span>{{ arrivalLabel }}</span>
       <div class="order-draft-panel__arrival-segment">
-        <button type="button" :class="['order-draft-panel__arrival-seg', { 'is-active': arrivalMode === 'scheduled' }]" :disabled="disabled || submitting" @click="$emit('update:arrivalMode', 'scheduled')">Có giờ hẹn</button>
+        <button type="button" :class="['order-draft-panel__arrival-seg', { 'is-active': arrivalMode === 'scheduled' }]" :disabled="disabled || submitting" @click="$emit('update:arrivalMode', 'scheduled'); if (!arrivalTime) $emit('update:arrivalTime', '13:30')">Có giờ hẹn</button>
         <button type="button" :class="['order-draft-panel__arrival-seg', { 'is-active': arrivalMode === 'unknown' }]"   :disabled="disabled || submitting" @click="$emit('update:arrivalMode', 'unknown')">Chưa xác định</button>
         <button type="button" :class="['order-draft-panel__arrival-seg', { 'is-active': arrivalMode === 'arrived' }]"   :disabled="disabled || submitting" @click="$emit('update:arrivalMode', 'arrived')">Đã tới bàn</button>
       </div>
-      <div v-if="arrivalMode === 'scheduled'" :class="['order-draft-panel__time-shell', { 'is-empty': !arrivalTime }]">
+      <div v-if="arrivalMode === 'scheduled'" class="order-draft-panel__time-shell">
+        <i class="bi bi-clock order-draft-panel__time-clock"></i>
         <input
-          :value="arrivalTime"
+          :value="arrivalTime || '13:30'"
           class="order-draft-panel__time-input"
           type="time"
           min="13:00"
           max="21:00"
           :disabled="disabled || submitting"
-          @input="$emit('update:arrivalTime', ($event.target as HTMLInputElement).value)"
+          @change="$emit('update:arrivalTime', ($event.target as HTMLInputElement).value)"
         />
-        <span v-if="arrivalTime" class="order-draft-panel__time-badge">{{ arrivalTime.slice(0, 5) }}</span>
       </div>
+
+
       <small v-if="arrivalMode === 'scheduled' && arrivalPlaceholder" class="order-draft-panel__field-note">
         {{ arrivalPlaceholder }}
       </small>
@@ -115,14 +108,17 @@
     <div v-if="showNote" class="order-draft-panel__field">
       <span>{{ noteLabel }}</span>
       <div class="order-draft-panel__note-chips">
-        <button
-          v-for="chip in NOTE_CHIPS"
-          :key="chip"
-          type="button"
-          :class="['order-draft-panel__note-chip', { 'is-active': isChipActive(chip) }]"
-          :disabled="disabled || submitting"
-          @click="toggleChip(chip)"
-        >{{ chip }}</button>
+        <template v-for="(group, gi) in NOTE_CHIP_GROUPS" :key="group.key">
+          <span v-if="gi > 0" class="order-draft-panel__note-sep" aria-hidden="true"></span>
+          <button
+            v-for="chip in group.chips"
+            :key="chip"
+            type="button"
+            :class="['order-draft-panel__note-chip', { 'is-active': isNoteChipActive(note || '', chip) }]"
+            :disabled="disabled || submitting"
+            @click="toggleChip(chip)"
+          >{{ chip }}</button>
+        </template>
       </div>
       <textarea
         :value="note"
@@ -164,6 +160,7 @@
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { formatMoney } from "../../utils/format";
+import { NOTE_CHIP_GROUPS, isNoteChipActive, toggleNoteChip } from "../../utils/noteChips";
 
 type DraftLine = {
   key: string | number;
@@ -246,21 +243,8 @@ const totalAmount = computed(() =>
   props.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0)
 );
 
-const NOTE_CHIPS = ["Không cay", "Ít cay", "Cay vừa", "Cay đậm", "Thêm rau", "Ít nước chấm", "Không rau", "Ít đường", "Không đường", "Ít muối/hạt nêm"];
-
-function isChipActive(chip: string): boolean {
-  if (!props.note) return false;
-  return props.note.split(",").map((s) => s.trim()).includes(chip);
-}
-
 function toggleChip(chip: string) {
-  if (isChipActive(chip)) {
-    const parts = props.note.split(",").map((s) => s.trim()).filter((s) => s !== chip);
-    emit("update:note", parts.join(", "));
-  } else {
-    const current = props.note?.trim() || "";
-    emit("update:note", current ? `${current}, ${chip}` : chip);
-  }
+  emit("update:note", toggleNoteChip(props.note || "", chip));
 }
 
 </script>
@@ -386,72 +370,87 @@ function toggleChip(chip: string) {
 .draft-line {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 16px;
-  border-radius: 22px;
-  background: rgba(var(--panel-rgb), 0.72);
-  border: 1px solid rgba(var(--muted-rgb), 0.08);
+  gap: 10px;
+  padding: 8px 4px;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  border-top: 1px dashed rgba(var(--muted-rgb), 0.2);
 }
 
 .draft-line__body {
   min-width: 0;
+  flex: 1;
 }
 
 .draft-line__name {
   font-weight: 700;
   color: var(--text);
+  font-size: 0.9rem;
 }
 
 .draft-line__meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 3px;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.8rem;
+  align-items: center;
 }
 
-.draft-line__controls {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex: 0 0 auto;
+.draft-line__total {
+  font-weight: 700;
+  color: var(--text);
+  margin-left: auto;
 }
 
 .draft-stepper {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 6px;
-  border-radius: 999px;
-  background: rgba(var(--panel-rgb), 0.96);
-  border: 1px solid rgba(var(--muted-rgb), 0.08);
+  gap: 4px;
+  flex: 0 0 auto;
 }
 
-.draft-stepper__button,
-.draft-remove-button {
-  width: 34px;
-  height: 34px;
-  border: none;
-  border-radius: 999px;
+.draft-stepper__button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(var(--muted-rgb), 0.18);
+  border-radius: 8px;
   display: grid;
   place-items: center;
   background: var(--panel);
   color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 0.1s;
 }
 
-.draft-stepper span {
-  min-width: 18px;
+.draft-stepper__button:hover:not(:disabled) {
+  background: rgba(var(--ember-rgb), 0.1);
+  border-color: rgba(var(--ember-rgb), 0.3);
+  color: var(--ember-strong);
+}
+
+.draft-stepper__total {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ember-strong);
+  white-space: nowrap;
+}
+
+.draft-stepper__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.draft-stepper__qty {
+  min-width: 22px;
   text-align: center;
   font-weight: 700;
-}
-
-.draft-remove-button {
-  background: rgba(var(--ember-rgb), 0.08);
-  color: var(--ember-strong);
-  flex: 0 0 auto;
+  font-size: 0.88rem;
+  color: var(--text);
 }
 
 .order-draft-panel__field {
@@ -520,39 +519,22 @@ function toggleChip(chip: string) {
 }
 
 .order-draft-panel__time-shell {
-  display: flex;
-  flex-wrap: wrap;
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px 10px 10px;
-  border: 1px solid rgba(var(--muted-rgb), 0.14);
-  border-radius: 20px;
-  background:
-    linear-gradient(135deg, rgba(var(--panel-rgb), 0.95), rgba(var(--panel-rgb), 0.82)),
-    rgba(var(--panel-rgb), 0.88);
 }
 
-.order-draft-panel__time-shell.is-empty {
-  background:
-    linear-gradient(135deg, rgba(var(--panel-rgb), 0.95), rgba(var(--panel-rgb), 0.8)),
-    rgba(var(--panel-rgb), 0.84);
-}
-
-.order-draft-panel__time-shell:focus-within {
-  border-color: rgba(var(--ember-rgb), 0.3);
-  box-shadow: 0 0 0 3px rgba(var(--ember-rgb), 0.12);
-}
-
-.order-draft-panel__time-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  background: rgba(var(--ember-rgb), 0.12);
+.order-draft-panel__time-clock {
+  position: absolute;
+  left: 10px;
   color: var(--ember);
-  font-size: 1.05rem;
+  font-size: 0.95rem;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.order-draft-panel__time-input {
+  padding-left: 30px;
 }
 
 .order-draft-panel__time-input {
@@ -574,25 +556,6 @@ function toggleChip(chip: string) {
   opacity: 0.72;
 }
 
-.order-draft-panel__time-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 0 12px;
-  margin-left: auto;
-  border-radius: 999px;
-  background: rgba(var(--panel-rgb), 0.92);
-  color: var(--ember-strong);
-  font-size: 0.82rem;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.order-draft-panel__time-shell.is-empty .order-draft-panel__time-badge {
-  background: rgba(var(--panel-rgb), 0.96);
-  color: var(--muted);
-}
 
 .order-draft-panel__note-chips {
   display: flex;
@@ -633,6 +596,14 @@ function toggleChip(chip: string) {
 .order-draft-panel__note-chip:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.order-draft-panel__note-sep {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(var(--muted-rgb), 0.2);
+  margin: 2px 2px;
+  flex-shrink: 0;
 }
 
 .order-draft-panel__field textarea {
@@ -696,28 +667,14 @@ function toggleChip(chip: string) {
 }
 
 .order-draft-panel.is-compact .draft-line {
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 16px;
-}
-
-.order-draft-panel.is-compact .draft-line__meta {
-  margin-top: 4px;
-  font-size: 0.82rem;
-}
-
-.order-draft-panel.is-compact .draft-line__controls {
   gap: 8px;
+  padding: 6px 2px;
 }
 
-.order-draft-panel.is-compact .draft-stepper {
-  padding: 4px;
-}
-
-.order-draft-panel.is-compact .draft-stepper__button,
-.order-draft-panel.is-compact .draft-remove-button {
-  width: 30px;
-  height: 30px;
+.order-draft-panel.is-compact .draft-stepper__button {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
 }
 
 .order-draft-panel.is-compact .order-draft-panel__field {
@@ -738,27 +695,8 @@ function toggleChip(chip: string) {
   padding: 10px 12px;
 }
 
-.order-draft-panel.is-compact .order-draft-panel__time-shell {
-  gap: 10px;
-  padding: 8px 10px 8px 8px;
-  border-radius: 16px;
-}
-
-.order-draft-panel.is-compact .order-draft-panel__time-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  font-size: 0.95rem;
-}
-
 .order-draft-panel.is-compact .order-draft-panel__time-input {
   font-size: 0.95rem;
-}
-
-.order-draft-panel.is-compact .order-draft-panel__time-badge {
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 0.76rem;
 }
 
 .order-draft-panel.is-compact .order-draft-panel__field textarea {
@@ -808,16 +746,7 @@ function toggleChip(chip: string) {
   }
 
   .draft-line {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .draft-line__controls {
-    justify-content: flex-end;
-  }
-
-  .draft-stepper {
-    justify-content: flex-start;
+    gap: 8px;
   }
 }
 </style>

@@ -348,6 +348,9 @@ function serializeDailyMenuItemSummary(item: AnyRecord) {
       ? {
           id: item.menuItem.id,
           name: item.menuItem.name,
+          category: item.menuItem.category
+            ? { name: item.menuItem.category.name }
+            : null,
         }
       : null,
     stockLinks: Array.isArray(item.stockLinks)

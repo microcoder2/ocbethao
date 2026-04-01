@@ -185,6 +185,9 @@ function buildDailyMenuWorkspaceSelect() {
             id: true,
             name: true,
             basePrice: true,
+            category: {
+              select: { name: true },
+            },
           },
         },
         stockLinks: {

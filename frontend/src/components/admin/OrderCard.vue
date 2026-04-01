@@ -93,6 +93,19 @@
           <div class="order-item-copy">
             <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
             <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
+            <div v-if="canEdit && item.status !== 'CANCELLED'" class="order-item-note-chips">
+              <template v-for="(group, gi) in NOTE_CHIP_GROUPS" :key="group.key">
+                <span v-if="gi > 0" class="order-item-note-sep" aria-hidden="true"></span>
+                <button
+                  v-for="chip in group.chips"
+                  :key="chip"
+                  type="button"
+                  :class="['order-item-note-chip', { 'is-active': isNoteChipActive(item.note || '', chip) }]"
+                  :disabled="busy"
+                  @click="toggleItemNote(index, chip)"
+                >{{ chip }}</button>
+              </template>
+            </div>
             <div v-if="showItemStatuses" class="order-item-statuses">
               <div v-if="canMoveItemStages(item)" class="order-item-status-block is-action">
                 <div class="order-item-stage-actions">
@@ -115,7 +128,7 @@
                     @click="openStageControl(item, control)"
                   >
                     <span class="order-item-action-label">{{ control.label }}</span>
-                    <span v-if="control.activeCount > 0" class="order-item-action-count">{{ control.activeCount }}</span>
+                    <span v-if="control.activeCount > 1" class="order-item-action-count">{{ control.activeCount }}</span>
                     <span
                       v-if="isPendingItemAction(item.id, control.action?.key)"
                       class="order-item-action-spinner"
@@ -278,6 +291,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { formatMoney } from "../../utils/format";
+import { NOTE_CHIP_GROUPS, isNoteChipActive, toggleNoteChip } from "../../utils/noteChips";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 type OrderItem = {
@@ -295,6 +309,7 @@ type OrderItem = {
   status: string;
   lineTotal: number;
   activeLineTotal?: number;
+  note?: string | null;
 };
 
 type OrderRecord = {
@@ -345,9 +360,10 @@ type EditableItem = {
   status: string;
   lineTotal: number;
   activeLineTotal?: number;
+  note?: string | null;
 };
 
-type SavePayload = { dailyMenuItemId?: number; menuItemId?: number; quantity: number };
+type SavePayload = { dailyMenuItemId?: number; menuItemId?: number; quantity: number; note?: string };
 type ItemStageName = "WAITING" | "COOKING" | "READY" | "CANCELLED";
 type ActiveItemStageName = Exclude<ItemStageName, "CANCELLED">;
 type MoveItemStagePayload = {
@@ -402,12 +418,7 @@ const paymentMethodLabels: Record<string, string> = {
   E_WALLET: "Ví điện tử",
 };
 
-const stageChipMeta: Record<ItemStageName, { label: string; toneClass: string }> = {
-  WAITING: { label: "Chờ", toneClass: "is-waiting" },
-  COOKING: { label: "Đang làm", toneClass: "is-cooking" },
-  READY: { label: "Lên món", toneClass: "is-ready" },
-  CANCELLED: { label: "Đã hủy", toneClass: "is-cancelled" },
-};
+
 
 // ─── Internal state ─────────────────────────────────────────────────────
 const collapsed = ref(true);
@@ -522,7 +533,15 @@ function cloneItems(items: OrderItem[] = []): EditableItem[] {
     status: item.status || "WAITING",
     lineTotal: Number(item.lineTotal || 0),
     activeLineTotal: Number(item.activeLineTotal ?? 0),
+    note: item.note ?? "",
   }));
+}
+
+function toggleItemNote(index: number, chip: string) {
+  ensureDraft();
+  const item = draft.value![index];
+  if (!item) return;
+  draft.value![index] = { ...item, note: toggleNoteChip(item.note || "", chip) };
 }
 
 function ensureDraft() {
@@ -574,8 +593,8 @@ const arrivalChanged = computed(() =>
 
 const draftChanged = computed(() => {
   if (!draft.value) return false;
-  const orig = cloneItems(props.order.items).map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}`).join("|");
-  const curr = draft.value.map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}`).join("|");
+  const orig = cloneItems(props.order.items).map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|");
+  const curr = draft.value.map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|");
   return orig !== curr;
 });
 
@@ -707,21 +726,6 @@ function canAdjustDraftItem(item: EditableItem) {
   );
 }
 
-function getItemStageChips(item: EditableItem): StageChip[] {
-  const stages = getItemStageCounts(item);
-  return (Object.keys(stageChipMeta) as ItemStageName[])
-    .map((stage) => ({
-      key: stage,
-      label: stageChipMeta[stage].label,
-      toneClass: stageChipMeta[stage].toneClass,
-      count:
-        stage === "WAITING" ? stages.waiting :
-        stage === "COOKING" ? stages.cooking :
-        stage === "READY" ? stages.ready :
-        stages.cancelled,
-    }))
-    .filter((chip) => chip.count > 0);
-}
 
 function buildStageAction(
   fromStage: ItemStageName,
@@ -843,9 +847,6 @@ function nudgeStagePicker(delta: number) {
   stagePicker.quantity = Math.min(stagePicker.max, Math.max(1, nextQuantity));
 }
 
-function setStagePickerQuantity(value: number) {
-  stagePicker.quantity = Math.min(stagePicker.max, Math.max(1, value));
-}
 
 function confirmStagePicker() {
   if (!stagePicker.visible || !stagePicker.itemId) {
@@ -960,6 +961,7 @@ function emitSave() {
       dailyMenuItemId: i.dailyMenuItemId ?? undefined,
       menuItemId: i.menuItemId ?? undefined,
       quantity: i.quantity,
+      note: i.note || undefined,
     })),
     arrivalMode.value === "scheduled" ? (arrivalTimeDraft.value || null)
       : arrivalMode.value === "arrived" ? "ARRIVED"
@@ -1367,6 +1369,51 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 .order-item-name   { font-weight: 600; }
 .order-item-meta   { color: var(--muted); font-size: 0.84rem; }
 
+.order-item-note-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.order-item-note-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  border: 1px solid rgba(var(--muted-rgb), 0.3);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.order-item-note-chip:hover {
+  border-color: rgba(var(--text-rgb), 0.4);
+  color: var(--text);
+}
+
+.order-item-note-chip.is-active {
+  background: rgba(201, 126, 71, 0.14);
+  border-color: rgba(201, 88, 44, 0.35);
+  color: var(--ember-strong);
+  font-weight: 700;
+}
+
+.order-item-note-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.order-item-note-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(var(--muted-rgb), 0.22);
+  flex-shrink: 0;
+  align-self: center;
+}
+
 .order-item-statuses {
   display: grid;
   gap: 10px;
@@ -1428,9 +1475,11 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   min-width: 86px;
   justify-content: center;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(var(--muted-rgb), 0.06);
+  color: rgba(var(--text-rgb), 0.7);
+  border-color: rgba(var(--muted-rgb), 0.14);
+  box-shadow: inset 0 2px 4px rgba(var(--text-rgb), 0.08);
   transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.18s, box-shadow 0.18s;
-  box-shadow: 0 1px 2px rgba(var(--text-rgb), 0.06);
 }
 
 .order-item-stage-action:hover,

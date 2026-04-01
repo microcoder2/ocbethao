@@ -316,36 +316,76 @@
                   />
                 </div>
 
+                <!-- note chips + textarea -->
+                <div class="orders-note-field">
+                  <div class="orders-note-chips">
+                    <template v-for="(group, gi) in NOTE_CHIP_GROUPS" :key="group.key">
+                      <span v-if="gi > 0" class="orders-note-sep" aria-hidden="true"></span>
+                      <button
+                        v-for="chip in group.chips"
+                        :key="chip"
+                        type="button"
+                        :class="['orders-note-chip', { 'is-active': isNoteChipActive(createOrderDialog.note || '', chip) }]"
+                        :disabled="createOrderSubmitting"
+                        @click="onToggleNoteChip(chip)"
+                      >{{ chip }}</button>
+                    </template>
+                  </div>
+                  <textarea
+                    :value="createOrderDialog.note"
+                    rows="2"
+                    class="form-control orders-note-textarea"
+                    placeholder="Ghi chú cho bếp..."
+                    :disabled="createOrderSubmitting"
+                    @input="createOrderDialog.note = ($event.target as HTMLTextAreaElement).value"
+                  ></textarea>
+                </div>
+
                 <!-- 2-step item picker -->
                 <div v-if="manualMenu" class="order-picker">
-                  <!-- ingredient chips -->
-                  <div class="order-picker-ingredients">
-                    <button
-                      v-for="group in pickerGroups"
-                      :key="group.label"
-                      type="button"
-                      :class="['order-picker-ing', { 'is-active': pickerIngredient === group.label }]"
-                      :disabled="createOrderSubmitting"
-                      @click="pickerIngredient = pickerIngredient === group.label ? null : group.label"
+                  <fieldset
+                    v-for="cat in pickerCategories"
+                    :key="cat.name"
+                    class="order-picker-fieldset"
+                  >
+                    <legend
+                      class="order-picker-legend"
+                      @click="toggleCat(cat.name)"
                     >
-                      {{ group.label }}
-                      <span v-if="group.remaining != null" class="order-picker-rem">{{ group.remaining }}</span>
-                    </button>
-                  </div>
-                  <!-- cooking method chips -->
-                  <div v-if="pickerIngredient" class="order-picker-methods">
-                    <button
-                      v-for="item in pickerIngredientItems"
-                      :key="item.id"
-                      type="button"
-                      class="order-picker-method"
-                      :disabled="createOrderSubmitting"
-                      @click="addItemDirect(item)"
-                    >
-                      <span>{{ methodLabel(item, pickerIngredient) }}</span>
-                      <span class="order-picker-price">{{ formatMoneyShort(item.sellingPrice) }}</span>
-                    </button>
-                  </div>
+                      <i :class="['bi', openCats.has(cat.name) ? 'bi-chevron-down' : 'bi-chevron-right']"></i>
+                      {{ cat.name }}
+                    </legend>
+                    <div v-if="openCats.has(cat.name)" class="order-picker-ingredients">
+                      <button
+                        v-for="group in cat.groups"
+                        :key="group.label"
+                        type="button"
+                        :class="['order-picker-ing', { 'is-active': pickerIngredient === group.label }]"
+                        :disabled="createOrderSubmitting"
+                        @click="pickerIngredient = pickerIngredient === group.label ? null : group.label"
+                      >
+                        {{ group.label }}
+                        <span v-if="group.remaining != null" class="order-picker-rem">{{ group.remaining }}</span>
+                      </button>
+                    </div>
+                  </fieldset>
+                  <!-- cooking method fieldset -->
+                  <fieldset v-if="pickerIngredient" class="order-picker-fieldset order-picker-fieldset--methods">
+                    <legend class="order-picker-legend order-picker-legend--methods">Cách nấu</legend>
+                    <div class="order-picker-methods">
+                      <button
+                        v-for="item in pickerIngredientItems"
+                        :key="item.id"
+                        type="button"
+                        class="order-picker-method"
+                        :disabled="createOrderSubmitting"
+                        @click="addItemDirect(item)"
+                      >
+                        <span>{{ methodLabel(item, pickerIngredient) }}</span>
+                        <span class="order-picker-price">{{ formatMoneyShort(item.sellingPrice) }}</span>
+                      </button>
+                    </div>
+                  </fieldset>
                 </div>
                 <div v-else class="order-add-hint">Chưa có menu cho ngày đang lọc.</div>
               </template>
@@ -358,12 +398,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { api } from "../../api";
 import { socket } from "../../socket";
 import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import OrderCard from "../../components/admin/OrderCard.vue";
 import { formatMoney, formatMoneyShort } from "../../utils/format";
+import { NOTE_CHIP_GROUPS, isNoteChipActive, toggleNoteChip } from "../../utils/noteChips";
 
 
 type OrderItem = {
@@ -469,6 +510,7 @@ type DailyMenuOption = {
   menuItem: {
     id: number;
     name: string;
+    category?: { name: string } | null;
   };
 };
 
@@ -575,31 +617,63 @@ const canSubmitCreateOrder = computed(
 
 // ── ingredient/method picker ─────────────────────────────────────────
 const pickerIngredient = ref<string | null>(null);
+const openCats = ref<Set<string>>(new Set());
 
-const pickerGroups = computed(() => {
-  const groups = new Map<string, { label: string; poolId: number | null; items: DailyMenuOption[] }>();
+type PickerGroup = { label: string; poolId: number | null; remaining: number | null; items: DailyMenuOption[] };
+type PickerCategory = { name: string; groups: PickerGroup[] };
+
+const pickerCategories = computed((): PickerCategory[] => {
+  const cats = new Map<string, Map<string, Omit<PickerGroup, "remaining">>>();
   for (const option of manualMenuOptions.value) {
+    const catName = option.menuItem?.category?.name ?? "Khác";
+    if (!cats.has(catName)) cats.set(catName, new Map());
     const pool = option.stockLinks?.[0]?.stockPool;
     const label = pool?.label || "Khác";
     const poolId = pool?.id ?? null;
     const key = `${label}::${poolId}`;
-    if (!groups.has(key)) groups.set(key, { label, poolId, items: [] });
-    groups.get(key)!.items.push(option);
+    const catMap = cats.get(catName)!;
+    if (!catMap.has(key)) catMap.set(key, { label, poolId, items: [] });
+    catMap.get(key)!.items.push(option);
   }
-  return Array.from(groups.values()).map((g) => ({
-    ...g,
-    remaining: g.poolId != null ? stockRemainingMap[g.poolId] ?? null : null,
+  return Array.from(cats.entries()).map(([name, groupsMap]) => ({
+    name,
+    groups: Array.from(groupsMap.values()).map((g) => ({
+      ...g,
+      remaining: g.poolId != null ? (stockRemainingMap[g.poolId] ?? null) : null,
+    })),
   }));
 });
 
-const pickerIngredientItems = computed(() => {
+// auto-open new categories as data loads
+watch(pickerCategories, (cats) => {
+  for (const c of cats) openCats.value.add(c.name);
+}, { immediate: true });
+
+function toggleCat(name: string) {
+  if (openCats.value.has(name)) {
+    openCats.value.delete(name);
+    // clear selected ingredient if it belongs to this collapsed category
+    const cat = pickerCategories.value.find((c) => c.name === name);
+    if (cat?.groups.some((g) => g.label === pickerIngredient.value)) {
+      pickerIngredient.value = null;
+    }
+  } else {
+    openCats.value.add(name);
+  }
+  openCats.value = new Set(openCats.value);
+}
+
+const pickerIngredientItems = computed((): DailyMenuOption[] => {
   if (!pickerIngredient.value) return [];
-  return pickerGroups.value.find((g) => g.label === pickerIngredient.value)?.items ?? [];
+  for (const cat of pickerCategories.value) {
+    const g = cat.groups.find((g) => g.label === pickerIngredient.value);
+    if (g) return g.items;
+  }
+  return [];
 });
 
 function methodLabel(item: DailyMenuOption, ingredientLabel: string): string {
   const name = item.menuItem?.name ?? "";
-  // strip the ingredient label prefix if the item name contains it, leave just the cooking part
   const stripped = name.replace(new RegExp(`^${ingredientLabel}\\s*`, "i"), "").trim();
   return stripped || name;
 }
@@ -631,6 +705,10 @@ const completeDialog = reactive<{
 });
 
 const GUEST_NAME_CHIPS = ["Khách bàn 1", "Khách bàn 2", "Khách bàn 3", "Khách đem về"];
+
+function onToggleNoteChip(chip: string) {
+  createOrderDialog.note = toggleNoteChip(createOrderDialog.note || "", chip);
+}
 
 const createOrderDialog = reactive<{
   visible: boolean;
@@ -981,7 +1059,7 @@ async function loadOrders() {
 
 async function saveOrderItems(
   order: OrderRecord,
-  items: Array<{ dailyMenuItemId?: number; menuItemId?: number; quantity: number }>,
+  items: Array<{ dailyMenuItemId?: number; menuItemId?: number; quantity: number; note?: string }>,
   arrivalTime: string | null
 ) {
   if (!items.length) {
@@ -1423,6 +1501,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
+  margin-top: 5px;
 }
 
 .orders-name-chip {
@@ -1455,16 +1534,93 @@ onBeforeUnmount(() => {
   border-color: rgba(var(--ember-rgb), 0.3);
 }
 
+.orders-note-field { display: grid; gap: 6px; }
+
+.orders-note-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.orders-note-chip {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--muted-rgb), 0.25);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.orders-note-chip:hover:not(:disabled) {
+  border-color: rgba(var(--ember-rgb), 0.4);
+  color: var(--ember-strong);
+}
+
+.orders-note-chip.is-active {
+  background: rgba(var(--ember-rgb), 0.13);
+  border-color: rgba(var(--ember-rgb), 0.45);
+  color: var(--ember-strong);
+  font-weight: 700;
+}
+
+.orders-note-sep {
+  width: 1px;
+  height: 16px;
+  background: rgba(var(--muted-rgb), 0.22);
+  flex-shrink: 0;
+}
+
 /* ── item picker ── */
 .order-picker {
   display: grid;
-  gap: 8px;
+  gap: 6px;
+}
+
+.order-picker-fieldset {
+  border: 1px solid rgba(var(--muted-rgb), 0.15);
+  border-radius: 10px;
+  padding: 0;
+  margin: 0;
+}
+
+.order-picker-fieldset--methods {
+  border-color: rgba(var(--ember-rgb), 0.25);
+  background: rgba(var(--ember-rgb), 0.03);
+}
+
+.order-picker-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  width: 100%;
+}
+
+.order-picker-legend:hover {
+  color: var(--text);
+}
+
+.order-picker-legend--methods {
+  color: var(--ember-strong);
+  cursor: default;
 }
 
 .order-picker-ingredients {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  padding: 0 8px 8px;
 }
 
 .order-picker-ing {
@@ -1516,10 +1672,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: rgba(var(--panel-rgb), 0.5);
-  border: 1px solid rgba(var(--muted-rgb), 0.1);
+  padding: 0 8px 8px;
 }
 
 .order-picker-method {
@@ -1859,13 +2012,14 @@ onBeforeUnmount(() => {
 .orders-create-modal-body {
   display: grid;
   gap: 10px;
-  padding: 0;
+  padding: 0 12px max(28px, env(safe-area-inset-bottom));
   overflow: auto;
 }
 
 .orders-create-guest {
   display: grid;
   gap: 8px;
+  margin-top: 6px;
 }
 
 .orders-create-grid {
