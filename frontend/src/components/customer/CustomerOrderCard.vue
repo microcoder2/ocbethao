@@ -72,6 +72,30 @@
                   :class="['order-item-note-chip', `is-${noteChip.tone}`]"
                 >{{ noteChip.text }}</span>
               </div>
+              <div v-if="canEditItemNote(item)" class="order-item-note-tools">
+                <button
+                  class="order-item-note-toggle"
+                  type="button"
+                  :disabled="busy"
+                  @click="toggleItemNoteEditor(item.key)"
+                >
+                  <i class="bi bi-chat-left-text"></i>
+                  <span>{{ hasItemNote(item) ? "Sửa ghi chú" : "Ghi chú món" }}</span>
+                </button>
+              </div>
+              <div v-if="canEditItemNote(item) && isItemNoteEditorOpen(item.key)" class="order-item-note-editor">
+                <template v-for="(group, groupIndex) in NOTE_CHIP_GROUPS" :key="group.key">
+                  <span v-if="groupIndex > 0" class="order-item-note-sep" aria-hidden="true"></span>
+                  <button
+                    v-for="chip in group.chips"
+                    :key="chip"
+                    type="button"
+                    :class="['order-item-note-picker-chip', { 'is-active': isNoteChipActive(item.note || '', chip) }]"
+                    :disabled="busy"
+                    @click="toggleItemNoteChip(index, chip)"
+                  >{{ chip }}</button>
+                </template>
+              </div>
               <div v-if="showItemStatuses" class="order-item-statuses">
                 <span :class="['order-item-status', itemStatusClass(item.status), 'is-active']">
                   {{ itemStatusLabel(item.status) }}
@@ -203,7 +227,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import { formatDate, formatMoney } from "../../utils/format";
-import { parseNoteChips } from "../../utils/noteChips";
+import { NOTE_CHIP_GROUPS, isNoteChipActive, parseNoteChips, toggleNoteChip } from "../../utils/noteChips";
 
 type OrderItem = {
   id: number;
@@ -274,14 +298,29 @@ const draft = ref<EditableItem[] | null>(null);
 const arrivalTimeDraft = ref(props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : "");
 const arrivalEditOpen = ref(false);
 const removeDialog = reactive({ visible: false, index: -1, itemName: "" });
+const openItemNoteKeys = ref<Set<string>>(new Set());
 
 watch(
-  () => `${props.order.status}|${(props.order.items || []).map((item) => `${item.dailyMenuItemId ?? item.menuItemId}:${item.quantity}`).join("|")}`,
+  () =>
+    `${props.order.status}|${(props.order.items || [])
+      .map((item) => `${item.dailyMenuItemId ?? item.menuItemId}:${item.quantity}:${item.note ?? ""}`)
+      .join("|")}`,
   () => {
     draft.value = null;
     addSelection.value = "";
     arrivalTimeDraft.value = props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : "";
     arrivalEditOpen.value = false;
+    openItemNoteKeys.value = new Set();
+  }
+);
+
+watch(
+  () => (draft.value ?? cloneItems(props.order.items)).map((item) => item.key).join("|"),
+  () => {
+    const validKeys = new Set((draft.value ?? cloneItems(props.order.items)).map((item) => item.key));
+    openItemNoteKeys.value = new Set(
+      Array.from(openItemNoteKeys.value).filter((key) => validKeys.has(key))
+    );
   }
 );
 
@@ -323,11 +362,48 @@ function ensureDraft() {
   }
 }
 
+function setItemNote(index: number, note: string) {
+  ensureDraft();
+  const item = draft.value?.[index];
+  if (!item) return;
+  draft.value![index] = {
+    ...item,
+    note,
+  };
+}
+
+function toggleItemNoteChip(index: number, chip: string) {
+  const item = editableItems.value[index];
+  if (!item) return;
+  setItemNote(index, toggleNoteChip(item.note || "", chip));
+}
+
+function isItemNoteEditorOpen(key: string) {
+  return openItemNoteKeys.value.has(key);
+}
+
+function toggleItemNoteEditor(key: string) {
+  const next = new Set(openItemNoteKeys.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  openItemNoteKeys.value = next;
+}
+
+function openItemNoteEditor(key: string) {
+  const next = new Set(openItemNoteKeys.value);
+  next.add(key);
+  openItemNoteKeys.value = next;
+}
+
 function discardDraft() {
   draft.value = null;
   addSelection.value = "";
   arrivalTimeDraft.value = initialArrivalTime.value;
   arrivalEditOpen.value = false;
+  openItemNoteKeys.value = new Set();
 }
 
 function flashItem(key: string) {
@@ -387,6 +463,7 @@ function addItem() {
       lineTotal: (current.quantity + 1) * current.unitPrice,
     };
     flashItem(current.key);
+    openItemNoteEditor(current.key);
   } else {
     const key = `new-${option.id}`;
     draft.value!.push({
@@ -399,8 +476,10 @@ function addItem() {
       quantity: 1,
       status: "WAITING",
       lineTotal: Number(option.sellingPrice || 0),
+      note: "",
     });
     flashItem(key);
+    openItemNoteEditor(key);
   }
   addSelection.value = "";
 }
@@ -438,6 +517,10 @@ function showItemNote(item: EditableItem) {
 
 function getItemNoteChips(note?: string | null) {
   return parseNoteChips(note);
+}
+
+function canEditItemNote(item: EditableItem) {
+  return canEdit.value && item.status !== "CANCELLED";
 }
 
 const simpleStatus = computed(() => simplifyStatus(props.order.status));
@@ -487,8 +570,12 @@ const statusInfoLabel = computed(() => {
 });
 const draftChanged = computed(() => {
   if (!draft.value) return false;
-  const original = cloneItems(props.order.items).map((item) => `${item.dailyMenuItemId}:${item.menuItemId}:${item.quantity}`).join("|");
-  const current = draft.value.map((item) => `${item.dailyMenuItemId}:${item.menuItemId}:${item.quantity}`).join("|");
+  const original = cloneItems(props.order.items)
+    .map((item) => `${item.dailyMenuItemId}:${item.menuItemId}:${item.quantity}:${item.note ?? ""}`)
+    .join("|");
+  const current = draft.value
+    .map((item) => `${item.dailyMenuItemId}:${item.menuItemId}:${item.quantity}:${item.note ?? ""}`)
+    .join("|");
   return original !== current;
 });
 const arrivalChanged = computed(() => {
@@ -772,6 +859,75 @@ function canAdjustWaitingItem(item: EditableItem) {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 4px;
+}
+
+.order-item-note-tools {
+  margin-top: 6px;
+}
+
+.order-item-note-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--muted-rgb), 0.18);
+  background: rgba(var(--panel-rgb), 0.72);
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+
+.order-item-note-toggle:hover:not(:disabled),
+.order-item-note-toggle:focus-visible {
+  background: rgba(var(--ember-rgb), 0.1);
+  border-color: rgba(var(--ember-rgb), 0.32);
+  color: var(--ember-strong);
+  outline: none;
+}
+
+.order-item-note-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.order-item-note-picker-chip {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--muted-rgb), 0.16);
+  background: rgba(var(--panel-rgb), 0.78);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+
+.order-item-note-picker-chip:hover:not(:disabled):not(.is-active) {
+  background: rgba(var(--ember-rgb), 0.08);
+  border-color: rgba(var(--ember-rgb), 0.2);
+  color: var(--ember-strong);
+}
+
+.order-item-note-picker-chip.is-active {
+  background: rgba(var(--ember-rgb), 0.14);
+  border-color: rgba(var(--ember-rgb), 0.32);
+  color: var(--ember-strong);
+}
+
+.order-item-note-picker-chip:disabled {
+  opacity: 0.55;
+}
+
+.order-item-note-sep {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(var(--muted-rgb), 0.14);
 }
 
 .order-item-note-chip {

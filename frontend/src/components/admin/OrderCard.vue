@@ -91,75 +91,128 @@
       >
         <div class="order-item-main">
           <div class="order-item-copy">
-            <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
-            <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
-            <div v-if="hasItemNote(item)" class="order-item-note-list">
-              <span
-                v-for="noteChip in getItemNoteChips(item.note)"
-                :key="`${item.key}-${noteChip.text}`"
-                :class="['order-item-note-chip', `is-${noteChip.tone}`]"
-              >{{ noteChip.text }}</span>
-            </div>
-            <div v-if="showItemStatuses" class="order-item-statuses">
-              <div v-if="canMoveItemStages(item)" class="order-item-status-block is-action">
-                <div class="order-item-stage-actions">
-                  <button
-                    v-for="control in getItemStageControls(item)"
-                    :key="control.key"
-                    type="button"
-                    :class="[
-                      'order-item-stage-action',
-                      control.toneClass,
-                      {
-                        'is-active': control.activeCount > 0,
-                        'is-actionable': !!control.action,
-                        'is-pending': isPendingItemAction(item.id, control.action?.key),
-                      },
-                    ]"
-                    :disabled="!control.action || props.pendingItemStatusId === item.id"
-                    :aria-busy="isPendingItemAction(item.id, control.action?.key) ? 'true' : 'false'"
-                    :title="control.action?.hint || `${control.label}: không có thao tác`"
-                    @click="openStageControl(item, control)"
-                  >
-                    <span class="order-item-action-label">{{ control.label }}</span>
-                    <span v-if="control.activeCount > 1" class="order-item-action-count">{{ control.activeCount }}</span>
-                    <span
-                      v-if="isPendingItemAction(item.id, control.action?.key)"
-                      class="order-item-action-spinner"
-                      aria-hidden="true"
-                    ></span>
-                  </button>
-                </div>
-              </div>
-              <div
-                v-if="stagePicker.visible && stagePicker.itemId === item.id"
-                class="order-item-stage-picker"
+            <div class="order-item-headline">
+              <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
+              <button
+                v-if="canEditItemNote(item) && !hasItemNote(item)"
+                :class="[
+                  'order-item-note-toggle',
+                  {
+                    'has-note': hasItemNote(item),
+                    'is-open': isItemNoteEditorOpen(item.key),
+                  },
+                ]"
+                type="button"
+                :disabled="busy"
+                :aria-label="hasItemNote(item) ? 'Sửa ghi chú món' : 'Thêm ghi chú món'"
+                :aria-expanded="isItemNoteEditorOpen(item.key) ? 'true' : 'false'"
+                :title="hasItemNote(item) ? 'Sửa ghi chú món' : 'Thêm ghi chú món'"
+                @click="toggleItemNoteEditor(item.key)"
               >
-                <div class="order-item-stage-picker-copy">
-                  <strong>{{ stagePicker.label }}</strong>
-                  <span>{{ stagePicker.hint }}</span>
-                </div>
-                <div class="order-item-stage-picker-controls">
-                  <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(-1)">-</button>
-                  <span class="order-item-picker-value">{{ stagePicker.quantity }}</span>
-                  <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(1)">+</button>
-                </div>
-                <div class="order-item-stage-picker-actions">
-                  <button type="button" class="btn btn-dark btn-sm" @click="confirmStagePicker">Xác nhận</button>
-                  <button type="button" class="btn btn-outline-dark btn-sm" @click="closeStagePicker">Bỏ qua</button>
-                </div>
-              </div>
+                <i class="bi bi-chat-left-text"></i>
+              </button>
+              <span v-if="!hasItemNote(item)" class="order-item-meta-chip">{{ formatMoney(item.unitPrice) }} / món</span>
             </div>
           </div>
-          <span class="order-item-total">{{ formatMoney(getItemDisplayedTotal(item)) }}</span>
+          <div class="order-item-side">
+            <span class="order-item-total">{{ formatMoney(getItemDisplayedTotal(item)) }}</span>
+            <div v-if="canAdjustDraftItem(item)" class="order-item-editor">
+              <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, -1)">-</button>
+              <span class="order-item-qty">{{ item.quantity }}</span>
+              <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, 1)">+</button>
+            </div>
+            <span v-else class="order-item-qty-read">{{ getItemQuantityLabel(item) }}</span>
+          </div>
         </div>
-
-        <div v-if="canAdjustDraftItem(item)" class="order-item-editor">
-          <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, -1)">-</button>
-          <span class="order-item-qty">{{ item.quantity }}</span>
-          <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, 1)">+</button>
+        <div v-if="hasItemNote(item)" class="order-item-note-list">
+          <span class="order-item-meta-chip">{{ formatMoney(item.unitPrice) }} / món</span>
+          <span
+            v-for="noteChip in getItemNoteChips(item.note)"
+            :key="`${item.key}-${noteChip.text}`"
+            :class="['order-item-note-chip', `is-${noteChip.tone}`]"
+          >{{ noteChip.text }}</span>
+          <button
+            v-if="canEditItemNote(item)"
+            :class="[
+              'order-item-note-toggle',
+              {
+                'has-note': hasItemNote(item),
+                'is-open': isItemNoteEditorOpen(item.key),
+              },
+            ]"
+            type="button"
+            :disabled="busy"
+            :aria-label="hasItemNote(item) ? 'Sửa ghi chú món' : 'Thêm ghi chú món'"
+            :aria-expanded="isItemNoteEditorOpen(item.key) ? 'true' : 'false'"
+            :title="hasItemNote(item) ? 'Sửa ghi chú món' : 'Thêm ghi chú món'"
+            @click="toggleItemNoteEditor(item.key)"
+          >
+            <i class="bi bi-chat-left-text"></i>
+          </button>
         </div>
-        <span v-else class="order-item-qty-read">{{ getItemQuantityLabel(item) }}</span>
+        <div v-if="canEditItemNote(item) && isItemNoteEditorOpen(item.key)" class="order-item-note-editor">
+          <template v-for="(group, groupIndex) in NOTE_CHIP_GROUPS" :key="group.key">
+            <span v-if="groupIndex > 0" class="order-item-note-sep" aria-hidden="true"></span>
+            <button
+              v-for="chip in group.chips"
+              :key="chip"
+              type="button"
+              :class="['order-item-note-picker-chip', { 'is-active': isNoteChipActive(item.note || '', chip) }]"
+              :disabled="busy"
+              @click="toggleItemNoteChip(index, chip)"
+            >{{ chip }}</button>
+          </template>
+        </div>
+        <div v-if="showItemStatuses" class="order-item-statuses">
+          <div v-if="canMoveItemStages(item)" class="order-item-status-block is-action">
+            <div class="order-item-stage-actions">
+              <button
+                v-for="control in getItemStageControls(item)"
+                :key="control.key"
+                type="button"
+                :class="[
+                  'order-item-stage-action',
+                  control.toneClass,
+                  {
+                    'is-active': control.activeCount > 0,
+                    'is-actionable': !!control.action,
+                    'is-pending': isPendingItemAction(item.id, control.action?.key),
+                  },
+                ]"
+                :disabled="!control.action || props.pendingItemStatusId === item.id"
+                :aria-busy="isPendingItemAction(item.id, control.action?.key) ? 'true' : 'false'"
+                :title="control.action?.hint || `${control.label}: không có thao tác`"
+                @click="openStageControl(item, control)"
+              >
+                <span class="order-item-action-label">{{ control.label }}</span>
+                <span v-if="shouldShowStageCount(item, control)" class="order-item-action-count">{{ control.activeCount }}</span>
+                <span
+                  v-if="isPendingItemAction(item.id, control.action?.key)"
+                  class="order-item-action-spinner"
+                  aria-hidden="true"
+                ></span>
+              </button>
+            </div>
+          </div>
+          <div
+            v-if="stagePicker.visible && stagePicker.itemId === item.id"
+            class="order-item-stage-picker"
+          >
+            <div class="order-item-stage-picker-copy">
+              <strong>{{ stagePicker.label }}</strong>
+              <span>{{ stagePicker.hint }}</span>
+            </div>
+            <div class="order-item-stage-picker-controls">
+              <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(-1)">-</button>
+              <span class="order-item-picker-value">{{ stagePicker.quantity }}</span>
+              <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(1)">+</button>
+            </div>
+            <div class="order-item-stage-picker-actions">
+              <button type="button" class="btn btn-dark btn-sm" @click="confirmStagePicker">Xác nhận</button>
+              <button type="button" class="btn btn-outline-dark btn-sm" @click="closeStagePicker">Bỏ qua</button>
+            </div>
+          </div>
+        </div>
       </li>
     </ul>
 
@@ -285,7 +338,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { formatMoney } from "../../utils/format";
-import { parseNoteChips } from "../../utils/noteChips";
+import { NOTE_CHIP_GROUPS, isNoteChipActive, parseNoteChips, toggleNoteChip } from "../../utils/noteChips";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 type OrderItem = {
@@ -450,6 +503,7 @@ const arrivalMode = ref<ArrivalMode>(initialArrivalMode);
 const arrivalEditOpen = ref(false);
 const addSelection = ref("");
 const highlightedKey = ref<string | number | null>(null);
+const openItemNoteKeys = ref<Set<string>>(new Set());
 
 function flashItem(key: string | number) {
   highlightedKey.value = key;
@@ -493,6 +547,17 @@ watch(
     draft.value = null;
     addSelection.value = "";
     closeStagePicker();
+    openItemNoteKeys.value = new Set();
+  }
+);
+
+watch(
+  () => (draft.value ?? cloneItems(props.order.items)).map((item) => item.key).join("|"),
+  () => {
+    const validKeys = new Set((draft.value ?? cloneItems(props.order.items)).map((item) => item.key));
+    openItemNoteKeys.value = new Set(
+      Array.from(openItemNoteKeys.value).filter((key) => validKeys.has(key))
+    );
   }
 );
 
@@ -516,6 +581,30 @@ function hasItemNote(item: EditableItem) {
 
 function getItemNoteChips(note?: string | null) {
   return parseNoteChips(note);
+}
+
+function canEditItemNote(item: EditableItem) {
+  return canAdjustDraftItem(item) && item.status !== "CANCELLED";
+}
+
+function isItemNoteEditorOpen(key: string) {
+  return openItemNoteKeys.value.has(key);
+}
+
+function toggleItemNoteEditor(key: string) {
+  const next = new Set(openItemNoteKeys.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  openItemNoteKeys.value = next;
+}
+
+function openItemNoteEditor(key: string) {
+  const next = new Set(openItemNoteKeys.value);
+  next.add(key);
+  openItemNoteKeys.value = next;
 }
 
 function cloneItems(items: OrderItem[] = []): EditableItem[] {
@@ -543,10 +632,24 @@ function ensureDraft() {
   if (!draft.value) draft.value = cloneItems(props.order.items);
 }
 
+function setItemNote(index: number, note: string) {
+  ensureDraft();
+  const item = draft.value?.[index];
+  if (!item) return;
+  draft.value![index] = { ...item, note };
+}
+
+function toggleItemNoteChip(index: number, chip: string) {
+  const item = editableItems.value[index];
+  if (!item) return;
+  setItemNote(index, toggleNoteChip(item.note || "", chip));
+}
+
 function discardDraft() {
   draft.value = null;
   addSelection.value = "";
   closeStagePicker();
+  openItemNoteKeys.value = new Set();
 }
 
 // ─── Computed ───────────────────────────────────────────────────────────
@@ -796,6 +899,13 @@ function getItemStageControls(item: EditableItem): StageControl[] {
   ];
 }
 
+function shouldShowStageCount(item: EditableItem, control: StageControl) {
+  const quantity = Math.max(0, Number(item.quantity || 0));
+  if (control.activeCount <= 0) return false;
+  if (control.activeCount > 1) return true;
+  return quantity > 1;
+}
+
 function openStageControl(item: EditableItem, control: StageControl) {
   if (!item.id || props.busy || !control.action) {
     return;
@@ -924,6 +1034,7 @@ function addItem() {
       activeLineTotal: nextQuantity * cur.unitPrice,
     };
     flashItem(cur.key);
+    openItemNoteEditor(cur.key);
   } else {
     const newKey = `new-${opt.id}`;
     draft.value!.push({
@@ -942,8 +1053,10 @@ function addItem() {
       status: "WAITING",
       lineTotal: Number(opt.sellingPrice || 0),
       activeLineTotal: Number(opt.sellingPrice || 0),
+      note: "",
     });
     flashItem(newKey);
+    openItemNoteEditor(newKey);
   }
   addSelection.value = "";
 }
@@ -1312,16 +1425,13 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 }
 
 .order-item-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
+  display: grid;
+  gap: 6px;
+  padding: 8px 0;
   border-bottom: 1px dashed rgba(var(--line-rgb), 0.72);
 }
 
 .order-item-row:last-child { border-bottom: none; }
-.order-item-row.is-empty   { justify-content: flex-start; }
 .order-item-row.is-highlighted { animation: item-flash 1.2s ease-out forwards; border-radius: 6px; }
 .order-item-row.is-cancelled {
   padding-inline: 10px;
@@ -1335,7 +1445,8 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   color: #8f2f15;
 }
 
-.order-item-row.is-cancelled .order-item-meta,
+.order-item-row.is-cancelled .order-item-meta-chip,
+.order-item-row.is-cancelled .order-item-note-toggle,
 .order-item-row.is-cancelled .order-item-qty-read {
   color: rgba(143, 47, 21, 0.78);
 }
@@ -1354,21 +1465,112 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 .order-item-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 12px;
-  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
 }
 
-.order-item-copy   { display: grid; gap: 2px; min-width: 0; }
-.order-item-name   { font-weight: 600; }
-.order-item-meta   { color: var(--muted); font-size: 0.84rem; }
+.order-item-copy { display: grid; gap: 4px; min-width: 0; }
+.order-item-headline {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.order-item-name {
+  flex: 1 1 180px;
+  min-width: 0;
+  font-weight: 600;
+}
+.order-item-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(var(--panel-alt-rgb), 0.1);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 .order-item-note-list {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  width: 100%;
+}
+
+.order-item-note-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--muted-rgb), 0.18);
+  background: rgba(var(--panel-rgb), 0.72);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+  flex: 0 0 auto;
+}
+
+.order-item-note-toggle.has-note,
+.order-item-note-toggle.is-open {
+  background: rgba(var(--ember-rgb), 0.1);
+  border-color: rgba(var(--ember-rgb), 0.28);
+  color: var(--ember-strong);
+}
+
+.order-item-note-toggle i { font-size: 0.82rem; }
+
+.order-item-note-toggle:hover:not(:disabled),
+.order-item-note-toggle:focus-visible {
+  background: rgba(var(--ember-rgb), 0.1);
+  border-color: rgba(var(--ember-rgb), 0.32);
+  color: var(--ember-strong);
+  outline: none;
+}
+
+.order-item-note-editor {
+  display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 4px;
+  width: 100%;
+}
+
+.order-item-note-picker-chip {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--muted-rgb), 0.16);
+  background: rgba(var(--panel-rgb), 0.78);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+
+.order-item-note-picker-chip:hover:not(:disabled):not(.is-active) {
+  background: rgba(var(--ember-rgb), 0.08);
+  border-color: rgba(var(--ember-rgb), 0.2);
+  color: var(--ember-strong);
+}
+
+.order-item-note-picker-chip.is-active {
+  background: rgba(var(--ember-rgb), 0.14);
+  border-color: rgba(var(--ember-rgb), 0.32);
+  color: var(--ember-strong);
+}
+
+.order-item-note-picker-chip:disabled {
+  opacity: 0.55;
 }
 
 .order-item-note-chip {
@@ -1415,10 +1617,16 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   color: var(--muted);
 }
 
+.order-item-note-sep {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(var(--muted-rgb), 0.14);
+}
+
 .order-item-statuses {
   display: grid;
-  gap: 10px;
-  margin-top: 6px;
+  gap: 8px;
+  width: 100%;
 }
 
 .order-item-status-block {
@@ -1657,12 +1865,19 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   text-align: right;
 }
 
+.order-item-side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: start;
+}
+
 .order-item-editor {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-  justify-content: flex-end;
+  gap: 6px;
 }
 
 .order-item-qty {
@@ -1742,12 +1957,11 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 }
 
 .order-item-qty-read {
-  min-width: 32px;
+  min-width: 28px;
   padding: 0 6px;
   border-radius: 4px;
   background: #fff;
   box-shadow: inset 0 1px 3px rgba(var(--text-rgb), 0.14), inset 0 1px 1px rgba(var(--text-rgb), 0.1);
-  flex: 0 0 auto;
   text-align: center;
   font-weight: 400;
   font-size: 0.82rem;
@@ -1793,17 +2007,10 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 
   .order-progress-head { align-items: flex-start; flex-direction: column; }
 
-  .order-item-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-    gap: 10px;
-  }
-
-  .order-item-main { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  .order-item-total { text-align: left; }
-
-  .order-item-editor { width: auto; align-self: center; justify-content: flex-end; gap: 8px; }
+  .order-item-main { gap: 8px; }
+  .order-item-headline { gap: 4px 6px; }
+  .order-item-side { gap: 6px; }
+  .order-item-editor { gap: 6px; }
 
   .order-qty-btn,
   .order-item-qty,

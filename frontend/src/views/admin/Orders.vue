@@ -1009,6 +1009,24 @@ function sortOrdersByQueue(a: OrderRecord, b: OrderRecord) {
   return String(a.orderNumber).localeCompare(String(b.orderNumber));
 }
 
+function replaceOrderLocally(nextOrder: OrderRecord) {
+  const index = orders.value.findIndex((entry) => entry.id === nextOrder.id);
+  if (index >= 0) {
+    orders.value[index] = nextOrder;
+    orders.value = [...orders.value].sort(sortOrdersByQueue);
+    return;
+  }
+
+  if (orderMatchesCurrentFilter(nextOrder)) {
+    orders.value = [...orders.value, nextOrder].sort(sortOrdersByQueue);
+  }
+}
+
+async function refreshOrderById(orderId: number) {
+  const { data } = await api.get(`/orders/${orderId}`);
+  replaceOrderLocally(data as OrderRecord);
+}
+
 async function loadOrders() {
   isLoading.value = true;
   errorMessage.value = "";
@@ -1062,7 +1080,7 @@ async function saveOrderItems(
 
   try {
     await api.put(`/orders/${order.id}`, { items, ...(arrivalAt ? { arrivalAt } : {}) });
-    await loadOrders();
+    await refreshOrderById(order.id);
   } catch (error) {
     alertApiError(error, "Không lưu được thay đổi món.");
   } finally {

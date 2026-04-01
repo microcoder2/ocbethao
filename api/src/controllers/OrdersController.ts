@@ -102,6 +102,11 @@ class UpdateOrderItemStatusResponse {
   };
 }
 
+class MutationAckResponse {
+  success!: boolean;
+  message!: string;
+}
+
 type ItemStageName = "WAITING" | "COOKING" | "READY" | "CANCELLED";
 
 type ItemStageQuantities = {
@@ -1532,7 +1537,10 @@ export class OrdersController extends Controller {
 
   @Put("{id}")
   @Security("bearerAuth", ["ADMIN"])
-  public async updateOrder(@Path() id: number, @Body() body: UpdateOrderBody) {
+  public async updateOrder(
+    @Path() id: number,
+    @Body() body: UpdateOrderBody
+  ): Promise<MutationAckResponse> {
     if (!Array.isArray(body.items) || body.items.length === 0) {
       throw new Error("Don hang phai co it nhat mot mon");
     }
@@ -1614,9 +1622,11 @@ export class OrdersController extends Controller {
       updatePoolIds = Array.from(new Set([...currentUsage.keys(), ...nextUsage.keys()]));
     });
 
-    const order = await getOrderDetail(id);
     void broadcastStockUpdate(updatePoolIds);
-    return serializeOrder(order);
+    return {
+      success: true,
+      message: "Da luu thay doi don hang",
+    };
   }
 
   @Put("{orderId}/items/{itemId}/status")
