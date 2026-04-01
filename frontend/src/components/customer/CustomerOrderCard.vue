@@ -65,6 +65,13 @@
             <div class="order-item-copy">
               <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
               <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
+              <div v-if="showItemNote(item)" class="order-item-note-list">
+                <span
+                  v-for="noteChip in getItemNoteChips(item.note)"
+                  :key="`${item.key}-${noteChip.text}`"
+                  :class="['order-item-note-chip', `is-${noteChip.tone}`]"
+                >{{ noteChip.text }}</span>
+              </div>
               <div v-if="showItemStatuses" class="order-item-statuses">
                 <span :class="['order-item-status', itemStatusClass(item.status), 'is-active']">
                   {{ itemStatusLabel(item.status) }}
@@ -196,6 +203,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import { formatDate, formatMoney } from "../../utils/format";
+import { parseNoteChips } from "../../utils/noteChips";
 
 type OrderItem = {
   id: number;
@@ -206,6 +214,7 @@ type OrderItem = {
   quantity: number;
   status: string;
   lineTotal: number;
+  note?: string | null;
 };
 
 type OrderRecord = {
@@ -236,9 +245,10 @@ type EditableItem = {
   quantity: number;
   status: string;
   lineTotal: number;
+  note?: string | null;
 };
 
-type SavePayload = { dailyMenuItemId?: number; menuItemId?: number; quantity: number };
+type SavePayload = { dailyMenuItemId?: number; menuItemId?: number; quantity: number; note?: string };
 
 const props = defineProps<{
   order: OrderRecord;
@@ -303,6 +313,7 @@ function cloneItems(items: OrderItem[] = []): EditableItem[] {
     quantity: Number(item.quantity || 0),
     status: item.status || "WAITING",
     lineTotal: Number(item.lineTotal || 0),
+    note: item.note ?? null,
   }));
 }
 
@@ -401,6 +412,7 @@ function emitSave() {
       dailyMenuItemId: item.dailyMenuItemId ?? undefined,
       menuItemId: item.menuItemId ?? undefined,
       quantity: item.quantity,
+      note: item.note || undefined,
     })),
     arrivalChanged.value ? arrivalTimeDraft.value : undefined
   );
@@ -415,6 +427,17 @@ function itemStatusLabel(status?: string | null) {
 
 function itemStatusClass(status?: string | null) {
   return `is-${String(status || "WAITING").toLowerCase()}`;
+}
+
+function showItemNote(item: EditableItem) {
+  return (
+    (simpleStatus.value === "PENDING" || simpleStatus.value === "CONFIRMED") &&
+    Boolean(String(item.note || "").trim())
+  );
+}
+
+function getItemNoteChips(note?: string | null) {
+  return parseNoteChips(note);
 }
 
 const simpleStatus = computed(() => simplifyStatus(props.order.status));
@@ -743,6 +766,58 @@ function canAdjustWaitingItem(item: EditableItem) {
 .order-item-copy { display: grid; gap: 2px; min-width: 0; }
 .order-item-name { font-weight: 600; }
 .order-item-meta { color: var(--muted); font-size: 0.84rem; }
+
+.order-item-note-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.order-item-note-chip {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.3;
+  border: 1px solid transparent;
+}
+
+.order-item-note-chip.is-spicy {
+  background: rgba(var(--ember-rgb), 0.12);
+  border-color: rgba(var(--ember-rgb), 0.18);
+  color: var(--ember-strong);
+}
+
+.order-item-note-chip.is-sugar {
+  background: rgba(181, 123, 46, 0.14);
+  border-color: rgba(181, 123, 46, 0.18);
+  color: #9a5d12;
+}
+
+.order-item-note-chip.is-veggies {
+  background: rgba(var(--green-rgb), 0.12);
+  border-color: rgba(var(--green-rgb), 0.18);
+  color: var(--green);
+}
+
+.order-item-note-chip.is-sauce {
+  background: rgba(75, 120, 181, 0.12);
+  border-color: rgba(75, 120, 181, 0.18);
+  color: #325f99;
+}
+
+.order-item-note-chip.is-salt,
+.order-item-note-chip.is-custom {
+  background: rgba(var(--panel-alt-rgb), 0.08);
+  border-color: rgba(var(--muted-rgb), 0.16);
+  color: var(--muted);
+}
 
 .order-item-statuses {
   display: flex;

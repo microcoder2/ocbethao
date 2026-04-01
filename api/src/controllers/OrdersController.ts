@@ -453,6 +453,7 @@ function buildOrderItemsSignature(
     dailyMenuItemId?: number | null;
     menuItemId?: number | null;
     quantity: number;
+    note?: string | null;
   }>
 ) {
   return [...(items || [])]
@@ -461,6 +462,7 @@ function buildOrderItemsSignature(
         typeof item.dailyMenuItemId === "number" ? item.dailyMenuItemId : null,
       menuItemId: typeof item.menuItemId === "number" ? item.menuItemId : null,
       quantity: normalizePositiveInt(item.quantity),
+      note: String(item.note || "").trim(),
     }))
     .sort((a, b) => {
       if (a.dailyMenuItemId !== b.dailyMenuItemId) {
@@ -469,9 +471,15 @@ function buildOrderItemsSignature(
       if (a.menuItemId !== b.menuItemId) {
         return (a.menuItemId ?? 0) - (b.menuItemId ?? 0);
       }
-      return a.quantity - b.quantity;
+      if (a.quantity !== b.quantity) {
+        return a.quantity - b.quantity;
+      }
+      return a.note.localeCompare(b.note);
     })
-    .map((item) => `${item.dailyMenuItemId ?? "none"}:${item.menuItemId ?? "none"}:${item.quantity}`)
+    .map(
+      (item) =>
+        `${item.dailyMenuItemId ?? "none"}:${item.menuItemId ?? "none"}:${item.quantity}:${item.note}`
+    )
     .join("|");
 }
 

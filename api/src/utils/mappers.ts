@@ -444,6 +444,7 @@ function serializeOrderListItems(items: AnyRecord[]) {
       status: getDerivedOrderItemStatus(quantity, stages),
       lineTotal: toNumber(item.lineTotal),
       activeLineTotal: Number(item.unitPrice || 0) * activeQuantity,
+      note: item.note ?? null,
     };
   });
 }

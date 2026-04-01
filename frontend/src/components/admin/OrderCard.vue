@@ -93,18 +93,12 @@
           <div class="order-item-copy">
             <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
             <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
-            <div v-if="canEdit && item.status !== 'CANCELLED'" class="order-item-note-chips">
-              <template v-for="(group, gi) in NOTE_CHIP_GROUPS" :key="group.key">
-                <span v-if="gi > 0" class="order-item-note-sep" aria-hidden="true"></span>
-                <button
-                  v-for="chip in group.chips"
-                  :key="chip"
-                  type="button"
-                  :class="['order-item-note-chip', { 'is-active': isNoteChipActive(item.note || '', chip) }]"
-                  :disabled="busy"
-                  @click="toggleItemNote(index, chip)"
-                >{{ chip }}</button>
-              </template>
+            <div v-if="hasItemNote(item)" class="order-item-note-list">
+              <span
+                v-for="noteChip in getItemNoteChips(item.note)"
+                :key="`${item.key}-${noteChip.text}`"
+                :class="['order-item-note-chip', `is-${noteChip.tone}`]"
+              >{{ noteChip.text }}</span>
             </div>
             <div v-if="showItemStatuses" class="order-item-statuses">
               <div v-if="canMoveItemStages(item)" class="order-item-status-block is-action">
@@ -291,7 +285,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { formatMoney } from "../../utils/format";
-import { NOTE_CHIP_GROUPS, isNoteChipActive, toggleNoteChip } from "../../utils/noteChips";
+import { parseNoteChips } from "../../utils/noteChips";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 type OrderItem = {
@@ -516,6 +510,14 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
+function hasItemNote(item: EditableItem) {
+  return Boolean(String(item.note || "").trim());
+}
+
+function getItemNoteChips(note?: string | null) {
+  return parseNoteChips(note);
+}
+
 function cloneItems(items: OrderItem[] = []): EditableItem[] {
   return items.map((item, i) => ({
     id: item.id,
@@ -535,13 +537,6 @@ function cloneItems(items: OrderItem[] = []): EditableItem[] {
     activeLineTotal: Number(item.activeLineTotal ?? 0),
     note: item.note ?? "",
   }));
-}
-
-function toggleItemNote(index: number, chip: string) {
-  ensureDraft();
-  const item = draft.value![index];
-  if (!item) return;
-  draft.value![index] = { ...item, note: toggleNoteChip(item.note || "", chip) };
 }
 
 function ensureDraft() {
@@ -1369,49 +1364,55 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 .order-item-name   { font-weight: 600; }
 .order-item-meta   { color: var(--muted); font-size: 0.84rem; }
 
-.order-item-note-chips {
+.order-item-note-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
   margin-top: 4px;
 }
 
 .order-item-note-chip {
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 10px;
   border-radius: 999px;
   font-size: 0.72rem;
-  font-weight: 500;
-  border: 1px solid rgba(var(--muted-rgb), 0.3);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-  white-space: nowrap;
-}
-
-.order-item-note-chip:hover {
-  border-color: rgba(var(--text-rgb), 0.4);
-  color: var(--text);
-}
-
-.order-item-note-chip.is-active {
-  background: rgba(201, 126, 71, 0.14);
-  border-color: rgba(201, 88, 44, 0.35);
-  color: var(--ember-strong);
   font-weight: 700;
+  line-height: 1.35;
+  border: 1px solid transparent;
 }
 
-.order-item-note-chip:disabled {
-  opacity: 0.5;
-  cursor: default;
+.order-item-note-chip.is-spicy {
+  background: rgba(var(--ember-rgb), 0.12);
+  border-color: rgba(var(--ember-rgb), 0.18);
+  color: var(--ember-strong);
 }
 
-.order-item-note-sep {
-  width: 1px;
-  height: 14px;
-  background: rgba(var(--muted-rgb), 0.22);
-  flex-shrink: 0;
-  align-self: center;
+.order-item-note-chip.is-sugar {
+  background: rgba(181, 123, 46, 0.14);
+  border-color: rgba(181, 123, 46, 0.18);
+  color: #9a5d12;
+}
+
+.order-item-note-chip.is-veggies {
+  background: rgba(var(--green-rgb), 0.12);
+  border-color: rgba(var(--green-rgb), 0.18);
+  color: var(--green);
+}
+
+.order-item-note-chip.is-sauce {
+  background: rgba(75, 120, 181, 0.12);
+  border-color: rgba(75, 120, 181, 0.18);
+  color: #325f99;
+}
+
+.order-item-note-chip.is-salt,
+.order-item-note-chip.is-custom {
+  background: rgba(var(--panel-alt-rgb), 0.08);
+  border-color: rgba(var(--muted-rgb), 0.16);
+  color: var(--muted);
 }
 
 .order-item-statuses {

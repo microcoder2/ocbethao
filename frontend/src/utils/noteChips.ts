@@ -4,6 +4,11 @@ export type NoteChipGroup = {
   chips: string[];
 };
 
+export type ParsedNoteChip = {
+  text: string;
+  tone: string;
+};
+
 export const NOTE_CHIP_GROUPS: NoteChipGroup[] = [
   { key: "spicy",   exclusive: true,  chips: ["Không cay", "Ít cay", "Cay vừa", "Cay đậm"] },
   { key: "veggies", exclusive: true,  chips: ["Thêm rau", "Không rau"] },
@@ -14,12 +19,31 @@ export const NOTE_CHIP_GROUPS: NoteChipGroup[] = [
 
 export const NOTE_CHIPS = NOTE_CHIP_GROUPS.flatMap((g) => g.chips);
 
+export function splitNoteChips(note?: string | null): string[] {
+  return String(note || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export function getNoteChipTone(chip: string): string {
+  const group = NOTE_CHIP_GROUPS.find((entry) => entry.chips.includes(chip));
+  return group?.key || "custom";
+}
+
+export function parseNoteChips(note?: string | null): ParsedNoteChip[] {
+  return splitNoteChips(note).map((chip) => ({
+    text: chip,
+    tone: getNoteChipTone(chip),
+  }));
+}
+
 export function isNoteChipActive(note: string, chip: string): boolean {
-  return note.split(",").map((s) => s.trim()).includes(chip);
+  return splitNoteChips(note).includes(chip);
 }
 
 export function toggleNoteChip(note: string, chip: string): string {
-  const parts = note.split(",").map((s) => s.trim()).filter(Boolean);
+  const parts = splitNoteChips(note);
   const idx = parts.indexOf(chip);
 
   if (idx >= 0) {

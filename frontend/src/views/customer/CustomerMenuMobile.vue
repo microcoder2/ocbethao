@@ -204,6 +204,7 @@
             :framed="false"
             :show-header="false"
             @change-qty="handleCartLineChange"
+            @update-line-note="updateCartLineNote"
             @remove-line="removeLine"
             @update:arrival-time="arrivalTime = $event"
             @update:note="note = $event"
@@ -295,6 +296,7 @@ type CartLine = {
   name: string;
   price: number;
   quantity: number;
+  note?: string;
 };
 
 const currentUser = getUser();
@@ -445,6 +447,7 @@ const cartDraftLines = computed(() =>
     name: line.name,
     price: line.price,
     quantity: line.quantity,
+    note: line.note || "",
   }))
 );
 
@@ -491,6 +494,7 @@ function addToCart(item: DailyMenuItemData) {
     name: item.menuItem?.name || "Món đang cập nhật",
     price: Number(item.sellingPrice || 0),
     quantity: 1,
+    note: "",
   });
 }
 
@@ -512,6 +516,12 @@ function handleCartLineChange(payload: { key: string | number; delta: number }) 
   const line = cart.value.find((entry) => entry.dailyMenuItemId === Number(payload.key));
   if (!line) return;
   changeQty(line, payload.delta);
+}
+
+function updateCartLineNote(payload: { key: string | number; note: string }) {
+  const line = cart.value.find((entry) => entry.dailyMenuItemId === Number(payload.key));
+  if (!line) return;
+  line.note = payload.note;
 }
 
 function buildArrivalAt(serviceDate?: string, time?: string) {
@@ -536,6 +546,7 @@ async function submitOrder() {
       items: cart.value.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
         quantity: line.quantity,
+        note: line.note?.trim() || undefined,
       })),
     });
 

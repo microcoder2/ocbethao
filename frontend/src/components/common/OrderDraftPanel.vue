@@ -52,6 +52,47 @@
           <div class="draft-line__meta">
             <span>{{ formatMoney(line.price) }}</span>
           </div>
+          <div class="draft-line__note-row">
+            <button
+              class="draft-line__note-toggle"
+              type="button"
+              :disabled="disabled || submitting"
+              @click="toggleLineNoteEditor(line.key)"
+            >
+              <i class="bi bi-chat-left-text"></i>
+              <span>Ghi chú món</span>
+            </button>
+            <div v-if="hasLineNote(line.note)" class="draft-line__note-preview-list">
+              <span
+                v-for="noteChip in getPreviewNoteChips(line.note)"
+                :key="`${line.key}-${noteChip.text}`"
+                :class="['draft-line__note-preview', `is-${noteChip.tone}`]"
+              >{{ noteChip.text }}</span>
+            </div>
+          </div>
+          <div v-if="isLineNoteOpen(line.key)" class="draft-line__note-editor">
+            <div class="order-draft-panel__note-chips order-draft-panel__note-chips--line">
+              <template v-for="(group, gi) in NOTE_CHIP_GROUPS" :key="group.key">
+                <span v-if="gi > 0" class="order-draft-panel__note-sep" aria-hidden="true"></span>
+                <button
+                  v-for="chip in group.chips"
+                  :key="chip"
+                  type="button"
+                  :class="['order-draft-panel__note-chip', { 'is-active': isNoteChipActive(line.note || '', chip) }]"
+                  :disabled="disabled || submitting"
+                  @click="toggleLineChip(line.key, line.note || '', chip)"
+                >{{ chip }}</button>
+              </template>
+            </div>
+            <textarea
+              :value="line.note || ''"
+              rows="2"
+              class="order-draft-panel__line-note-input"
+              placeholder="Ghi chú riêng cho món này..."
+              :disabled="disabled || submitting"
+              @input="updateLineNote(line.key, ($event.target as HTMLTextAreaElement).value)"
+            ></textarea>
+          </div>
         </div>
 
         <div class="draft-stepper">
@@ -106,27 +147,39 @@
     </div>
 
     <div v-if="showNote" class="order-draft-panel__field">
-      <span>{{ noteLabel }}</span>
-      <div class="order-draft-panel__note-chips">
-        <template v-for="(group, gi) in NOTE_CHIP_GROUPS" :key="group.key">
-          <span v-if="gi > 0" class="order-draft-panel__note-sep" aria-hidden="true"></span>
-          <button
-            v-for="chip in group.chips"
-            :key="chip"
-            type="button"
-            :class="['order-draft-panel__note-chip', { 'is-active': isNoteChipActive(note || '', chip) }]"
-            :disabled="disabled || submitting"
-            @click="toggleChip(chip)"
-          >{{ chip }}</button>
-        </template>
-      </div>
-      <textarea
-        :value="note"
-        rows="3"
-        :placeholder="notePlaceholder"
+      <button
+        class="order-draft-panel__section-toggle"
+        type="button"
+        :aria-expanded="orderNoteOpen ? 'true' : 'false'"
         :disabled="disabled || submitting"
-        @input="$emit('update:note', ($event.target as HTMLTextAreaElement).value)"
-      ></textarea>
+        @click="orderNoteOpen = !orderNoteOpen"
+      >
+        <span>{{ noteLabel }}</span>
+        <small v-if="hasLineNote(note) && !orderNoteOpen">Đã có ghi chú</small>
+        <i :class="['bi', orderNoteOpen ? 'bi-chevron-up' : 'bi-chevron-down']"></i>
+      </button>
+      <div v-if="orderNoteOpen" class="order-draft-panel__note-section">
+        <div class="order-draft-panel__note-chips">
+          <template v-for="(group, gi) in NOTE_CHIP_GROUPS" :key="group.key">
+            <span v-if="gi > 0" class="order-draft-panel__note-sep" aria-hidden="true"></span>
+            <button
+              v-for="chip in group.chips"
+              :key="chip"
+              type="button"
+              :class="['order-draft-panel__note-chip', { 'is-active': isNoteChipActive(note || '', chip) }]"
+              :disabled="disabled || submitting"
+              @click="toggleChip(chip)"
+            >{{ chip }}</button>
+          </template>
+        </div>
+        <textarea
+          :value="note"
+          rows="3"
+          :placeholder="notePlaceholder"
+          :disabled="disabled || submitting"
+          @input="$emit('update:note', ($event.target as HTMLTextAreaElement).value)"
+        ></textarea>
+      </div>
     </div>
 
     <div class="order-draft-panel__totals">
@@ -157,16 +210,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { formatMoney } from "../../utils/format";
-import { NOTE_CHIP_GROUPS, isNoteChipActive, toggleNoteChip } from "../../utils/noteChips";
+import { NOTE_CHIP_GROUPS, isNoteChipActive, parseNoteChips, toggleNoteChip } from "../../utils/noteChips";
 
 type DraftLine = {
   key: string | number;
   name: string;
   price: number;
   quantity: number;
+  note?: string | null;
 };
 
 const props = withDefaults(
@@ -215,8 +269,8 @@ const props = withDefaults(
     arrivalMode: "unknown",
     arrivalLabel: "Giờ bạn muốn tới / nhận món",
     arrivalPlaceholder: "Nếu muốn tới ngay thì để trống",
-    noteLabel: "Ghi chú cho bếp",
-    notePlaceholder: "Ví dụ: ít cay, thêm rau, tách riêng nước chấm...",
+    noteLabel: "Ghi chú cho cả đơn",
+    notePlaceholder: "Ví dụ: khách đến muộn, tách hóa đơn, giao trước món nước...",
     sticky: false,
     showArrival: true,
     showNote: true,
@@ -233,6 +287,7 @@ const emit = defineEmits<{
   "update:arrivalTime": [value: string];
   "update:arrivalMode": [value: "scheduled" | "unknown" | "arrived"];
   "update:note": [value: string];
+  "update-line-note": [{ key: string | number; note: string }];
   submit: [];
 }>();
 
@@ -245,6 +300,59 @@ const totalAmount = computed(() =>
 
 function toggleChip(chip: string) {
   emit("update:note", toggleNoteChip(props.note || "", chip));
+}
+
+const orderNoteOpen = ref(Boolean(String(props.note || "").trim()));
+const openLineNoteKeys = ref<Set<string>>(new Set());
+
+watch(
+  () => props.note,
+  (value) => {
+    if (String(value || "").trim()) {
+      orderNoteOpen.value = true;
+    }
+  }
+);
+
+watch(
+  () => props.lines.map((line) => String(line.key)).join("|"),
+  () => {
+    const validKeys = new Set(props.lines.map((line) => String(line.key)));
+    openLineNoteKeys.value = new Set(
+      Array.from(openLineNoteKeys.value).filter((key) => validKeys.has(key))
+    );
+  }
+);
+
+function hasLineNote(note?: string | null) {
+  return Boolean(String(note || "").trim());
+}
+
+function getPreviewNoteChips(note?: string | null) {
+  return parseNoteChips(note);
+}
+
+function isLineNoteOpen(key: string | number) {
+  return openLineNoteKeys.value.has(String(key));
+}
+
+function toggleLineNoteEditor(key: string | number) {
+  const normalized = String(key);
+  const next = new Set(openLineNoteKeys.value);
+  if (next.has(normalized)) {
+    next.delete(normalized);
+  } else {
+    next.add(normalized);
+  }
+  openLineNoteKeys.value = next;
+}
+
+function updateLineNote(key: string | number, note: string) {
+  emit("update-line-note", { key, note });
+}
+
+function toggleLineChip(key: string | number, note: string, chip: string) {
+  emit("update-line-note", { key, note: toggleNoteChip(note || "", chip) });
 }
 
 </script>
@@ -398,6 +506,98 @@ function toggleChip(chip: string) {
   align-items: center;
 }
 
+.draft-line__note-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 8px;
+}
+
+.draft-line__note-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--muted-rgb), 0.18);
+  background: rgba(var(--panel-rgb), 0.72);
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+
+.draft-line__note-toggle:hover:not(:disabled),
+.draft-line__note-toggle:focus-visible {
+  background: rgba(var(--ember-rgb), 0.1);
+  border-color: rgba(var(--ember-rgb), 0.32);
+  color: var(--ember-strong);
+  outline: none;
+}
+
+.draft-line__note-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.draft-line__note-preview {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  max-width: 100%;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.25;
+  border: 1px solid transparent;
+}
+
+.draft-line__note-preview.is-spicy {
+  background: rgba(var(--ember-rgb), 0.12);
+  border-color: rgba(var(--ember-rgb), 0.18);
+  color: var(--ember-strong);
+}
+
+.draft-line__note-preview.is-sugar {
+  background: rgba(181, 123, 46, 0.14);
+  border-color: rgba(181, 123, 46, 0.18);
+  color: #9a5d12;
+}
+
+.draft-line__note-preview.is-veggies {
+  background: rgba(var(--green-rgb), 0.12);
+  border-color: rgba(var(--green-rgb), 0.18);
+  color: var(--green);
+}
+
+.draft-line__note-preview.is-sauce {
+  background: rgba(75, 120, 181, 0.12);
+  border-color: rgba(75, 120, 181, 0.18);
+  color: #325f99;
+}
+
+.draft-line__note-preview.is-salt,
+.draft-line__note-preview.is-custom {
+  background: rgba(var(--panel-alt-rgb), 0.08);
+  border-color: rgba(var(--muted-rgb), 0.16);
+  color: var(--muted);
+}
+
+.draft-line__note-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: rgba(var(--panel-rgb), 0.6);
+  border: 1px dashed rgba(var(--muted-rgb), 0.18);
+}
+
 .draft-line__total {
   font-weight: 700;
   color: var(--text);
@@ -499,6 +699,38 @@ function toggleChip(chip: string) {
 .order-draft-panel__field span {
   font-weight: 700;
   color: var(--text);
+}
+
+.order-draft-panel__section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--text);
+}
+
+.order-draft-panel__section-toggle span {
+  font-weight: 700;
+}
+
+.order-draft-panel__section-toggle small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.order-draft-panel__section-toggle i {
+  color: var(--muted);
+}
+
+.order-draft-panel__note-section {
+  display: grid;
+  gap: 10px;
 }
 
 .order-draft-panel__field-note {
@@ -609,6 +841,10 @@ function toggleChip(chip: string) {
 .order-draft-panel__field textarea {
   resize: vertical;
   min-height: 84px;
+}
+
+.order-draft-panel__line-note-input {
+  min-height: 72px !important;
 }
 
 .order-draft-panel__field textarea:focus,

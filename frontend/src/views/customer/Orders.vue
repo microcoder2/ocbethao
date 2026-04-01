@@ -150,6 +150,7 @@ type OrderItem = {
   quantity: number;
   status: string;
   lineTotal: number;
+  note?: string | null;
 };
 
 type OrderRecord = {
@@ -176,6 +177,7 @@ type SavePayload = {
   dailyMenuItemId?: number;
   menuItemId?: number;
   quantity: number;
+  note?: string;
 };
 
 type OrderChangeEvent = {
@@ -209,11 +211,11 @@ const updatingItemOrderId = ref<number | null>(null);
 const orderError = reactive<Record<number, string>>({});
 const todayMenuOptions = ref<MenuOption[]>([]);
 
-const filter = reactive({ status: "", date: "" });
-
 const todayDateValue = new Date(
   Date.now() - new Date().getTimezoneOffset() * 60_000
 ).toISOString().slice(0, 10);
+
+const filter = reactive({ status: "", date: todayDateValue });
 
 const cancelConfirm = reactive<{ visible: boolean; order: OrderRecord | null }>({
   visible: false,

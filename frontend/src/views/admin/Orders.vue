@@ -282,6 +282,7 @@
               empty-title="Chưa có món trong đơn"
               empty-description="Chọn món từ danh sách bên dưới để bắt đầu tạo đơn."
               @change-qty="handleCreateOrderLineChange"
+              @update-line-note="updateCreateOrderLineNote"
               @remove-line="removeCreateOrderLine"
               @update:arrival-time="createOrderDialog.arrivalTime = $event"
               @update:arrival-mode="createOrderDialog.arrivalMode = $event"
@@ -314,31 +315,6 @@
                     type="tel"
                     placeholder="Số điện thoại (tuỳ chọn)"
                   />
-                </div>
-
-                <!-- note chips + textarea -->
-                <div class="orders-note-field">
-                  <div class="orders-note-chips">
-                    <template v-for="(group, gi) in NOTE_CHIP_GROUPS" :key="group.key">
-                      <span v-if="gi > 0" class="orders-note-sep" aria-hidden="true"></span>
-                      <button
-                        v-for="chip in group.chips"
-                        :key="chip"
-                        type="button"
-                        :class="['orders-note-chip', { 'is-active': isNoteChipActive(createOrderDialog.note || '', chip) }]"
-                        :disabled="createOrderSubmitting"
-                        @click="onToggleNoteChip(chip)"
-                      >{{ chip }}</button>
-                    </template>
-                  </div>
-                  <textarea
-                    :value="createOrderDialog.note"
-                    rows="2"
-                    class="form-control orders-note-textarea"
-                    placeholder="Ghi chú cho bếp..."
-                    :disabled="createOrderSubmitting"
-                    @input="createOrderDialog.note = ($event.target as HTMLTextAreaElement).value"
-                  ></textarea>
                 </div>
 
                 <!-- 2-step item picker -->
@@ -404,7 +380,6 @@ import { socket } from "../../socket";
 import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import OrderCard from "../../components/admin/OrderCard.vue";
 import { formatMoney, formatMoneyShort } from "../../utils/format";
-import { NOTE_CHIP_GROUPS, isNoteChipActive, toggleNoteChip } from "../../utils/noteChips";
 
 
 type OrderItem = {
@@ -422,6 +397,7 @@ type OrderItem = {
   status: string;
   lineTotal: number;
   activeLineTotal?: number;
+  note?: string | null;
 };
 
 type OrderRecord = {
@@ -525,6 +501,7 @@ type ManualOrderLine = {
   name: string;
   price: number;
   quantity: number;
+  note?: string;
 };
 
 function getTodayInputValue() {
@@ -689,6 +666,7 @@ function addItemDirect(option: DailyMenuOption) {
       name: option.menuItem.name,
       price: Number(option.sellingPrice || 0),
       quantity: 1,
+      note: "",
     });
   }
 }
@@ -705,10 +683,6 @@ const completeDialog = reactive<{
 });
 
 const GUEST_NAME_CHIPS = ["Khách bàn 1", "Khách bàn 2", "Khách bàn 3", "Khách đem về"];
-
-function onToggleNoteChip(chip: string) {
-  createOrderDialog.note = toggleNoteChip(createOrderDialog.note || "", chip);
-}
 
 const createOrderDialog = reactive<{
   visible: boolean;
@@ -864,6 +838,15 @@ function handleCreateOrderLineChange(payload: { key: string | number; delta: num
   line.quantity = nextQuantity;
 }
 
+function updateCreateOrderLineNote(payload: { key: string | number; note: string }) {
+  const line = createOrderDialog.lines.find((entry) => entry.key === String(payload.key));
+  if (!line) {
+    return;
+  }
+
+  line.note = payload.note;
+}
+
 function removeCreateOrderLine(key: string | number) {
   createOrderDialog.lines = createOrderDialog.lines.filter((entry) => entry.key !== String(key));
 }
@@ -890,6 +873,7 @@ async function submitCreateOrder() {
       items: createOrderDialog.lines.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
         quantity: line.quantity,
+        note: line.note?.trim() || undefined,
       })),
     });
 
