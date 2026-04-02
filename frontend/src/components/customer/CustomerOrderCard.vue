@@ -2,13 +2,22 @@
   <article :class="['order-card', surfaceClass, { 'is-collapsed': collapsed }]">
     <div class="order-card-head">
       <div class="order-head-main">
-        <div class="order-head-label">Đơn {{ order.orderNumber }}</div>
-        <div class="order-head-meta">
-          <span>{{ formatDate(order.createdAt) }}</span>
-          <span v-if="headInfoLabel">{{ headInfoLabel }}</span>
-        </div>
+        <div class="order-head-label">{{ order.orderNumber }}</div>
       </div>
       <div class="order-head-side">
+        <div ref="infoTriggerRef" class="order-info-wrap">
+          <button
+            class="order-info-trigger"
+            type="button"
+            :aria-label="`Thông tin đơn ${order.orderNumber}`"
+            @click.stop="toggleInfo"
+          >
+            <i class="bi bi-info-circle"></i>
+          </button>
+          <div v-if="infoOpen" class="order-info-popup" role="tooltip">
+            <div v-for="line in infoTooltip.split('\n')" :key="line">{{ line }}</div>
+          </div>
+        </div>
         <div class="order-total">{{ formatMoney(displayTotal) }}</div>
         <button
           class="order-collapse-btn"
@@ -23,9 +32,8 @@
       </div>
     </div>
 
-    <div :class="['order-status-line', { 'is-compact': !statusInfoLabel }]">
-      <span class="order-arrival-chip">{{ arrivalInfoLabel }}</span>
-      <span v-if="statusInfoLabel" class="order-pill is-muted">{{ statusInfoLabel }}</span>
+    <div class="order-status-line">
+      <span class="order-arrival-chip"><i class="bi bi-clock"></i> {{ order.arrivalAt ? queueTime : 'Chưa xác định' }}</span>
       <span class="order-item-count-chip">{{ editableItems.length }} món</span>
       <span :class="['order-pill', simpleStatusClass]">{{ statusLabel }}</span>
     </div>
@@ -52,20 +60,15 @@
         @toggle-item-note-chip="toggleItemNoteChip"
       >
         <template #item-statuses="{ item }">
-          <span :class="['order-item-status', itemStatusClass(item.status), 'is-active']">
-            {{ itemStatusLabel(item.status) }}
-          </span>
-          <button
-            v-if="canCancelWaitingItem(item)"
-            class="order-item-cancel-btn"
-            type="button"
-            :disabled="busy"
-            :title="props.cancellingItemId === item.id ? 'Đang hủy món' : 'Hủy món này'"
-            @click="$emit('requestCancelItem', item.id!)"
-          >
-            <i class="bi" :class="props.cancellingItemId === item.id ? 'bi-arrow-repeat' : 'bi-x-circle'"></i>
-            <span>{{ props.cancellingItemId === item.id ? "Đang hủy" : "Hủy món" }}</span>
-          </button>
+          <CustomerOrderItemStatuses
+            :status="item.status"
+            :show-cancel="canCancelWaitingItem(item)"
+            :cancel-disabled="busy"
+            :cancel-title="props.cancellingItemId === item.id ? 'Đang hủy món' : 'Hủy món này'"
+            :cancel-label="props.cancellingItemId === item.id ? 'Đang hủy' : 'Hủy món'"
+            :cancel-icon-class="props.cancellingItemId === item.id ? 'bi-arrow-repeat' : 'bi-x-circle'"
+            @request-cancel="$emit('requestCancelItem', item.id!)"
+          />
         </template>
       </OrderCardItemsSection>
 
@@ -169,9 +172,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
-import { formatDate, formatMoney } from "../../utils/format";
+import CustomerOrderItemStatuses from "./CustomerOrderItemStatuses.vue";
+import { buildOrderCardProgressSegments } from "../common/orderCardProgress";
+import { formatMoney } from "../../utils/format";
 import { toggleNoteChip } from "../../utils/noteChips";
 
 type OrderItem = {
@@ -191,10 +196,13 @@ type OrderRecord = {
   orderNumber: string;
   status: string;
   totalAmount: number;
+   guestName?: string | null;
+   guestPhone?: string | null;
   arrivalAt?: string | null;
   createdAt: string;
   items?: OrderItem[];
   itemProgress?: { total: number; ready: number };
+   customer?: { fullName?: string | null; phone?: string | null } | null;
 };
 
 type MenuOption = {
@@ -237,6 +245,8 @@ const emit = defineEmits<{
 }>();
 
 const collapsed = ref(["COMPLETED", "CANCELLED"].includes(props.order.status));
+const infoOpen = ref(false);
+const infoTriggerRef = ref<HTMLElement | null>(null);
 const addSelection = ref("");
 const highlightedKey = ref<string | null>(null);
 const draft = ref<EditableItem[] | null>(null);
@@ -244,6 +254,25 @@ const arrivalTimeDraft = ref(props.order.arrivalAt ? props.order.arrivalAt.slice
 const arrivalEditOpen = ref(false);
 const removeDialog = reactive({ visible: false, index: -1, itemName: "" });
 const openItemNoteKeys = ref<Set<string>>(new Set());
+
+function toggleInfo() {
+  infoOpen.value = !infoOpen.value;
+}
+
+function closeInfoOnOutside(e: MouseEvent) {
+  if (infoTriggerRef.value && !infoTriggerRef.value.contains(e.target as Node)) {
+    infoOpen.value = false;
+  }
+}
+
+watch(infoOpen, (val) => {
+  if (val) document.addEventListener("click", closeInfoOnOutside);
+  else document.removeEventListener("click", closeInfoOnOutside);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", closeInfoOnOutside);
+});
 
 watch(
   () =>
@@ -442,28 +471,6 @@ function emitSave() {
   );
 }
 
-function itemStatusLabel(status?: string | null) {
-  if (status === "READY") return "Lên món";
-  if (status === "COOKING") return "Đang làm";
-  if (status === "CANCELLED") return "Đã hủy";
-  return "Chờ";
-}
-
-function itemStatusClass(status?: string | null) {
-  return `is-${String(status || "WAITING").toLowerCase()}`;
-}
-
-function showItemNote(item: EditableItem) {
-  return (
-    (simpleStatus.value === "PENDING" || simpleStatus.value === "CONFIRMED") &&
-    Boolean(String(item.note || "").trim())
-  );
-}
-
-function hasItemNote(item: EditableItem) {
-  return Boolean(String(item.note || "").trim());
-}
-
 function canEditItemNote(item: EditableItem) {
   return canEdit.value && item.status !== "CANCELLED";
 }
@@ -480,6 +487,11 @@ const statusLabel = computed(() => {
   return "Đã hủy";
 });
 
+const customerName = computed(() => props.order.customer?.fullName || props.order.guestName || "Khách hàng");
+const customerPhone = computed(() => props.order.guestPhone || props.order.customer?.phone || "Không có SĐT");
+const infoTooltip = computed(() =>
+  `Khách: ${customerName.value} - ${customerPhone.value}\nGiờ đặt: ${formatTime(props.order.createdAt)}`
+);
 const queueTime = computed(() => formatTime(props.order.arrivalAt));
 const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
 const initialArrivalTime = computed(() => (props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""));
@@ -502,27 +514,16 @@ const progressText = computed(() => {
   if (!props.order.itemProgress?.total) return "Chưa có món";
   return `${readyCount.value}/${props.order.itemProgress.total} món sẵn sàng`;
 });
-const progressSegments = computed(() => [
+const progressSegments = computed(() => buildOrderCardProgressSegments([
   { key: "waiting", tone: "waiting", width: pendingPct.value },
   { key: "ready", tone: "ready", width: readyPct.value },
-].filter((segment) => segment.width > 0));
+]));
 const progressLegend = computed(() => {
   if (!props.order.itemProgress?.total) return [];
   return [
     `Đang chờ ${pendingCount.value}`,
     `Sẵn sàng ${readyCount.value}`,
   ];
-});
-const headInfoLabel = computed(() => {
-  if (simpleStatus.value === "PENDING") return "Chờ quán xác nhận";
-  if (simpleStatus.value === "CONFIRMED") return "Quán đang chuẩn bị món";
-  return "";
-});
-const arrivalInfoLabel = computed(() => `Giờ hẹn ${queueTime.value}`);
-const statusInfoLabel = computed(() => {
-  if (simpleStatus.value === "PENDING") return "Có thể thêm món, đổi giờ hẹn";
-  if (simpleStatus.value === "CONFIRMED") return hasProgress.value ? progressText.value : "Quán đang chuẩn bị món";
-  return "";
 });
 const draftChanged = computed(() => {
   if (!draft.value) return false;
@@ -617,19 +618,59 @@ function getItemRowClasses(item: EditableItem) {
   color: var(--text);
 }
 
-.order-head-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
 .order-head-side {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+  text-align: right;
+}
+
+.order-info-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.order-info-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(30, 20, 14, 0.92);
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: nowrap;
+  z-index: 200;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.order-info-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+
+.order-info-trigger:hover,
+.order-info-trigger:focus-visible {
+  color: var(--ember-strong);
+  border-color: rgba(201, 88, 44, 0.32);
+  background: rgba(255, 247, 241, 0.92);
+  outline: none;
+}
+
+.order-info-trigger i {
+  font-size: 0.95rem;
 }
 
 .order-total {
@@ -665,8 +706,10 @@ function getItemRowClasses(item: EditableItem) {
 .order-status-line {
   display: grid;
   align-items: center;
-  grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+  grid-template-columns: minmax(0, 1fr) repeat(2, auto);
   gap: 8px;
+  width: 100%;
+  min-width: 0;
 }
 
 .order-arrival-chip {
@@ -681,6 +724,10 @@ function getItemRowClasses(item: EditableItem) {
   white-space: nowrap;
   justify-self: start;
   z-index: 0;
+}
+
+.order-arrival-chip i {
+  margin-right: 4px;
 }
 
 .order-arrival-chip::before {
@@ -949,89 +996,6 @@ function getItemRowClasses(item: EditableItem) {
   color: var(--muted);
 }
 
-:deep(.order-item-statuses) {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  margin-top: 4px;
-  width: 100%;
-}
-
-.order-item-cancel-btn {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  width: fit-content;
-  max-width: 100%;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 10px;
-  border: 1px solid rgba(148, 88, 88, 0.24);
-  border-radius: 999px;
-  background: rgba(148, 88, 88, 0.08);
-  color: #8f2f15;
-  font-size: 0.76rem;
-  font-weight: 700;
-  transition: background 0.18s, border-color 0.18s, color 0.18s;
-}
-
-.order-item-cancel-btn:hover,
-.order-item-cancel-btn:focus-visible {
-  background: rgba(148, 88, 88, 0.12);
-  border-color: rgba(148, 88, 88, 0.34);
-  outline: none;
-}
-
-.order-item-cancel-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.order-item-status {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  width: fit-content;
-  max-width: 100%;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: rgba(var(--text-rgb), 0.06);
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.order-item-status.is-waiting { background: rgba(203, 165, 81, 0.12); color: #8b6517; }
-.order-item-status.is-cooking { background: rgba(201, 126, 71, 0.13); color: #8a451f; }
-.order-item-status.is-ready { background: rgba(66, 133, 104, 0.14); color: var(--green); }
-.order-item-status.is-cancelled { background: rgba(148, 88, 88, 0.14); color: #8f2f15; }
-.order-item-status.is-active {
-  border-color: currentColor;
-  position: relative;
-  overflow: hidden;
-}
-
-.order-item-status.is-active::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 80%;
-  height: 100%;
-  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.55), transparent);
-  animation: glass-shine 1.2s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes glass-shine {
-  from { transform: skewX(-18deg) translateX(-150%); }
-  to { transform: skewX(-18deg) translateX(280%); }
-}
-
 .order-item-total {
   font-weight: 800;
   color: var(--ember-strong);
@@ -1234,10 +1198,6 @@ function getItemRowClasses(item: EditableItem) {
   }
 
   .order-status-line {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .order-status-line.is-compact {
     grid-template-columns: minmax(0, 1fr) auto auto;
   }
 

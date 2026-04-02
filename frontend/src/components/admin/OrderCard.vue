@@ -76,84 +76,24 @@
       @toggle-item-note-chip="toggleItemNoteChip"
     >
       <template #item-statuses="{ item }">
-        <div v-if="isFullyCancelledItem(item)" class="order-item-status-block is-action">
-          <div class="order-item-stage-actions">
-            <span class="order-item-stage-chip is-cancelled">
-              <span class="order-item-action-label">Đã hủy</span>
-              <strong v-if="shouldShowCancelledStageCount(item)">{{ getCancelledItemCount(item) }}</strong>
-            </span>
-            <button
-              type="button"
-              :class="[
-                'order-item-stage-action',
-                'is-ready',
-                {
-                  'is-actionable': canMoveItemStages(item),
-                  'is-pending': isPendingItemAction(item.id, 'CANCELLED->WAITING'),
-                },
-              ]"
-              :disabled="!canMoveItemStages(item) || props.pendingItemStatusId === item.id"
-              :aria-busy="isPendingItemAction(item.id, 'CANCELLED->WAITING') ? 'true' : 'false'"
-              :title="canMoveItemStages(item) ? getCancelledRestoreHint(item) : 'Không thể phục hồi lúc này'"
-              @click="restoreCancelledItem(item)"
-            >
-              <span class="order-item-action-label">Phục hồi</span>
-              <span
-                v-if="isPendingItemAction(item.id, 'CANCELLED->WAITING')"
-                class="order-item-action-spinner"
-                aria-hidden="true"
-              ></span>
-            </button>
-          </div>
-        </div>
-        <div v-else-if="canMoveItemStages(item)" class="order-item-status-block is-action">
-          <div class="order-item-stage-actions">
-            <button
-              v-for="control in getItemStageControls(item)"
-              :key="control.key"
-              type="button"
-              :class="[
-                'order-item-stage-action',
-                control.toneClass,
-                {
-                  'is-active': control.activeCount > 0,
-                  'is-actionable': !!control.action,
-                  'is-pending': isPendingItemAction(item.id, control.action?.key),
-                },
-              ]"
-              :disabled="!control.action || props.pendingItemStatusId === item.id"
-              :aria-busy="isPendingItemAction(item.id, control.action?.key) ? 'true' : 'false'"
-              :title="control.action?.hint || `${control.label}: không có thao tác`"
-              @click="openStageControl(item, control)"
-            >
-              <span class="order-item-action-label">{{ control.label }}</span>
-              <span v-if="shouldShowStageCount(item, control)" class="order-item-action-count">{{ control.activeCount }}</span>
-              <span
-                v-if="isPendingItemAction(item.id, control.action?.key)"
-                class="order-item-action-spinner"
-                aria-hidden="true"
-              ></span>
-            </button>
-          </div>
-        </div>
-        <div
-          v-if="stagePicker.visible && stagePicker.itemId === item.id"
-          class="order-item-stage-picker"
-        >
-          <div class="order-item-stage-picker-copy">
-            <strong>{{ stagePicker.label }}</strong>
-            <span>{{ stagePicker.hint }}</span>
-          </div>
-          <div class="order-item-stage-picker-controls">
-            <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(-1)">-</button>
-            <span class="order-item-picker-value">{{ stagePicker.quantity }}</span>
-            <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(1)">+</button>
-          </div>
-          <div class="order-item-stage-picker-actions">
-            <button type="button" class="btn btn-dark btn-sm" @click="confirmStagePicker">Xác nhận</button>
-            <button type="button" class="btn btn-outline-dark btn-sm" @click="closeStagePicker">Bỏ qua</button>
-          </div>
-        </div>
+        <OrderCardItemStatuses
+          :show-cancelled="isFullyCancelledItem(item)"
+          :cancelled-count="getCancelledItemCount(item)"
+          :show-cancelled-count="shouldShowCancelledStageCount(item)"
+          :restore-pending="isPendingItemAction(item.id, 'CANCELLED->WAITING')"
+          :restore-disabled="!canMoveItemStages(item) || props.pendingItemStatusId === item.id"
+          :restore-title="canMoveItemStages(item) ? getCancelledRestoreHint(item) : 'Không thể phục hồi lúc này'"
+          :stage-controls="getItemStageControlViews(item)"
+          :show-stage-picker="stagePicker.visible && stagePicker.itemId === item.id"
+          :stage-picker-label="stagePicker.label"
+          :stage-picker-hint="stagePicker.hint"
+          :stage-picker-quantity="stagePicker.quantity"
+          @restore-cancelled="restoreCancelledItem(item)"
+          @open-control="openStageControlByKey(item, $event)"
+          @nudge-picker="nudgeStagePicker"
+          @confirm-picker="confirmStagePicker"
+          @close-picker="closeStagePicker"
+        />
       </template>
     </OrderCardItemsSection>
 
@@ -279,8 +219,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
+import OrderCardItemStatuses from "./OrderCardItemStatuses.vue";
+import { buildOrderCardProgressSegments } from "../common/orderCardProgress";
 import { formatMoney } from "../../utils/format";
-import { parseNoteChips, toggleNoteChip } from "../../utils/noteChips";
+import { toggleNoteChip } from "../../utils/noteChips";
 
 // Types
 type OrderItem = {
@@ -376,6 +318,12 @@ type StageControl = {
   toneClass: string;
   activeCount: number;
   action: StageAction | null;
+};
+type StageControlView = StageControl & {
+  pending: boolean;
+  disabled: boolean;
+  title: string;
+  showCount: boolean;
 };
 
 // Props / Emits
@@ -520,14 +468,6 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
-function hasItemNote(item: EditableItem) {
-  return Boolean(normalizeItemNote(item.note));
-}
-
-function getItemNoteChips(note?: string | null) {
-  return parseNoteChips(note);
-}
-
 function normalizeItemNote(note?: string | null) {
   return String(note || "").trim();
 }
@@ -638,11 +578,11 @@ const progressText = computed(() => {
   if (!p?.total) return "Chưa có món";
   return `${p.ready}/${p.total} món sẵn sàng`;
 });
-const progressSegments = computed(() => [
+const progressSegments = computed(() => buildOrderCardProgressSegments([
   { key: "waiting", tone: "waiting", width: progressPct("waiting") },
   { key: "cooking", tone: "cooking", width: progressPct("cooking") },
   { key: "ready", tone: "ready", width: progressPct("ready") },
-].filter((segment) => segment.width > 0));
+]));
 const progressLegend = computed(() => {
   const progress = props.order.itemProgress;
   if (!progress?.total) return [];
@@ -779,6 +719,20 @@ function getItemRowClasses(item: EditableItem) {
   };
 }
 
+function getItemStageControlViews(item: EditableItem): StageControlView[] {
+  if (!canMoveItemStages(item) || isFullyCancelledItem(item)) {
+    return [];
+  }
+
+  return getItemStageControls(item).map((control) => ({
+    ...control,
+    pending: isPendingItemAction(item.id, control.action?.key),
+    disabled: !control.action || props.pendingItemStatusId === item.id,
+    title: control.action?.hint || `${control.label}: không có thao tác`,
+    showCount: shouldShowStageCount(item, control),
+  }));
+}
+
 function isWaitingOnlyItem(item: EditableItem) {
   const stages = getItemStageCounts(item);
   return (
@@ -899,6 +853,14 @@ function shouldShowStageCount(item: EditableItem, control: StageControl) {
   if (control.activeCount <= 0) return false;
   if (control.activeCount > 1) return true;
   return quantity > 1;
+}
+
+function openStageControlByKey(item: EditableItem, controlKey: ItemStageName) {
+  const control = getItemStageControls(item).find((entry) => entry.key === controlKey);
+  if (!control) {
+    return;
+  }
+  openStageControl(item, control);
 }
 
 function restoreCancelledItem(item: EditableItem) {
@@ -1654,241 +1616,6 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   background: rgba(var(--muted-rgb), 0.14);
 }
 
-.order-item-statuses {
-  display: grid;
-  gap: 8px;
-  width: 100%;
-}
-
-.order-item-status-block {
-  display: grid;
-  gap: 6px;
-}
-
-.order-item-status-label {
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.order-item-stage-summary,
-.order-item-stage-actions,
-.order-item-stage-picker-quick,
-.order-item-stage-picker-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.order-item-stage-chip,
-.order-item-stage-action,
-.order-item-stage-picker-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  font-size: 0.76rem;
-  font-weight: 700;
-  border: 1px solid transparent;
-}
-
-.order-item-stage-chip {
-  background: rgba(var(--text-rgb), 0.035);
-  color: var(--muted);
-  border-style: dashed;
-}
-
-.order-item-stage-chip strong,
-.order-item-action-count {
-  min-width: 18px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.order-item-stage-action {
-  position: relative;
-  min-width: 86px;
-  justify-content: center;
-  cursor: pointer;
-  background: rgba(var(--muted-rgb), 0.06);
-  color: rgba(var(--text-rgb), 0.7);
-  border-color: rgba(var(--muted-rgb), 0.14);
-  box-shadow: inset 0 2px 4px rgba(var(--text-rgb), 0.08);
-  transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.18s, box-shadow 0.18s;
-}
-
-.order-item-stage-action:hover,
-.order-item-stage-action:focus-visible,
-.order-item-stage-picker-chip:hover,
-.order-item-stage-picker-chip:focus-visible,
-.order-item-picker-btn:hover,
-.order-item-picker-btn:focus-visible {
-  transform: translateY(-1px);
-  outline: none;
-}
-
-.order-item-stage-action:disabled {
-  opacity: 1;
-  cursor: default;
-  box-shadow: none;
-}
-
-.order-item-stage-action.is-pending .order-item-action-label,
-.order-item-stage-action.is-pending .order-item-action-count {
-  opacity: 0.28;
-}
-
-.order-item-stage-action.is-actionable {
-  border-style: solid;
-}
-
-.order-item-stage-action.is-active {
-  border-color: currentColor;
-  overflow: hidden;
-}
-
-.order-item-stage-action.is-active::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 80%;
-  height: 100%;
-  background: linear-gradient(
-    to right,
-    transparent,
-    rgba(255, 255, 255, 0.55),
-    transparent
-  );
-  will-change: transform;
-  animation: glass-shine 1.2s linear infinite;
-  pointer-events: none;
-}
-
-.order-item-stage-action.is-waiting,
-.order-item-stage-chip.is-waiting {
-  background: rgba(203, 165, 81, 0.12);
-  border-color: rgba(203, 165, 81, 0.2);
-  color: #8b6517;
-}
-
-.order-item-stage-action.is-cooking,
-.order-item-stage-chip.is-cooking {
-  background: rgba(201, 126, 71, 0.13);
-  border-color: rgba(201, 126, 71, 0.2);
-  color: #8a451f;
-}
-
-.order-item-stage-action.is-ready,
-.order-item-stage-chip.is-ready {
-  background: rgba(66, 133, 104, 0.14);
-  border-color: rgba(66, 133, 104, 0.2);
-  color: var(--green);
-}
-
-.order-item-stage-action.is-cancelled,
-.order-item-stage-chip.is-cancelled {
-  background: rgba(148, 88, 88, 0.14);
-  border-color: rgba(148, 88, 88, 0.2);
-  color: #8f2f15;
-}
-
-.order-item-stage-action.is-muted {
-  background: rgba(var(--text-rgb), 0.06);
-  border-color: rgba(var(--text-rgb), 0.12);
-  color: var(--muted);
-}
-
-.order-item-stage-picker {
-  display: grid;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(var(--line-rgb), 0.8);
-  background: rgba(255, 255, 255, 0.84);
-}
-
-.order-item-stage-picker-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.order-item-stage-picker-copy strong {
-  font-size: 0.82rem;
-}
-
-.order-item-stage-picker-copy span {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.order-item-stage-picker-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.order-item-picker-btn {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid rgba(var(--text-rgb), 0.12);
-  border-radius: 999px;
-  background: #fff;
-  color: var(--text);
-}
-
-.order-item-picker-value {
-  min-width: 32px;
-  text-align: center;
-  font-size: 0.9rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.order-item-stage-picker-chip {
-  background: rgba(var(--text-rgb), 0.05);
-  color: var(--text);
-}
-
-.order-item-stage-picker-actions .btn {
-  min-height: 32px;
-}
-
-.order-item-action-label,
-.order-item-action-count {
-  transition: opacity 0.18s ease;
-}
-
-.order-item-action-spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 14px;
-  height: 14px;
-  margin-top: -7px;
-  margin-left: -7px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: order-item-spin 0.7s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes order-item-spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes glass-shine {
-  from { transform: skewX(-18deg) translateX(-150%); }
-  to   { transform: skewX(-18deg) translateX(280%); }
-}
-
 .order-item-total {
   font-weight: 800;
   color: var(--ember-strong);
@@ -2052,16 +1779,6 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   }
 
   .order-add-control { grid-template-columns: auto minmax(0, 1fr) auto; }
-
-  .order-item-stage-actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .order-item-stage-action {
-    min-width: 0;
-    width: 100%;
-  }
 
   .orders-modal { padding: 18px; }
 }
