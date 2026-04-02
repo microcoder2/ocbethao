@@ -1766,13 +1766,16 @@ export class OrdersController extends Controller {
     });
 
     void broadcastStockUpdate(updatePoolIds);
-    const changeType = getAdminItemChangeType(
-      body.toStage === "READY"
-        ? OrderItemStatus.READY
-        : body.toStage === "COOKING"
-          ? OrderItemStatus.COOKING
-          : OrderItemStatus.WAITING
-    );
+    const changeType =
+      body.fromStage === "CANCELLED" && body.toStage === "WAITING"
+        ? "ADMIN_ITEM_RESTORED"
+        : getAdminItemChangeType(
+            body.toStage === "READY"
+              ? OrderItemStatus.READY
+              : body.toStage === "COOKING"
+                ? OrderItemStatus.COOKING
+                : OrderItemStatus.WAITING
+          );
     const order = await getOrderDetail(orderId);
     const serialized = serializeOrder(order);
     const serializedItem = serialized.items.find((item) => item.id === itemId);

@@ -31,99 +31,43 @@
     </div>
 
     <div v-show="!collapsed" class="order-collapsible">
-      <div v-if="showProgressBar" class="order-progress">
-        <div class="order-progress-head">
-          <strong>{{ progressText }}</strong>
-        </div>
-        <div class="order-progress-track">
-          <span class="order-progress-segment is-waiting" :style="{ width: `${pendingPct}%` }"></span>
-          <span class="order-progress-segment is-ready" :style="{ width: `${readyPct}%` }"></span>
-        </div>
-        <div class="order-progress-legend">
-          <span>Đang chờ {{ pendingCount }}</span>
-          <span>Sẵn sàng {{ readyCount }}</span>
-        </div>
-      </div>
-
-      <ul class="order-item-list">
-        <li v-if="!editableItems.length" class="order-item-row is-empty">
-          <span class="order-item-name">Chưa có món</span>
-        </li>
-        <li
-          v-for="(item, index) in editableItems"
-          :key="item.key"
-          :class="[
-            'order-item-row',
-            {
-              'is-highlighted': highlightedKey === item.key,
-              'is-cancelled': item.status === 'CANCELLED',
-              'is-cancel-pending': props.cancellingItemId === item.id,
-            },
-          ]"
-        >
-          <div class="order-item-main">
-            <div class="order-item-copy">
-              <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
-              <span class="order-item-meta">{{ formatMoney(item.unitPrice) }} / món</span>
-              <div v-if="showItemNote(item)" class="order-item-note-list">
-                <span
-                  v-for="noteChip in getItemNoteChips(item.note)"
-                  :key="`${item.key}-${noteChip.text}`"
-                  :class="['order-item-note-chip', `is-${noteChip.tone}`]"
-                >{{ noteChip.text }}</span>
-              </div>
-              <div v-if="canEditItemNote(item)" class="order-item-note-tools">
-                <button
-                  class="order-item-note-toggle"
-                  type="button"
-                  :disabled="busy"
-                  @click="toggleItemNoteEditor(item.key)"
-                >
-                  <i class="bi bi-chat-left-text"></i>
-                  <span>{{ hasItemNote(item) ? "Sửa ghi chú" : "Ghi chú món" }}</span>
-                </button>
-              </div>
-              <div v-if="canEditItemNote(item) && isItemNoteEditorOpen(item.key)" class="order-item-note-editor">
-                <template v-for="(group, groupIndex) in NOTE_CHIP_GROUPS" :key="group.key">
-                  <span v-if="groupIndex > 0" class="order-item-note-sep" aria-hidden="true"></span>
-                  <button
-                    v-for="chip in group.chips"
-                    :key="chip"
-                    type="button"
-                    :class="['order-item-note-picker-chip', { 'is-active': isNoteChipActive(item.note || '', chip) }]"
-                    :disabled="busy"
-                    @click="toggleItemNoteChip(index, chip)"
-                  >{{ chip }}</button>
-                </template>
-              </div>
-              <div v-if="showItemStatuses" class="order-item-statuses">
-                <span :class="['order-item-status', itemStatusClass(item.status), 'is-active']">
-                  {{ itemStatusLabel(item.status) }}
-                </span>
-                <button
-                  v-if="canCancelWaitingItem(item)"
-                  class="order-item-cancel-btn"
-                  type="button"
-                  :disabled="busy"
-                  :title="props.cancellingItemId === item.id ? 'Đang hủy món' : 'Hủy món này'"
-                  @click="$emit('requestCancelItem', item.id!)"
-                >
-                  <i class="bi" :class="props.cancellingItemId === item.id ? 'bi-arrow-repeat' : 'bi-x-circle'"></i>
-                  <span>{{ props.cancellingItemId === item.id ? "Đang hủy" : "Hủy món" }}</span>
-                </button>
-              </div>
-            </div>
-            <span class="order-item-total">{{ formatMoney(item.status === "CANCELLED" ? 0 : item.lineTotal) }}</span>
-          </div>
-
-          <div v-if="canEdit || canAdjustWaitingItem(item)" class="order-item-editor">
-            <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, -1)">-</button>
-            <span class="order-item-qty">{{ item.quantity }}</span>
-            <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, 1)">+</button>
-          </div>
-          <span v-else class="order-item-qty-read">x{{ item.quantity }}</span>
-        </li>
-      </ul>
+      <OrderCardItemsSection
+        :items="editableItems"
+        :busy="busy"
+        :highlighted-key="highlightedKey"
+        :show-progress="showProgressBar"
+        :progress-text="progressText"
+        :progress-segments="progressSegments"
+        :progress-legend="progressLegend"
+        :show-item-statuses="showItemStatuses"
+        :cancelled-order="simpleStatus === 'CANCELLED'"
+        :extra-row-classes="getItemRowClasses"
+        :can-edit-item-note="canEditItemNote"
+        :is-item-note-editor-open="isItemNoteEditorOpen"
+        :can-adjust-item="canAdjustItem"
+        :get-displayed-total="getItemDisplayedTotal"
+        :get-quantity-label="getItemQuantityLabel"
+        @change-qty="changeQty"
+        @toggle-item-note-editor="toggleItemNoteEditor"
+        @toggle-item-note-chip="toggleItemNoteChip"
+      >
+        <template #item-statuses="{ item }">
+          <span :class="['order-item-status', itemStatusClass(item.status), 'is-active']">
+            {{ itemStatusLabel(item.status) }}
+          </span>
+          <button
+            v-if="canCancelWaitingItem(item)"
+            class="order-item-cancel-btn"
+            type="button"
+            :disabled="busy"
+            :title="props.cancellingItemId === item.id ? 'Đang hủy món' : 'Hủy món này'"
+            @click="$emit('requestCancelItem', item.id!)"
+          >
+            <i class="bi" :class="props.cancellingItemId === item.id ? 'bi-arrow-repeat' : 'bi-x-circle'"></i>
+            <span>{{ props.cancellingItemId === item.id ? "Đang hủy" : "Hủy món" }}</span>
+          </button>
+        </template>
+      </OrderCardItemsSection>
 
       <div v-if="canEdit" class="order-editor-panel">
         <div class="order-add-row">
@@ -226,8 +170,9 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
+import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
 import { formatDate, formatMoney } from "../../utils/format";
-import { NOTE_CHIP_GROUPS, isNoteChipActive, parseNoteChips, toggleNoteChip } from "../../utils/noteChips";
+import { toggleNoteChip } from "../../utils/noteChips";
 
 type OrderItem = {
   id: number;
@@ -519,10 +464,6 @@ function hasItemNote(item: EditableItem) {
   return Boolean(String(item.note || "").trim());
 }
 
-function getItemNoteChips(note?: string | null) {
-  return parseNoteChips(note);
-}
-
 function canEditItemNote(item: EditableItem) {
   return canEdit.value && item.status !== "CANCELLED";
 }
@@ -560,6 +501,17 @@ const pendingPct = computed(() => {
 const progressText = computed(() => {
   if (!props.order.itemProgress?.total) return "Chưa có món";
   return `${readyCount.value}/${props.order.itemProgress.total} món sẵn sàng`;
+});
+const progressSegments = computed(() => [
+  { key: "waiting", tone: "waiting", width: pendingPct.value },
+  { key: "ready", tone: "ready", width: readyPct.value },
+].filter((segment) => segment.width > 0));
+const progressLegend = computed(() => {
+  if (!props.order.itemProgress?.total) return [];
+  return [
+    `Đang chờ ${pendingCount.value}`,
+    `Sẵn sàng ${readyCount.value}`,
+  ];
 });
 const headInfoLabel = computed(() => {
   if (simpleStatus.value === "PENDING") return "Chờ quán xác nhận";
@@ -605,6 +557,24 @@ function canCancelWaitingItem(item: EditableItem) {
 
 function canAdjustWaitingItem(item: EditableItem) {
   return canCancelWaitingItem(item);
+}
+
+function canAdjustItem(item: EditableItem) {
+  return canEdit.value || canAdjustWaitingItem(item);
+}
+
+function getItemDisplayedTotal(item: EditableItem) {
+  return item.status === "CANCELLED" ? 0 : Number(item.lineTotal || 0);
+}
+
+function getItemQuantityLabel(item: EditableItem) {
+  return `x${Math.max(0, Number(item.quantity || 0))}`;
+}
+
+function getItemRowClasses(item: EditableItem) {
+  return {
+    "is-cancel-pending": props.cancellingItemId === item.id,
+  };
 }
 </script>
 
@@ -979,16 +949,22 @@ function canAdjustWaitingItem(item: EditableItem) {
   color: var(--muted);
 }
 
-.order-item-statuses {
+:deep(.order-item-statuses) {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
   gap: 6px;
   margin-top: 4px;
+  width: 100%;
 }
 
 .order-item-cancel-btn {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: 100%;
   gap: 6px;
   min-height: 28px;
   padding: 0 10px;
@@ -1016,6 +992,9 @@ function canAdjustWaitingItem(item: EditableItem) {
 .order-item-status {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: 100%;
   min-height: 28px;
   padding: 0 10px;
   border-radius: 999px;

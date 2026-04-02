@@ -185,11 +185,13 @@ type OrderChangeEvent = {
     | "ADMIN_CONFIRMED_ORDER"
     | "ADMIN_COMPLETED_ORDER"
     | "ADMIN_CANCELLED_ORDER"
+    | "ADMIN_ITEM_RESTORED"
     | "ADMIN_ITEM_COOKING"
     | "ADMIN_ITEM_READY";
   order: OrderRecord;
   itemId?: number;
   itemName?: string;
+  quantity?: number;
   occurredAt: string;
 };
 
@@ -337,6 +339,15 @@ function showActionToast(message: string) {
   }, 3200);
 }
 
+function getRestoreToastMessage(event: OrderChangeEvent) {
+  const itemName = String(event.itemName || "").trim() || "món đã hủy";
+  const quantity = Math.max(0, Number(event.quantity || 0));
+  if (quantity > 1) {
+    return `Quán vừa phục hồi ${quantity} phần ${itemName} vào đơn của bạn.`;
+  }
+  return `Quán vừa phục hồi ${itemName} vào đơn của bạn.`;
+}
+
 function openCancelItemConfirm(
   order: OrderRecord,
   itemId: number,
@@ -443,6 +454,9 @@ async function loadOrders() {
 
 function handleOrderChanged(event: OrderChangeEvent) {
   replaceOrder(event.order.id, event.order);
+  if (event.type === "ADMIN_ITEM_RESTORED") {
+    showActionToast(getRestoreToastMessage(event));
+  }
 }
 
 onMounted(() => {

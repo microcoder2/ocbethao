@@ -55,166 +55,107 @@
     <!-- Collapsible body -->
     <div v-show="!collapsed" class="order-collapsible">
 
-    <!-- Progress -->
-    <div v-if="order.itemProgress?.total && simplifyStatus(order.status) === 'CONFIRMED'" class="order-progress">
-      <div class="order-progress-head">
-        <strong>{{ progressText }}</strong>
-      </div>
-      <div class="order-progress-track">
-        <span class="order-progress-segment is-waiting" :style="{ width: `${progressPct('waiting')}%` }"></span>
-        <span class="order-progress-segment is-cooking" :style="{ width: `${progressPct('cooking')}%` }"></span>
-        <span class="order-progress-segment is-ready"   :style="{ width: `${progressPct('ready')}%` }"></span>
-      </div>
-      <div class="order-progress-legend">
-        <span>Chờ {{ order.itemProgress.waiting }}</span>
-        <span>Đang làm {{ order.itemProgress.cooking }}</span>
-        <span>Lên món {{ order.itemProgress.ready }}</span>
-      </div>
-    </div>
-
-    <!-- Items -->
-    <ul class="order-item-list">
-      <li v-if="!editableItems.length" class="order-item-row is-empty">
-        <span class="order-item-name">Chưa có món</span>
-      </li>
-      <li
-        v-for="(item, index) in editableItems"
-        :key="item.key"
-        :class="[
-          'order-item-row',
-          {
-            'is-highlighted': highlightedKey === item.key,
-            'is-cancelled': item.status === 'CANCELLED',
-            'is-cancelled-flash': props.flashCancelledItemId === item.id,
-          },
-        ]"
-      >
-        <div class="order-item-main">
-          <div class="order-item-copy">
-            <div class="order-item-headline">
-              <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
-              <button
-                v-if="canEditItemNote(item) && !hasItemNote(item)"
-                :class="[
-                  'order-item-note-toggle',
-                  {
-                    'has-note': hasItemNote(item),
-                    'is-open': isItemNoteEditorOpen(item.key),
-                  },
-                ]"
-                type="button"
-                :disabled="busy"
-                :aria-label="hasItemNote(item) ? 'Sửa ghi chú món' : 'Thêm ghi chú món'"
-                :aria-expanded="isItemNoteEditorOpen(item.key) ? 'true' : 'false'"
-                :title="hasItemNote(item) ? 'Sửa ghi chú món' : 'Thêm ghi chú món'"
-                @click="toggleItemNoteEditor(item.key)"
-              >
-                <i class="bi bi-chat-left-text"></i>
-              </button>
-              <span v-if="!hasItemNote(item)" class="order-item-meta-chip">{{ formatMoney(item.unitPrice) }} / món</span>
-            </div>
-          </div>
-          <div class="order-item-side">
-            <span class="order-item-total">{{ formatMoney(getItemDisplayedTotal(item)) }}</span>
-            <div v-if="canAdjustDraftItem(item)" class="order-item-editor">
-              <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, -1)">-</button>
-              <span class="order-item-qty">{{ item.quantity }}</span>
-              <button class="btn btn-sm order-qty-btn" type="button" :disabled="busy" @click="changeQty(index, 1)">+</button>
-            </div>
-            <span v-else class="order-item-qty-read">{{ getItemQuantityLabel(item) }}</span>
-          </div>
-        </div>
-        <div v-if="hasItemNote(item)" class="order-item-note-list">
-          <span class="order-item-meta-chip">{{ formatMoney(item.unitPrice) }} / món</span>
-          <span
-            v-for="noteChip in getItemNoteChips(item.note)"
-            :key="`${item.key}-${noteChip.text}`"
-            :class="['order-item-note-chip', `is-${noteChip.tone}`]"
-          >{{ noteChip.text }}</span>
-          <button
-            v-if="canEditItemNote(item)"
-            :class="[
-              'order-item-note-toggle',
-              {
-                'has-note': hasItemNote(item),
-                'is-open': isItemNoteEditorOpen(item.key),
-              },
-            ]"
-            type="button"
-            :disabled="busy"
-            :aria-label="hasItemNote(item) ? 'Sửa ghi chú món' : 'Thêm ghi chú món'"
-            :aria-expanded="isItemNoteEditorOpen(item.key) ? 'true' : 'false'"
-            :title="hasItemNote(item) ? 'Sửa ghi chú món' : 'Thêm ghi chú món'"
-            @click="toggleItemNoteEditor(item.key)"
-          >
-            <i class="bi bi-chat-left-text"></i>
-          </button>
-        </div>
-        <div v-if="canEditItemNote(item) && isItemNoteEditorOpen(item.key)" class="order-item-note-editor">
-          <template v-for="(group, groupIndex) in NOTE_CHIP_GROUPS" :key="group.key">
-            <span v-if="groupIndex > 0" class="order-item-note-sep" aria-hidden="true"></span>
+    <OrderCardItemsSection
+      :items="editableItems"
+      :busy="busy"
+      :highlighted-key="highlightedKey"
+      :show-progress="order.itemProgress?.total && simplifyStatus(order.status) === 'CONFIRMED'"
+      :progress-text="progressText"
+      :progress-segments="progressSegments"
+      :progress-legend="progressLegend"
+      :show-item-statuses="showItemStatuses"
+      :cancelled-order="simplifyStatus(order.status) === 'CANCELLED'"
+      :extra-row-classes="getItemRowClasses"
+      :can-edit-item-note="canEditItemNote"
+      :is-item-note-editor-open="isItemNoteEditorOpen"
+      :can-adjust-item="canAdjustDraftItem"
+      :get-displayed-total="getItemDisplayedTotal"
+      :get-quantity-label="getItemQuantityLabel"
+      @change-qty="changeQty"
+      @toggle-item-note-editor="toggleItemNoteEditor"
+      @toggle-item-note-chip="toggleItemNoteChip"
+    >
+      <template #item-statuses="{ item }">
+        <div v-if="isFullyCancelledItem(item)" class="order-item-status-block is-action">
+          <div class="order-item-stage-actions">
+            <span class="order-item-stage-chip is-cancelled">
+              <span class="order-item-action-label">Đã hủy</span>
+              <strong v-if="shouldShowCancelledStageCount(item)">{{ getCancelledItemCount(item) }}</strong>
+            </span>
             <button
-              v-for="chip in group.chips"
-              :key="chip"
               type="button"
-              :class="['order-item-note-picker-chip', { 'is-active': isNoteChipActive(item.note || '', chip) }]"
-              :disabled="busy"
-              @click="toggleItemNoteChip(index, chip)"
-            >{{ chip }}</button>
-          </template>
-        </div>
-        <div v-if="showItemStatuses" class="order-item-statuses">
-          <div v-if="canMoveItemStages(item)" class="order-item-status-block is-action">
-            <div class="order-item-stage-actions">
-              <button
-                v-for="control in getItemStageControls(item)"
-                :key="control.key"
-                type="button"
-                :class="[
-                  'order-item-stage-action',
-                  control.toneClass,
-                  {
-                    'is-active': control.activeCount > 0,
-                    'is-actionable': !!control.action,
-                    'is-pending': isPendingItemAction(item.id, control.action?.key),
-                  },
-                ]"
-                :disabled="!control.action || props.pendingItemStatusId === item.id"
-                :aria-busy="isPendingItemAction(item.id, control.action?.key) ? 'true' : 'false'"
-                :title="control.action?.hint || `${control.label}: không có thao tác`"
-                @click="openStageControl(item, control)"
-              >
-                <span class="order-item-action-label">{{ control.label }}</span>
-                <span v-if="shouldShowStageCount(item, control)" class="order-item-action-count">{{ control.activeCount }}</span>
-                <span
-                  v-if="isPendingItemAction(item.id, control.action?.key)"
-                  class="order-item-action-spinner"
-                  aria-hidden="true"
-                ></span>
-              </button>
-            </div>
-          </div>
-          <div
-            v-if="stagePicker.visible && stagePicker.itemId === item.id"
-            class="order-item-stage-picker"
-          >
-            <div class="order-item-stage-picker-copy">
-              <strong>{{ stagePicker.label }}</strong>
-              <span>{{ stagePicker.hint }}</span>
-            </div>
-            <div class="order-item-stage-picker-controls">
-              <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(-1)">-</button>
-              <span class="order-item-picker-value">{{ stagePicker.quantity }}</span>
-              <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(1)">+</button>
-            </div>
-            <div class="order-item-stage-picker-actions">
-              <button type="button" class="btn btn-dark btn-sm" @click="confirmStagePicker">Xác nhận</button>
-              <button type="button" class="btn btn-outline-dark btn-sm" @click="closeStagePicker">Bỏ qua</button>
-            </div>
+              :class="[
+                'order-item-stage-action',
+                'is-ready',
+                {
+                  'is-actionable': canMoveItemStages(item),
+                  'is-pending': isPendingItemAction(item.id, 'CANCELLED->WAITING'),
+                },
+              ]"
+              :disabled="!canMoveItemStages(item) || props.pendingItemStatusId === item.id"
+              :aria-busy="isPendingItemAction(item.id, 'CANCELLED->WAITING') ? 'true' : 'false'"
+              :title="canMoveItemStages(item) ? getCancelledRestoreHint(item) : 'Không thể phục hồi lúc này'"
+              @click="restoreCancelledItem(item)"
+            >
+              <span class="order-item-action-label">Phục hồi</span>
+              <span
+                v-if="isPendingItemAction(item.id, 'CANCELLED->WAITING')"
+                class="order-item-action-spinner"
+                aria-hidden="true"
+              ></span>
+            </button>
           </div>
         </div>
-      </li>
-    </ul>
+        <div v-else-if="canMoveItemStages(item)" class="order-item-status-block is-action">
+          <div class="order-item-stage-actions">
+            <button
+              v-for="control in getItemStageControls(item)"
+              :key="control.key"
+              type="button"
+              :class="[
+                'order-item-stage-action',
+                control.toneClass,
+                {
+                  'is-active': control.activeCount > 0,
+                  'is-actionable': !!control.action,
+                  'is-pending': isPendingItemAction(item.id, control.action?.key),
+                },
+              ]"
+              :disabled="!control.action || props.pendingItemStatusId === item.id"
+              :aria-busy="isPendingItemAction(item.id, control.action?.key) ? 'true' : 'false'"
+              :title="control.action?.hint || `${control.label}: không có thao tác`"
+              @click="openStageControl(item, control)"
+            >
+              <span class="order-item-action-label">{{ control.label }}</span>
+              <span v-if="shouldShowStageCount(item, control)" class="order-item-action-count">{{ control.activeCount }}</span>
+              <span
+                v-if="isPendingItemAction(item.id, control.action?.key)"
+                class="order-item-action-spinner"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </div>
+        </div>
+        <div
+          v-if="stagePicker.visible && stagePicker.itemId === item.id"
+          class="order-item-stage-picker"
+        >
+          <div class="order-item-stage-picker-copy">
+            <strong>{{ stagePicker.label }}</strong>
+            <span>{{ stagePicker.hint }}</span>
+          </div>
+          <div class="order-item-stage-picker-controls">
+            <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(-1)">-</button>
+            <span class="order-item-picker-value">{{ stagePicker.quantity }}</span>
+            <button type="button" class="order-item-picker-btn" @click="nudgeStagePicker(1)">+</button>
+          </div>
+          <div class="order-item-stage-picker-actions">
+            <button type="button" class="btn btn-dark btn-sm" @click="confirmStagePicker">Xác nhận</button>
+            <button type="button" class="btn btn-outline-dark btn-sm" @click="closeStagePicker">Bỏ qua</button>
+          </div>
+        </div>
+      </template>
+    </OrderCardItemsSection>
 
     <!-- Edit panel -->
     <div v-if="canEdit" class="order-editor-panel">
@@ -337,10 +278,11 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
+import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
 import { formatMoney } from "../../utils/format";
-import { NOTE_CHIP_GROUPS, isNoteChipActive, parseNoteChips, toggleNoteChip } from "../../utils/noteChips";
+import { parseNoteChips, toggleNoteChip } from "../../utils/noteChips";
 
-// ─── Types ──────────────────────────────────────────────────────────────
+// Types
 type OrderItem = {
   id: number;
   menuItemId?: number | null;
@@ -436,7 +378,7 @@ type StageControl = {
   action: StageAction | null;
 };
 
-// ─── Props / Emits ──────────────────────────────────────────────────────
+// Props / Emits
 const props = defineProps<{
   order: OrderRecord;
   menuOptions: DailyMenuOption[];
@@ -457,7 +399,7 @@ const emit = defineEmits<{
   moveItemStage: [payload: MoveItemStagePayload];
 }>();
 
-// ─── Constants ──────────────────────────────────────────────────────────
+// Constants
 const paymentMethodLabels: Record<string, string> = {
   CASH: "Tiền mặt",
   CARD: "Thẻ",
@@ -467,7 +409,7 @@ const paymentMethodLabels: Record<string, string> = {
 
 
 
-// ─── Internal state ─────────────────────────────────────────────────────
+// Internal state
 const collapsed = ref(true);
 const infoOpen = ref(false);
 const infoTriggerRef = ref<HTMLElement | null>(null);
@@ -564,7 +506,7 @@ watch(
   }
 );
 
-// ─── Helpers ────────────────────────────────────────────────────────────
+// Helpers
 function simplifyStatus(status: string) {
   if (status === "CANCELLED") return "CANCELLED";
   if (status === "COMPLETED") return "COMPLETED";
@@ -667,7 +609,7 @@ function discardDraft() {
   openItemNoteKeys.value = new Set();
 }
 
-// ─── Computed ───────────────────────────────────────────────────────────
+// Computed
 const surfaceClass = computed(() => `is-status-${simplifyStatus(props.order.status).toLowerCase()}`);
 const simpleStatusClass = computed(() => `is-${simplifyStatus(props.order.status).toLowerCase()}`);
 
@@ -695,6 +637,20 @@ const progressText = computed(() => {
   const p = props.order.itemProgress;
   if (!p?.total) return "Chưa có món";
   return `${p.ready}/${p.total} món sẵn sàng`;
+});
+const progressSegments = computed(() => [
+  { key: "waiting", tone: "waiting", width: progressPct("waiting") },
+  { key: "cooking", tone: "cooking", width: progressPct("cooking") },
+  { key: "ready", tone: "ready", width: progressPct("ready") },
+].filter((segment) => segment.width > 0));
+const progressLegend = computed(() => {
+  const progress = props.order.itemProgress;
+  if (!progress?.total) return [];
+  return [
+    `Chờ ${progress.waiting}`,
+    `Đang làm ${progress.cooking}`,
+    `Lên món ${progress.ready}`,
+  ];
 });
 
 const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
@@ -733,7 +689,7 @@ const showItemStatuses = computed(() =>
 
 const groupedOptions = computed(() => groupByIngredient(props.menuOptions));
 
-// ─── Functions ──────────────────────────────────────────────────────────
+// Functions
 function progressPct(key: "waiting" | "cooking" | "ready") {
   const total = Number(props.order.itemProgress?.total || 0);
   if (!total) return 0;
@@ -784,6 +740,10 @@ function getItemStageCounts(item: EditableItem) {
   };
 }
 
+function getCancelledItemCount(item: EditableItem) {
+  return getItemStageCounts(item).cancelled;
+}
+
 function getItemActiveQuantity(item: EditableItem) {
   const stages = getItemStageCounts(item);
   return stages.waiting + stages.cooking + stages.ready;
@@ -813,6 +773,12 @@ function getItemQuantityLabel(item: EditableItem) {
   return `${activeQuantity}/${quantity}`;
 }
 
+function getItemRowClasses(item: EditableItem) {
+  return {
+    "is-cancelled-flash": props.flashCancelledItemId === item.id,
+  };
+}
+
 function isWaitingOnlyItem(item: EditableItem) {
   const stages = getItemStageCounts(item);
   return (
@@ -821,6 +787,20 @@ function isWaitingOnlyItem(item: EditableItem) {
     stages.ready === 0 &&
     stages.cancelled === 0
   );
+}
+
+function isFullyCancelledItem(item: EditableItem) {
+  const stages = getItemStageCounts(item);
+  return stages.cancelled > 0 && stages.waiting === 0 && stages.cooking === 0 && stages.ready === 0;
+}
+
+function shouldShowCancelledStageCount(item: EditableItem) {
+  return getCancelledItemCount(item) > 1;
+}
+
+function getCancelledRestoreHint(item: EditableItem) {
+  const cancelledCount = getCancelledItemCount(item);
+  return `Khôi phục ${cancelledCount} món về chờ`;
 }
 
 function canMoveItemStages(item: EditableItem) {
@@ -919,6 +899,37 @@ function shouldShowStageCount(item: EditableItem, control: StageControl) {
   if (control.activeCount <= 0) return false;
   if (control.activeCount > 1) return true;
   return quantity > 1;
+}
+
+function restoreCancelledItem(item: EditableItem) {
+  if (!item.id || props.busy) {
+    return;
+  }
+
+  const cancelledCount = getCancelledItemCount(item);
+  if (cancelledCount <= 0) {
+    return;
+  }
+
+  if (cancelledCount <= 1) {
+    emit("moveItemStage", {
+      itemId: item.id,
+      action: "MOVE_STAGE",
+      fromStage: "CANCELLED",
+      toStage: "WAITING",
+      quantity: 1,
+    });
+    return;
+  }
+
+  stagePicker.visible = true;
+  stagePicker.itemId = item.id;
+  stagePicker.fromStage = "CANCELLED";
+  stagePicker.toStage = "WAITING";
+  stagePicker.max = cancelledCount;
+  stagePicker.quantity = 1;
+  stagePicker.label = "Phục hồi";
+  stagePicker.hint = getCancelledRestoreHint(item);
 }
 
 function openStageControl(item: EditableItem, control: StageControl) {

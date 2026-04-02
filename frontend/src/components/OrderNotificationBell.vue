@@ -93,11 +93,13 @@ type OrderChangeEvent = {
     | "ADMIN_CONFIRMED_ORDER"
     | "ADMIN_COMPLETED_ORDER"
     | "ADMIN_CANCELLED_ORDER"
+    | "ADMIN_ITEM_RESTORED"
     | "ADMIN_ITEM_COOKING"
     | "ADMIN_ITEM_READY";
   order: OrderRecord;
   changedFields?: Array<"items" | "arrivalAt">;
   itemName?: string;
+  quantity?: number;
   orderCancelled?: boolean;
   occurredAt: string;
 };
@@ -228,6 +230,20 @@ function buildNotificationFromAdminChange(event: OrderChangeEvent) {
       event.order,
       "Đơn đã bị hủy",
       "Quán đã hủy đơn của bạn",
+      event.occurredAt
+    );
+  }
+
+  if (event.type === "ADMIN_ITEM_RESTORED") {
+    const itemName = event.itemName?.trim() || "một món đã hủy";
+    const quantity = Math.max(0, Number(event.quantity || 0));
+    const detail = quantity > 1
+      ? `${itemName} đã được phục hồi ${quantity} phần vào đơn của bạn`
+      : `${itemName} đã được phục hồi vào đơn của bạn`;
+    return buildOrderNotification(
+      event.order,
+      "Món đã được phục hồi",
+      detail,
       event.occurredAt
     );
   }
