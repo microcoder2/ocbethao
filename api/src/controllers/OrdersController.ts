@@ -1010,7 +1010,9 @@ export class OrdersController extends Controller {
         },
       });
 
-      const remainingActiveItems = current.items.filter((item) => item.id !== itemId);
+      const remainingActiveItems = current.items.filter(
+        (item) => item.id !== itemId && getActiveQuantity(getItemStageQuantities(item)) > 0
+      );
       const nextSubtotal = remainingActiveItems.reduce(
         (sum, item) => sum + getActiveLineTotal(item),
         0

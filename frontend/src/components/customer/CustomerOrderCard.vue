@@ -210,7 +210,6 @@ const emit = defineEmits<{
   saveItems: [items: SavePayload[], arrivalTime?: string];
   requestCancel: [];
   requestCancelItem: [itemId: number];
-  updateConfirmedItemQuantity: [itemId: number, quantity: number];
 }>();
 
 const collapsed = ref(["COMPLETED", "CANCELLED"].includes(props.order.status));
@@ -338,12 +337,6 @@ function flashItem(key: string) {
 }
 
 function changeQty(index: number, delta: number) {
-  const currentItem = editableItems.value[index];
-  if (currentItem && canAdjustWaitingItem(currentItem)) {
-    emit("updateConfirmedItemQuantity", currentItem.id!, currentItem.quantity + delta);
-    return;
-  }
-
   ensureDraft();
   const item = draft.value?.[index];
   if (!item) return;
@@ -504,12 +497,8 @@ function canCancelWaitingItem(item: EditableItem) {
   );
 }
 
-function canAdjustWaitingItem(item: EditableItem) {
-  return canCancelWaitingItem(item);
-}
-
 function canAdjustItem(item: EditableItem) {
-  return canEdit.value || canAdjustWaitingItem(item);
+  return canEdit.value;
 }
 
 function getItemDisplayedTotal(item: EditableItem) {

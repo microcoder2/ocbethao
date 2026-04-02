@@ -14,13 +14,18 @@
             <i class="bi bi-image"></i>
           </button>
           <div class="dm-bar-actions">
-            <button class="dm-btn dm-btn--sm dm-btn--ember" :disabled="saving" @click="saveMenu" title="Lưu nháp">
+            <button class="dm-btn dm-btn--sm dm-btn--ember" :disabled="saving" @click="saveMenu" title="Lưu thay đổi">
               <i :class="saving ? 'bi bi-hourglass-split' : 'bi bi-floppy'"></i>
-              <span class="dm-btn-label">Lưu nháp</span>
+              <span class="dm-btn-label">Lưu thay đổi</span>
             </button>
-            <button class="dm-btn dm-btn--sm dm-btn--ember" :disabled="saving" @click="saveAndPublish">
+            <button
+              v-if="form.status !== 'PUBLISHED'"
+              class="dm-btn dm-btn--sm dm-btn--ember"
+              :disabled="saving"
+              @click="saveAndPublish"
+            >
               <i class="bi bi-send-check"></i>
-              <span class="dm-btn-label">Duyệt & Đăng</span>
+              <span class="dm-btn-label">Đăng menu</span>
               <span class="dm-btn-short">Đăng</span>
             </button>
             <button class="dm-collapse-btn" :aria-expanded="stockOpen" @click="stockOpen = !stockOpen">
@@ -188,7 +193,7 @@
                 class="dm-btn dm-btn--sm btn-ember"
                 @click="publishMenu(menu.id)"
               >
-                Đăng
+                Đăng menu
               </button>
               <button class="dm-btn dm-btn--sm dm-btn--ghost" title="Xóa" @click="deletingMenuId = menu.id">
                 <i class="bi bi-trash3"></i>

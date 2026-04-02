@@ -49,7 +49,6 @@
         @save-items="(items, arrivalTime) => saveEdit(order, items, arrivalTime)"
         @request-cancel="openCancelConfirm(order)"
         @request-cancel-item="(itemId) => openCancelItemConfirm(order, itemId)"
-        @update-confirmed-item-quantity="(itemId, quantity) => updateConfirmedItemQuantity(order, itemId, quantity)"
       />
     </div>
 
@@ -270,8 +269,7 @@ function isBusy(order: OrderRecord) {
   return (
     savingId.value === order.id ||
     cancellingId.value === order.id ||
-    cancellingItemOrderId.value === order.id ||
-    updatingItemOrderId.value === order.id
+    cancellingItemOrderId.value === order.id
   );
 }
 
