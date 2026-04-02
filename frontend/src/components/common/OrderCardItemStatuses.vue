@@ -1,41 +1,98 @@
 <template>
   <div class="order-card-item-statuses">
-    <div v-if="chips.length" class="order-item-stage-actions">
-      <span
-        v-for="chip in chips"
-        :key="chip.key"
-        :class="['order-item-stage-chip', chip.toneClass, { 'is-active': chip.active }]"
-      >
-        <i v-if="chip.iconClass" class="bi" :class="chip.iconClass"></i>
-        <span class="order-item-action-label">{{ chip.label }}</span>
-        <strong v-if="chip.showCount && chip.count != null">{{ chip.count }}</strong>
-      </span>
-    </div>
-
-    <div v-if="actions.length" class="order-item-stage-actions">
-      <button
-        v-for="action in actions"
-        :key="action.key"
-        type="button"
-        :class="[
-          'order-item-stage-action',
-          action.toneClass,
-          {
-            'is-active': action.active,
-            'is-actionable': !action.disabled,
-            'is-pending': action.pending,
-          },
-        ]"
-        :disabled="action.disabled"
-        :aria-busy="action.pending ? 'true' : 'false'"
-        :title="action.title"
-        @click="$emit('triggerAction', action.key)"
-      >
-        <i v-if="action.iconClass" class="bi order-item-action-icon" :class="action.iconClass"></i>
-        <span class="order-item-action-label">{{ action.label }}</span>
-        <span v-if="action.showCount && action.count != null" class="order-item-action-count">{{ action.count }}</span>
-        <span v-if="action.pending" class="order-item-action-spinner" aria-hidden="true"></span>
-      </button>
+    <div v-if="chips.length || actions.length" class="order-item-stage-actions">
+      <template v-if="renderActionsFirst">
+        <button
+          v-for="action in actions"
+          :key="action.key"
+          type="button"
+          :class="[
+            'order-item-stage-action',
+            action.toneClass,
+            {
+              'is-active': action.active,
+              'is-actionable': !action.disabled,
+              'is-pending': action.pending,
+              'is-icon-end': action.iconSide === 'end',
+              'is-icon-only': action.iconOnly,
+            },
+          ]"
+          :disabled="action.disabled"
+          :aria-busy="action.pending ? 'true' : 'false'"
+          :aria-label="action.ariaLabel || action.title || action.label"
+          :title="action.title"
+          @click="$emit('triggerAction', action.key)"
+        >
+          <i
+            v-if="action.iconClass && action.iconSide !== 'end'"
+            class="bi order-item-action-icon"
+            :class="action.iconClass"
+          ></i>
+          <span v-if="action.label" class="order-item-action-label">{{ action.label }}</span>
+          <span v-if="action.showCount && action.count != null" class="order-item-action-count">{{ action.count }}</span>
+          <i
+            v-if="action.iconClass && action.iconSide === 'end'"
+            class="bi order-item-action-icon is-trailing"
+            :class="action.iconClass"
+          ></i>
+          <span v-if="action.pending" class="order-item-action-spinner" aria-hidden="true"></span>
+        </button>
+        <span
+          v-for="chip in chips"
+          :key="chip.key"
+          :class="['order-item-stage-chip', chip.toneClass, { 'is-active': chip.active }]"
+        >
+          <i v-if="chip.iconClass" class="bi" :class="chip.iconClass"></i>
+          <span class="order-item-action-label">{{ chip.label }}</span>
+          <strong v-if="chip.showCount && chip.count != null">{{ chip.count }}</strong>
+        </span>
+      </template>
+      <template v-else>
+        <span
+          v-for="chip in chips"
+          :key="chip.key"
+          :class="['order-item-stage-chip', chip.toneClass, { 'is-active': chip.active }]"
+        >
+          <i v-if="chip.iconClass" class="bi" :class="chip.iconClass"></i>
+          <span class="order-item-action-label">{{ chip.label }}</span>
+          <strong v-if="chip.showCount && chip.count != null">{{ chip.count }}</strong>
+        </span>
+        <button
+          v-for="action in actions"
+          :key="action.key"
+          type="button"
+          :class="[
+            'order-item-stage-action',
+            action.toneClass,
+            {
+              'is-active': action.active,
+              'is-actionable': !action.disabled,
+              'is-pending': action.pending,
+              'is-icon-end': action.iconSide === 'end',
+              'is-icon-only': action.iconOnly,
+            },
+          ]"
+          :disabled="action.disabled"
+          :aria-busy="action.pending ? 'true' : 'false'"
+          :aria-label="action.ariaLabel || action.title || action.label"
+          :title="action.title"
+          @click="$emit('triggerAction', action.key)"
+        >
+          <i
+            v-if="action.iconClass && action.iconSide !== 'end'"
+            class="bi order-item-action-icon"
+            :class="action.iconClass"
+          ></i>
+          <span v-if="action.label" class="order-item-action-label">{{ action.label }}</span>
+          <span v-if="action.showCount && action.count != null" class="order-item-action-count">{{ action.count }}</span>
+          <i
+            v-if="action.iconClass && action.iconSide === 'end'"
+            class="bi order-item-action-icon is-trailing"
+            :class="action.iconClass"
+          ></i>
+          <span v-if="action.pending" class="order-item-action-spinner" aria-hidden="true"></span>
+        </button>
+      </template>
     </div>
 
     <div v-if="showPicker" class="order-item-stage-picker">
@@ -78,11 +135,15 @@ export type OrderCardStatusActionView = {
   disabled?: boolean;
   title?: string;
   iconClass?: string;
+  iconSide?: "start" | "end";
+  iconOnly?: boolean;
+  ariaLabel?: string;
 };
 
 withDefaults(defineProps<{
   chips?: OrderCardStatusChipView[];
   actions?: OrderCardStatusActionView[];
+  renderActionsFirst?: boolean;
   showPicker?: boolean;
   pickerLabel?: string;
   pickerHint?: string;
@@ -90,6 +151,7 @@ withDefaults(defineProps<{
 }>(), {
   chips: () => [],
   actions: () => [],
+  renderActionsFirst: false,
   showPicker: false,
   pickerLabel: "",
   pickerHint: "",
@@ -109,14 +171,19 @@ defineEmits<{
   display: grid;
   gap: 8px;
   width: 100%;
-  justify-items: start;
+  justify-items: stretch;
 }
 
 .order-item-stage-actions,
 .order-item-stage-picker-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+
+.order-item-stage-actions {
+  width: 100%;
 }
 
 .order-item-stage-chip,
@@ -201,6 +268,20 @@ defineEmits<{
   border-style: solid;
 }
 
+.order-item-stage-action.is-icon-end {
+  padding-right: 8px;
+}
+
+.order-item-stage-action.is-icon-only {
+  min-width: 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin-left: auto;
+  justify-content: center;
+  gap: 0;
+}
+
 .order-item-stage-action.is-active {
   border-color: currentColor;
   overflow: hidden;
@@ -256,6 +337,14 @@ defineEmits<{
 .order-item-action-icon {
   font-size: 0.82rem;
   line-height: 1;
+}
+
+.order-item-action-icon.is-trailing {
+  margin-left: 2px;
+}
+
+.order-item-stage-action.is-icon-only .order-item-action-icon.is-trailing {
+  margin-left: 0;
 }
 
 .order-item-action-icon.bi-arrow-repeat {

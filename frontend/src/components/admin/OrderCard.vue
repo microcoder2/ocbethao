@@ -697,7 +697,7 @@ function getItemStatusActions(item: EditableItem) {
   if (isFullyCancelledItem(item)) {
     return [{
       key: "restoreCancelled",
-      label: "Phục hồi",
+      label: "Phục hồi món này",
       toneClass: "is-ready",
       pending: isPendingItemAction(item.id, "CANCELLED->WAITING"),
       disabled: !canMoveItemStages(item) || props.pendingItemStatusId === item.id,
@@ -822,7 +822,7 @@ function getItemStageControls(item: EditableItem): StageControl[] {
   return [
     {
       key: "WAITING",
-      label: "Chờ",
+      label: "Đang chờ",
       toneClass: "is-waiting",
       activeCount: stages.waiting,
       action: waitingAction,
@@ -886,7 +886,7 @@ function restoreCancelledItem(item: EditableItem) {
   stagePicker.toStage = "WAITING";
   stagePicker.max = cancelledCount;
   stagePicker.quantity = 1;
-  stagePicker.label = "Phục hồi";
+  stagePicker.label = "Phục hồi món này";
   stagePicker.hint = getCancelledRestoreHint(item);
 }
 

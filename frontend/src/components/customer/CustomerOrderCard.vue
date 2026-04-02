@@ -530,7 +530,7 @@ function getItemStatusLabel(status?: string | null) {
   if (status === "READY") return "Lên món";
   if (status === "COOKING") return "Đang làm";
   if (status === "CANCELLED") return "Đã hủy";
-  return "Chờ";
+  return "Đang chờ";
 }
 
 function getItemStatusChips(item: EditableItem) {
@@ -550,11 +550,14 @@ function getItemStatusActions(item: EditableItem) {
   const isCancellingItem = props.cancellingItemId === item.id;
   return [{
     key: "cancel",
-    label: isCancellingItem ? "Đang hủy" : "Hủy",
+    label: "",
     toneClass: "is-cancelled",
     disabled: props.busy,
     title: isCancellingItem ? "Đang hủy món" : "Hủy món này",
-    iconClass: isCancellingItem ? "bi-arrow-repeat" : "bi-x-circle",
+    iconClass: isCancellingItem ? "bi-arrow-repeat" : "bi-trash3",
+    iconSide: "end",
+    iconOnly: true,
+    ariaLabel: isCancellingItem ? "Đang hủy món" : "Hủy món này",
     active: false,
     showCount: false,
   }];

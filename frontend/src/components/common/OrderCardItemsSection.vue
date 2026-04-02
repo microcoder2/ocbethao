@@ -36,7 +36,7 @@
         <div class="order-item-main">
           <div class="order-item-copy">
             <div class="order-item-headline">
-              <span class="order-item-name">{{ item.itemNameSnapshot }}</span>
+              <span class="order-item-name">{{ index + 1 }}. {{ item.itemNameSnapshot }}</span>
               <button
                 v-if="canEditNote(item) && !hasItemNote(item)"
                 :class="[
@@ -360,7 +360,7 @@ function getExtraRowClasses(item: OrderCardItem, index: number) {
 }
 
 .order-item-name {
-  flex: 1 1 180px;
+  flex: 1 1 220px;
   min-width: 0;
   font-weight: 600;
 }
