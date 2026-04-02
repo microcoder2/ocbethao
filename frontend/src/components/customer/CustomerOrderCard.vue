@@ -1,44 +1,17 @@
 <template>
-  <article :class="['order-card', surfaceClass, { 'is-collapsed': collapsed }]">
-    <div class="order-card-head">
-      <div class="order-head-main">
-        <div class="order-head-label">{{ order.orderNumber }}</div>
-      </div>
-      <div class="order-head-side">
-        <div ref="infoTriggerRef" class="order-info-wrap">
-          <button
-            class="order-info-trigger"
-            type="button"
-            :aria-label="`Thông tin đơn ${order.orderNumber}`"
-            @click.stop="toggleInfo"
-          >
-            <i class="bi bi-info-circle"></i>
-          </button>
-          <div v-if="infoOpen" class="order-info-popup" role="tooltip">
-            <div v-for="line in infoTooltip.split('\n')" :key="line">{{ line }}</div>
-          </div>
-        </div>
-        <div class="order-total">{{ formatMoney(displayTotal) }}</div>
-        <button
-          class="order-collapse-btn"
-          type="button"
-          :aria-expanded="!collapsed"
-          :aria-label="collapsed ? 'Mở rộng đơn' : 'Thu gọn đơn'"
-          :title="collapsed ? 'Mở rộng' : 'Thu gọn'"
-          @click="collapsed = !collapsed"
-        >
-          <i :class="['bi', collapsed ? 'bi-chevron-down' : 'bi-chevron-up']"></i>
-        </button>
-      </div>
-    </div>
-
-    <div class="order-status-line">
-      <span class="order-arrival-chip"><i class="bi bi-clock"></i> {{ order.arrivalAt ? queueTime : 'Chưa xác định' }}</span>
-      <span class="order-item-count-chip">{{ editableItems.length }} món</span>
-      <span :class="['order-pill', simpleStatusClass]">{{ statusLabel }}</span>
-    </div>
-
-    <div v-show="!collapsed" class="order-collapsible">
+  <OrderCardShell
+    v-model:collapsed="collapsed"
+    :tone="statusTone"
+    :total-text="formatMoney(displayTotal)"
+    :info-aria-label="`Thông tin đơn ${order.orderNumber}`"
+    :info-lines="infoTooltipLines"
+    :arrival-text="order.arrivalAt ? queueTime : 'Chưa xác định'"
+    :item-count-text="`${editableItems.length} món`"
+    :status-text="statusLabel"
+  >
+    <template #head-main>
+      <div class="order-head-label">{{ order.orderNumber }}</div>
+    </template>
       <OrderCardItemsSection
         :items="editableItems"
         :busy="busy"
@@ -60,14 +33,10 @@
         @toggle-item-note-chip="toggleItemNoteChip"
       >
         <template #item-statuses="{ item }">
-          <CustomerOrderItemStatuses
-            :status="item.status"
-            :show-cancel="canCancelWaitingItem(item)"
-            :cancel-disabled="busy"
-            :cancel-title="props.cancellingItemId === item.id ? 'Đang hủy món' : 'Hủy món này'"
-            :cancel-label="props.cancellingItemId === item.id ? 'Đang hủy' : 'Hủy món'"
-            :cancel-icon-class="props.cancellingItemId === item.id ? 'bi-arrow-repeat' : 'bi-x-circle'"
-            @request-cancel="$emit('requestCancelItem', item.id!)"
+          <OrderCardItemStatuses
+            :chips="getItemStatusChips(item)"
+            :actions="getItemStatusActions(item)"
+            @trigger-action="handleItemStatusAction(item, $event)"
           />
         </template>
       </OrderCardItemsSection>
@@ -148,7 +117,6 @@
         <i class="bi bi-exclamation-circle"></i>
         <span>{{ errorMessage }}</span>
       </p>
-    </div>
 
     <div
       v-if="removeDialog.visible"
@@ -168,13 +136,14 @@
         </div>
       </div>
     </div>
-  </article>
+  </OrderCardShell>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
+import OrderCardShell from "../common/OrderCardShell.vue";
 import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
-import CustomerOrderItemStatuses from "./CustomerOrderItemStatuses.vue";
+import OrderCardItemStatuses from "../common/OrderCardItemStatuses.vue";
 import { buildOrderCardProgressSegments } from "../common/orderCardProgress";
 import { formatMoney } from "../../utils/format";
 import { toggleNoteChip } from "../../utils/noteChips";
@@ -245,8 +214,6 @@ const emit = defineEmits<{
 }>();
 
 const collapsed = ref(["COMPLETED", "CANCELLED"].includes(props.order.status));
-const infoOpen = ref(false);
-const infoTriggerRef = ref<HTMLElement | null>(null);
 const addSelection = ref("");
 const highlightedKey = ref<string | null>(null);
 const draft = ref<EditableItem[] | null>(null);
@@ -254,25 +221,6 @@ const arrivalTimeDraft = ref(props.order.arrivalAt ? props.order.arrivalAt.slice
 const arrivalEditOpen = ref(false);
 const removeDialog = reactive({ visible: false, index: -1, itemName: "" });
 const openItemNoteKeys = ref<Set<string>>(new Set());
-
-function toggleInfo() {
-  infoOpen.value = !infoOpen.value;
-}
-
-function closeInfoOnOutside(e: MouseEvent) {
-  if (infoTriggerRef.value && !infoTriggerRef.value.contains(e.target as Node)) {
-    infoOpen.value = false;
-  }
-}
-
-watch(infoOpen, (val) => {
-  if (val) document.addEventListener("click", closeInfoOnOutside);
-  else document.removeEventListener("click", closeInfoOnOutside);
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("click", closeInfoOnOutside);
-});
 
 watch(
   () =>
@@ -476,8 +424,7 @@ function canEditItemNote(item: EditableItem) {
 }
 
 const simpleStatus = computed(() => simplifyStatus(props.order.status));
-const surfaceClass = computed(() => `is-status-${simpleStatus.value.toLowerCase()}`);
-const simpleStatusClass = computed(() => `is-${simpleStatus.value.toLowerCase()}`);
+const statusTone = computed(() => simpleStatus.value.toLowerCase());
 
 const statusLabel = computed(() => {
   const status = simpleStatus.value;
@@ -489,9 +436,10 @@ const statusLabel = computed(() => {
 
 const customerName = computed(() => props.order.customer?.fullName || props.order.guestName || "Khách hàng");
 const customerPhone = computed(() => props.order.guestPhone || props.order.customer?.phone || "Không có SĐT");
-const infoTooltip = computed(() =>
-  `Khách: ${customerName.value} - ${customerPhone.value}\nGiờ đặt: ${formatTime(props.order.createdAt)}`
-);
+const infoTooltipLines = computed(() => [
+  `Khách: ${customerName.value} - ${customerPhone.value}`,
+  `Giờ đặt: ${formatTime(props.order.createdAt)}`,
+]);
 const queueTime = computed(() => formatTime(props.order.arrivalAt));
 const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
 const initialArrivalTime = computed(() => (props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""));
@@ -577,472 +525,54 @@ function getItemRowClasses(item: EditableItem) {
     "is-cancel-pending": props.cancellingItemId === item.id,
   };
 }
+
+function getItemStatusLabel(status?: string | null) {
+  if (status === "READY") return "Lên món";
+  if (status === "COOKING") return "Đang làm";
+  if (status === "CANCELLED") return "Đã hủy";
+  return "Chờ";
+}
+
+function getItemStatusChips(item: EditableItem) {
+  return [{
+    key: `${item.key}-status`,
+    label: getItemStatusLabel(item.status),
+    toneClass: `is-${String(item.status || "WAITING").toLowerCase()}`,
+    active: true,
+  }];
+}
+
+function getItemStatusActions(item: EditableItem) {
+  if (!canCancelWaitingItem(item)) {
+    return [];
+  }
+
+  const isCancellingItem = props.cancellingItemId === item.id;
+  return [{
+    key: "cancel",
+    label: isCancellingItem ? "Đang hủy" : "Hủy",
+    toneClass: "is-cancelled",
+    disabled: props.busy,
+    title: isCancellingItem ? "Đang hủy món" : "Hủy món này",
+    iconClass: isCancellingItem ? "bi-arrow-repeat" : "bi-x-circle",
+    active: false,
+    showCount: false,
+  }];
+}
+
+function handleItemStatusAction(item: EditableItem, actionKey: string) {
+  if (actionKey === "cancel" && item.id) {
+    emit("requestCancelItem", item.id);
+  }
+}
 </script>
 
 <style scoped>
-.order-card {
-  --order-status-surface: rgba(var(--panel-rgb), 0.98);
-  display: grid;
-  gap: 14px;
-  padding: 18px 20px;
-  border: 1px solid rgba(var(--line-rgb), 0.86);
-  border-radius: 22px;
-  background: var(--order-status-surface);
-  box-shadow: 0 14px 28px rgba(var(--text-rgb), 0.06);
-}
-
-.order-card.is-collapsed { gap: 8px; }
-.order-collapsible { display: grid; gap: 14px; }
-
-.order-card.is-status-pending   { --order-status-surface: rgba(203, 165, 81, 0.11); }
-.order-card.is-status-confirmed { --order-status-surface: rgba(201, 126, 71, 0.09); }
-.order-card.is-status-completed { --order-status-surface: rgba(66, 133, 104, 0.1); }
-.order-card.is-status-cancelled { --order-status-surface: rgba(148, 88, 88, 0.08); }
-
-.order-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.order-head-main {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
 .order-head-label {
   font-size: 0.96rem;
   font-weight: 800;
   color: var(--text);
 }
-
-.order-head-side {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  text-align: right;
-}
-
-.order-info-wrap {
-  position: relative;
-  display: inline-flex;
-}
-
-.order-info-popup {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 180px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: rgba(30, 20, 14, 0.92);
-  color: #fff;
-  font-size: 0.8rem;
-  line-height: 1.6;
-  white-space: nowrap;
-  z-index: 200;
-  pointer-events: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.order-info-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  transition: color 0.18s, border-color 0.18s, background 0.18s;
-}
-
-.order-info-trigger:hover,
-.order-info-trigger:focus-visible {
-  color: var(--ember-strong);
-  border-color: rgba(201, 88, 44, 0.32);
-  background: rgba(255, 247, 241, 0.92);
-  outline: none;
-}
-
-.order-info-trigger i {
-  font-size: 0.95rem;
-}
-
-.order-total {
-  font-weight: 800;
-  color: var(--ember-strong);
-}
-
-.order-collapse-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgba(126, 86, 65, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--muted);
-  transition: color 0.18s, border-color 0.18s, background 0.18s;
-}
-
-.order-collapse-btn:hover,
-.order-collapse-btn:focus-visible {
-  color: var(--ember-strong);
-  border-color: rgba(201, 88, 44, 0.32);
-  background: rgba(255, 247, 241, 0.92);
-  outline: none;
-}
-
-.order-collapse-btn i {
-  font-size: 0.82rem;
-}
-
-.order-status-line {
-  display: grid;
-  align-items: center;
-  grid-template-columns: minmax(0, 1fr) repeat(2, auto);
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-}
-
-.order-arrival-chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 8px 0 0;
-  color: var(--ember-strong);
-  font-size: 0.8rem;
-  font-weight: 700;
-  white-space: nowrap;
-  justify-self: start;
-  z-index: 0;
-}
-
-.order-arrival-chip i {
-  margin-right: 4px;
-}
-
-.order-arrival-chip::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  left: -10px;
-  border-radius: 999px;
-  background: rgba(246, 233, 220, 0.9);
-  z-index: -1;
-}
-
-.order-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 0.76rem;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.order-pill.is-pending   { background: rgba(203, 165, 81, 0.18); color: #8b6517; }
-.order-pill.is-confirmed { background: rgba(201, 126, 71, 0.16); color: #8a451f; }
-.order-pill.is-completed { background: rgba(66, 133, 104, 0.15); color: var(--green); }
-.order-pill.is-cancelled { background: rgba(148, 88, 88, 0.14); color: #8f2f15; }
-.order-pill.is-muted     { background: rgba(var(--text-rgb), 0.06); color: var(--muted); }
-
-.order-item-count-chip {
-  font-size: 0.78rem;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.order-progress {
-  display: grid;
-  gap: 8px;
-}
-
-.order-progress-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.order-progress-track {
-  display: flex;
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(var(--text-rgb), 0.08);
-}
-
-.order-progress-segment { height: 100%; }
-.order-progress-segment.is-waiting { background: rgba(203, 165, 81, 0.7); }
-.order-progress-segment.is-ready { background: rgba(66, 133, 104, 0.78); }
-
-.order-progress-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.order-item-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid rgba(var(--line-rgb), 0.72);
-}
-
-@keyframes item-flash {
-  0% { background: rgba(201, 88, 44, 0.18); }
-  70% { background: rgba(201, 88, 44, 0.08); }
-  100% { background: transparent; }
-}
-
-.order-item-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px dashed rgba(var(--line-rgb), 0.72);
-}
-
-.order-item-row:last-child { border-bottom: none; }
-.order-item-row.is-empty { justify-content: flex-start; }
-.order-item-row.is-highlighted { animation: item-flash 1.2s ease-out forwards; border-radius: 6px; }
-.order-item-row.is-cancelled {
-  padding-inline: 10px;
-  border-radius: 12px;
-  background: rgba(148, 88, 88, 0.08);
-  opacity: 0.74;
-}
-
-.order-item-row.is-cancelled .order-item-name,
-.order-item-row.is-cancelled .order-item-total {
-  color: #8f2f15;
-}
-
-.order-item-row.is-cancelled .order-item-meta,
-.order-item-row.is-cancelled .order-item-qty-read {
-  color: rgba(143, 47, 21, 0.78);
-}
-
-.order-card.is-status-cancelled .order-item-row.is-cancelled {
-  padding-inline: 0;
-  border-radius: 0;
-  background: transparent;
-  opacity: 1;
-}
-
-.order-card.is-status-cancelled .order-item-row.is-cancelled .order-item-name,
-.order-card.is-status-cancelled .order-item-row.is-cancelled .order-item-total {
-  color: var(--text);
-}
-
-.order-card.is-status-cancelled .order-item-row.is-cancelled .order-item-meta,
-.order-card.is-status-cancelled .order-item-row.is-cancelled .order-item-qty-read {
-  color: var(--muted);
-}
-
-.order-item-row.is-cancel-pending {
-  animation: cancelled-item-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes cancelled-item-pulse {
-  0%, 100% { background: rgba(148, 88, 88, 0.08); }
-  50% { background: rgba(201, 88, 44, 0.18); }
-}
-
-.order-item-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.order-item-copy { display: grid; gap: 2px; min-width: 0; }
-.order-item-name { font-weight: 600; }
-.order-item-meta { color: var(--muted); font-size: 0.84rem; }
-
-.order-item-note-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.order-item-note-tools {
-  margin-top: 6px;
-}
-
-.order-item-note-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--muted-rgb), 0.18);
-  background: rgba(var(--panel-rgb), 0.72);
-  color: var(--muted);
-  font-size: 0.76rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.14s, border-color 0.14s, color 0.14s;
-}
-
-.order-item-note-toggle:hover:not(:disabled),
-.order-item-note-toggle:focus-visible {
-  background: rgba(var(--ember-rgb), 0.1);
-  border-color: rgba(var(--ember-rgb), 0.32);
-  color: var(--ember-strong);
-  outline: none;
-}
-
-.order-item-note-editor {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.order-item-note-picker-chip {
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--muted-rgb), 0.16);
-  background: rgba(var(--panel-rgb), 0.78);
-  color: var(--muted);
-  font-size: 0.74rem;
-  font-weight: 700;
-  transition: background 0.14s, border-color 0.14s, color 0.14s;
-}
-
-.order-item-note-picker-chip:hover:not(:disabled):not(.is-active) {
-  background: rgba(var(--ember-rgb), 0.08);
-  border-color: rgba(var(--ember-rgb), 0.2);
-  color: var(--ember-strong);
-}
-
-.order-item-note-picker-chip.is-active {
-  background: rgba(var(--ember-rgb), 0.14);
-  border-color: rgba(var(--ember-rgb), 0.32);
-  color: var(--ember-strong);
-}
-
-.order-item-note-picker-chip:disabled {
-  opacity: 0.55;
-}
-
-.order-item-note-sep {
-  width: 1px;
-  align-self: stretch;
-  background: rgba(var(--muted-rgb), 0.14);
-}
-
-.order-item-note-chip {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  max-width: 100%;
-  min-height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  font-size: 0.74rem;
-  font-weight: 700;
-  line-height: 1.3;
-  border: 1px solid transparent;
-}
-
-.order-item-note-chip.is-spicy {
-  background: rgba(var(--ember-rgb), 0.12);
-  border-color: rgba(var(--ember-rgb), 0.18);
-  color: var(--ember-strong);
-}
-
-.order-item-note-chip.is-sugar {
-  background: rgba(181, 123, 46, 0.14);
-  border-color: rgba(181, 123, 46, 0.18);
-  color: #9a5d12;
-}
-
-.order-item-note-chip.is-veggies {
-  background: rgba(var(--green-rgb), 0.12);
-  border-color: rgba(var(--green-rgb), 0.18);
-  color: var(--green);
-}
-
-.order-item-note-chip.is-sauce {
-  background: rgba(75, 120, 181, 0.12);
-  border-color: rgba(75, 120, 181, 0.18);
-  color: #325f99;
-}
-
-.order-item-note-chip.is-salt,
-.order-item-note-chip.is-custom {
-  background: rgba(var(--panel-alt-rgb), 0.08);
-  border-color: rgba(var(--muted-rgb), 0.16);
-  color: var(--muted);
-}
-
-.order-item-total {
-  font-weight: 800;
-  color: var(--ember-strong);
-  white-space: nowrap;
-  text-align: right;
-}
-
-.order-item-editor {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-  justify-content: flex-end;
-}
-
-.order-item-qty,
-.order-item-qty-read {
-  min-width: 32px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: #fff;
-  box-shadow: inset 0 1px 3px rgba(var(--text-rgb), 0.14), inset 0 1px 1px rgba(var(--text-rgb), 0.1);
-  text-align: center;
-  font-weight: 400;
-  font-size: 0.82rem;
-  line-height: 24px;
-  height: 24px;
-  font-variant-numeric: tabular-nums;
-}
-
-.order-qty-btn {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: 4px;
-  border: 1px solid rgba(var(--text-rgb), 0.1);
-  background: #fff;
-  box-shadow: 0 2px 4px rgba(var(--text-rgb), 0.12), 0 1px 2px rgba(var(--text-rgb), 0.08);
-  color: var(--text);
-  font-size: 0.85rem;
-  line-height: 1;
-}
-
-.order-qty-btn:hover {
-  background: #f5f5f5;
-}
-
 .order-editor-panel { display: grid; gap: 12px; }
 .order-arrival-row { display: grid; gap: 10px; }
 .order-add-row,
@@ -1184,64 +714,8 @@ function getItemRowClasses(item: EditableItem) {
 .orders-modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 
 @media (max-width: 767px) {
-  .order-card {
-    padding: 16px;
-    border-radius: 0;
-  }
-
-  .order-card-head {
-    gap: 12px;
-  }
-
-  .order-head-side {
-    min-width: 96px;
-  }
-
-  .order-status-line {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-  }
-
-  .order-progress-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .order-item-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-    gap: 10px;
-  }
-
-  .order-item-main {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
-  }
-
-  .order-item-total {
-    text-align: left;
-  }
-
-  .order-item-editor {
-    align-self: center;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
-  .order-qty-btn,
-  .order-item-qty,
-  .order-item-qty-read {
-    min-width: 22px;
-    height: 22px;
-    line-height: 22px;
-  }
-
   .orders-modal {
     padding: 18px;
-  }
-
-  .order-add-control.is-time-only {
-    grid-template-columns: auto minmax(0, 1fr);
   }
 }
 </style>

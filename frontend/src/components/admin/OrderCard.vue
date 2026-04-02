@@ -1,59 +1,30 @@
 <template>
-  <article :class="['order-card', surfaceClass, { 'is-collapsed': collapsed }]">
-    <!-- Head -->
-    <div class="order-card-head">
-      <div class="order-head-main">
-        <div class="order-contact-line">
-          <span class="order-customer-name">{{ customerName }}</span>
-          <a
-            v-if="order.guestPhone || order.customer?.phone"
-            class="order-customer-phone"
-            :href="`tel:${order.guestPhone || order.customer?.phone}`"
-          >{{ customerPhone }}</a>
-          <span v-else class="order-customer-phone">{{ customerPhone }}</span>
-        </div>
+  <OrderCardShell
+    v-model:collapsed="collapsed"
+    :tone="statusTone"
+    :total-text="formatMoney(order.totalAmount)"
+    :info-aria-label="`Thông tin đơn ${order.orderNumber}`"
+    :info-lines="infoTooltipLines"
+    :arrival-text="order.arrivalAt ? queueTime : 'Chưa xác định'"
+    :status-meta-text="showPaymentMethod && order.paymentMethod ? paymentMethodLabel : ''"
+    :item-count-text="`${editableItems.length} món`"
+    :status-text="statusLabel"
+    :show-delete="canDelete"
+    :delete-disabled="busy"
+    :delete-title="`Xóa đơn ${order.orderNumber}`"
+    @delete="$emit('deleteOrder')"
+  >
+    <template #head-main>
+      <div class="order-contact-line">
+        <span class="order-customer-name">{{ customerName }}</span>
+        <a
+          v-if="order.guestPhone || order.customer?.phone"
+          class="order-customer-phone"
+          :href="`tel:${order.guestPhone || order.customer?.phone}`"
+        >{{ customerPhone }}</a>
+        <span v-else class="order-customer-phone">{{ customerPhone }}</span>
       </div>
-      <div class="order-head-side">
-        <div ref="infoTriggerRef" class="order-info-wrap">
-          <button
-            class="order-info-trigger"
-            type="button"
-            :aria-label="`Thông tin đơn ${order.orderNumber}`"
-            @click.stop="toggleInfo"
-          >
-            <i class="bi bi-info-circle"></i>
-          </button>
-          <div v-if="infoOpen" class="order-info-popup" role="tooltip">
-            <div v-for="line in infoTooltip.split('\n')" :key="line">{{ line }}</div>
-          </div>
-        </div>
-        <div class="order-total">{{ formatMoney(order.totalAmount) }}</div>
-        <button
-          class="order-collapse-btn"
-          type="button"
-          :aria-expanded="!collapsed"
-          :aria-label="collapsed ? 'Mở rộng đơn' : 'Thu gọn đơn'"
-          :title="collapsed ? 'Mở rộng' : 'Thu gọn'"
-          @click="collapsed = !collapsed"
-        >
-          <i :class="['bi', collapsed ? 'bi-chevron-down' : 'bi-chevron-up']"></i>
-        </button>
-      </div>
-    </div>
-
-    <!-- Status line -->
-    <div class="order-status-line">
-      <span class="order-arrival-chip"><i class="bi bi-clock"></i> {{ order.arrivalAt ? queueTime : 'Chưa xác định' }}</span>
-      <span v-if="showPaymentMethod && order.paymentMethod" class="order-pill is-muted">{{ paymentMethodLabel }}</span>
-      <span class="order-item-count-chip">{{ editableItems.length }} món</span>
-      <span :class="['order-pill', simpleStatusClass]">{{ statusLabel }}</span>
-      <button v-if="canDelete" class="order-delete-inline" type="button" :disabled="busy" :title="`Xóa đơn ${order.orderNumber}`" @click="$emit('deleteOrder')">
-        <i class="bi bi-trash3"></i>
-      </button>
-    </div>
-
-    <!-- Collapsible body -->
-    <div v-show="!collapsed" class="order-collapsible">
+    </template>
 
     <OrderCardItemsSection
       :items="editableItems"
@@ -77,19 +48,13 @@
     >
       <template #item-statuses="{ item }">
         <OrderCardItemStatuses
-          :show-cancelled="isFullyCancelledItem(item)"
-          :cancelled-count="getCancelledItemCount(item)"
-          :show-cancelled-count="shouldShowCancelledStageCount(item)"
-          :restore-pending="isPendingItemAction(item.id, 'CANCELLED->WAITING')"
-          :restore-disabled="!canMoveItemStages(item) || props.pendingItemStatusId === item.id"
-          :restore-title="canMoveItemStages(item) ? getCancelledRestoreHint(item) : 'Không thể phục hồi lúc này'"
-          :stage-controls="getItemStageControlViews(item)"
-          :show-stage-picker="stagePicker.visible && stagePicker.itemId === item.id"
-          :stage-picker-label="stagePicker.label"
-          :stage-picker-hint="stagePicker.hint"
-          :stage-picker-quantity="stagePicker.quantity"
-          @restore-cancelled="restoreCancelledItem(item)"
-          @open-control="openStageControlByKey(item, $event)"
+          :chips="getItemStatusChips(item)"
+          :actions="getItemStatusActions(item)"
+          :show-picker="stagePicker.visible && stagePicker.itemId === item.id"
+          :picker-label="stagePicker.label"
+          :picker-hint="stagePicker.hint"
+          :picker-quantity="stagePicker.quantity"
+          @trigger-action="handleItemStatusAction(item, $event)"
           @nudge-picker="nudgeStagePicker"
           @confirm-picker="confirmStagePicker"
           @close-picker="closeStagePicker"
@@ -192,7 +157,7 @@
       </button>
     </div>
 
-    </div><!-- /order-collapsible -->
+  </OrderCardShell>
 
     <!-- Remove item confirm (internal) -->
     <div
@@ -213,13 +178,13 @@
         </div>
       </div>
     </div>
-  </article>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
+import OrderCardShell from "../common/OrderCardShell.vue";
 import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
-import OrderCardItemStatuses from "./OrderCardItemStatuses.vue";
+import OrderCardItemStatuses from "../common/OrderCardItemStatuses.vue";
 import { buildOrderCardProgressSegments } from "../common/orderCardProgress";
 import { formatMoney } from "../../utils/format";
 import { toggleNoteChip } from "../../utils/noteChips";
@@ -359,28 +324,6 @@ const paymentMethodLabels: Record<string, string> = {
 
 // Internal state
 const collapsed = ref(true);
-const infoOpen = ref(false);
-const infoTriggerRef = ref<HTMLElement | null>(null);
-
-function toggleInfo() {
-  infoOpen.value = !infoOpen.value;
-}
-
-function closeInfoOnOutside(e: MouseEvent) {
-  if (infoTriggerRef.value && !infoTriggerRef.value.contains(e.target as Node)) {
-    infoOpen.value = false;
-  }
-}
-
-watch(infoOpen, (val) => {
-  if (val) document.addEventListener("click", closeInfoOnOutside);
-  else document.removeEventListener("click", closeInfoOnOutside);
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("click", closeInfoOnOutside);
-});
-
 const draft = ref<EditableItem[] | null>(null);
 const arrivalTimeDraft = ref<string>(
   props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""
@@ -550,8 +493,7 @@ function discardDraft() {
 }
 
 // Computed
-const surfaceClass = computed(() => `is-status-${simplifyStatus(props.order.status).toLowerCase()}`);
-const simpleStatusClass = computed(() => `is-${simplifyStatus(props.order.status).toLowerCase()}`);
+const statusTone = computed(() => simplifyStatus(props.order.status).toLowerCase());
 
 const statusLabel = computed(() => {
   const s = simplifyStatus(props.order.status);
@@ -563,7 +505,10 @@ const statusLabel = computed(() => {
 
 const customerName = computed(() => props.order.customer?.fullName || props.order.guestName || "Khách lẻ");
 const customerPhone = computed(() => props.order.guestPhone || props.order.customer?.phone || "Không có SĐT");
-const infoTooltip = computed(() => `ID đơn: ${props.order.orderNumber}\nGiờ đặt: ${formatTime(props.order.createdAt)}`);
+const infoTooltipLines = computed(() => [
+  `ID đơn: ${props.order.orderNumber}`,
+  `Giờ đặt: ${formatTime(props.order.createdAt)}`,
+]);
 const queueTime = computed(() => props.order.arrivalAt ? formatTime(props.order.arrivalAt) : "Chưa hẹn");
 
 const showPaymentMethod = computed(() =>
@@ -731,6 +676,57 @@ function getItemStageControlViews(item: EditableItem): StageControlView[] {
     title: control.action?.hint || `${control.label}: không có thao tác`,
     showCount: shouldShowStageCount(item, control),
   }));
+}
+
+function getItemStatusChips(item: EditableItem) {
+  if (!isFullyCancelledItem(item)) {
+    return [];
+  }
+
+  return [{
+    key: `${item.key}-cancelled`,
+    label: "Đã hủy",
+    toneClass: "is-cancelled",
+    count: getCancelledItemCount(item),
+    showCount: shouldShowCancelledStageCount(item),
+    active: false,
+  }];
+}
+
+function getItemStatusActions(item: EditableItem) {
+  if (isFullyCancelledItem(item)) {
+    return [{
+      key: "restoreCancelled",
+      label: "Phục hồi",
+      toneClass: "is-ready",
+      pending: isPendingItemAction(item.id, "CANCELLED->WAITING"),
+      disabled: !canMoveItemStages(item) || props.pendingItemStatusId === item.id,
+      title: canMoveItemStages(item) ? getCancelledRestoreHint(item) : "Không thể phục hồi lúc này",
+      active: false,
+      showCount: false,
+    }];
+  }
+
+  return getItemStageControlViews(item).map((control) => ({
+    key: control.key,
+    label: control.label,
+    toneClass: control.toneClass,
+    count: control.activeCount,
+    showCount: control.showCount,
+    active: control.activeCount > 0,
+    pending: control.pending,
+    disabled: control.disabled,
+    title: control.title,
+  }));
+}
+
+function handleItemStatusAction(item: EditableItem, actionKey: string) {
+  if (actionKey === "restoreCancelled") {
+    restoreCancelledItem(item);
+    return;
+  }
+
+  openStageControlByKey(item, actionKey);
 }
 
 function isWaitingOnlyItem(item: EditableItem) {
@@ -1090,107 +1086,6 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
 </script>
 
 <style scoped>
-.order-card {
-  --order-status-surface: rgba(var(--panel-rgb), 0.96);
-  display: grid;
-  gap: 14px;
-  padding: 18px 20px;
-  margin-bottom: 6px;
-  background: var(--order-status-surface);
-}
-
-.order-card:last-child { margin-bottom: 0; }
-.order-card.is-collapsed { gap: 8px; }
-.order-collapsible { display: grid; gap: 14px; }
-
-.order-card.is-status-pending   { --order-status-surface: rgba(203, 165, 81, 0.12); }
-.order-card.is-status-confirmed { --order-status-surface: rgba(201, 126, 71, 0.1); }
-.order-card.is-status-completed { --order-status-surface: rgba(66, 133, 104, 0.11); }
-.order-card.is-status-cancelled { --order-status-surface: rgba(148, 88, 88, 0.1); }
-
-.order-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.order-head-main { display: grid; gap: 8px; min-width: 0; }
-
-.order-head-side {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  text-align: right;
-}
-
-.order-info-wrap {
-  position: relative;
-  display: inline-flex;
-}
-
-.order-info-popup {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 180px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: rgba(30, 20, 14, 0.92);
-  color: #fff;
-  font-size: 0.8rem;
-  line-height: 1.6;
-  white-space: nowrap;
-  z-index: 200;
-  pointer-events: none;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-}
-
-.order-info-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  transition: color 0.18s, border-color 0.18s, background 0.18s;
-}
-
-.order-info-trigger:hover,
-.order-info-trigger:focus-visible {
-  color: var(--ember-strong);
-  border-color: rgba(201, 88, 44, 0.32);
-  background: rgba(255, 247, 241, 0.92);
-  outline: none;
-}
-
-.order-info-trigger i { font-size: 0.95rem; }
-
-.order-collapse-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgba(126, 86, 65, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--muted);
-  transition: color 0.18s, border-color 0.18s, background 0.18s;
-}
-.order-collapse-btn:hover,
-.order-collapse-btn:focus-visible {
-  color: var(--ember-strong);
-  border-color: rgba(201, 88, 44, 0.32);
-  background: rgba(255, 247, 241, 0.92);
-  outline: none;
-}
-.order-collapse-btn i { font-size: 0.82rem; }
-
 .order-contact-line {
   display: flex;
   align-items: center;
@@ -1206,40 +1101,6 @@ function groupLabelText(group: { label: string; poolId: number | null }) {
   text-decoration: none;
 }
 a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: underline; }
-
-.order-status-line {
-  display: grid;
-  align-items: center;
-  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-}
-
-.order-delete-inline {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--bs-danger, #dc3545);
-  opacity: 0.7;
-  cursor: pointer;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.order-delete-inline:hover { opacity: 1; background: rgba(220, 53, 69, 0.08); }
-.order-delete-inline i { font-size: 0.82rem; }
-
-.order-item-count-chip {
-  font-size: 0.78rem;
-  color: var(--muted);
-  white-space: nowrap;
-}
 
 .order-arrival-row {
   display: flex;
@@ -1287,387 +1148,6 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   height: 36px;
 }
 
-.order-arrival-toggle {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-}
-
-.order-arrival-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0;
-}
-
-.order-arrival-prefix {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--ember-strong);
-  white-space: nowrap;
-}
-
-.order-arrival-input {
-  width: 106px;
-  height: 24px;
-  padding: 0 2px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--text-rgb), 0.14);
-  background: #fff;
-  font-size: 0.72rem;
-  color: var(--text);
-  line-height: 1;
-  overflow: hidden;
-}
-
-.order-arrival-chip i { margin-right: 4px; }
-
-.order-arrival-chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 8px 0 0;
-  color: var(--ember-strong);
-  font-size: 0.8rem;
-  font-weight: 700;
-  white-space: nowrap;
-  justify-self: start;
-  z-index: 0;
-}
-
-.order-arrival-chip::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  left: -10px;
-  border-radius: 999px;
-  background: rgba(246, 233, 220, 0.9);
-  z-index: -1;
-}
-
-.order-total { font-weight: 800; color: var(--ember-strong); }
-
-.order-badges { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.order-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 0.76rem;
-  font-weight: 800;
-  white-space: nowrap;
-  flex-shrink: 0;
-  justify-self: end;
-}
-
-.order-pill.is-pending   { background: rgba(203, 165, 81, 0.18); color: #8b6517; }
-.order-pill.is-confirmed { background: rgba(201, 126, 71, 0.16); color: #8a451f; }
-.order-pill.is-completed { background: rgba(66, 133, 104, 0.15); color: var(--green); }
-.order-pill.is-cancelled { background: rgba(148, 88, 88, 0.14);  color: #8f2f15; }
-.order-pill.is-unpaid    { background: rgba(var(--ember-rgb), 0.12);  color: var(--ember-strong); }
-.order-pill.is-paid      { background: rgba(var(--green-rgb), 0.14);  color: var(--green); }
-.order-pill.is-refunded  { background: rgba(var(--text-rgb), 0.08);   color: var(--text); }
-.order-pill.is-muted     { background: rgba(var(--text-rgb), 0.06);   color: var(--muted); }
-
-.order-progress { display: grid; gap: 8px; }
-
-.order-progress-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.order-progress-track {
-  display: flex;
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(var(--text-rgb), 0.08);
-}
-
-.order-progress-segment { height: 100%; }
-.order-progress-segment.is-waiting { background: rgba(203, 165, 81, 0.7); }
-.order-progress-segment.is-cooking { background: rgba(201, 126, 71, 0.7); }
-.order-progress-segment.is-ready   { background: rgba(66, 133, 104, 0.78); }
-
-.order-progress-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.order-item-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid rgba(var(--line-rgb), 0.72);
-}
-
-@keyframes item-flash {
-  0%   { background: rgba(201, 88, 44, 0.18); }
-  70%  { background: rgba(201, 88, 44, 0.08); }
-  100% { background: transparent; }
-}
-
-.order-item-row {
-  display: grid;
-  gap: 6px;
-  padding: 8px 0;
-  border-bottom: 1px dashed rgba(var(--line-rgb), 0.72);
-}
-
-.order-item-row:last-child { border-bottom: none; }
-.order-item-row.is-highlighted { animation: item-flash 1.2s ease-out forwards; border-radius: 6px; }
-.order-item-row.is-cancelled {
-  padding-inline: 10px;
-  border-radius: 12px;
-  background: rgba(148, 88, 88, 0.08);
-  opacity: 0.74;
-}
-
-.order-item-row.is-cancelled .order-item-name,
-.order-item-row.is-cancelled .order-item-total {
-  color: #8f2f15;
-}
-
-.order-item-row.is-cancelled .order-item-meta-chip,
-.order-item-row.is-cancelled .order-item-note-toggle,
-.order-item-row.is-cancelled .order-item-qty-read {
-  color: rgba(143, 47, 21, 0.78);
-}
-
-.order-item-row.is-cancelled-flash {
-  animation:
-    item-flash 1s ease-out forwards,
-    cancelled-item-pulse 1.4s ease-in-out 3;
-}
-
-@keyframes cancelled-item-pulse {
-  0%, 100% { background: rgba(148, 88, 88, 0.08); }
-  50% { background: rgba(201, 88, 44, 0.18); }
-}
-
-.order-item-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 12px;
-  width: 100%;
-  min-width: 0;
-}
-
-.order-item-copy { display: grid; gap: 4px; min-width: 0; }
-.order-item-headline {
-  display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  min-width: 0;
-}
-.order-item-name {
-  flex: 1 1 180px;
-  min-width: 0;
-  font-weight: 600;
-}
-.order-item-meta-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: rgba(var(--panel-alt-rgb), 0.1);
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.order-item-note-list {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 6px;
-  width: 100%;
-}
-
-.order-item-note-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--muted-rgb), 0.18);
-  background: rgba(var(--panel-rgb), 0.72);
-  color: var(--muted);
-  cursor: pointer;
-  transition: background 0.14s, border-color 0.14s, color 0.14s;
-  flex: 0 0 auto;
-}
-
-.order-item-note-toggle.has-note,
-.order-item-note-toggle.is-open {
-  background: rgba(var(--ember-rgb), 0.1);
-  border-color: rgba(var(--ember-rgb), 0.28);
-  color: var(--ember-strong);
-}
-
-.order-item-note-toggle i { font-size: 0.82rem; }
-
-.order-item-note-toggle:hover:not(:disabled),
-.order-item-note-toggle:focus-visible {
-  background: rgba(var(--ember-rgb), 0.1);
-  border-color: rgba(var(--ember-rgb), 0.32);
-  color: var(--ember-strong);
-  outline: none;
-}
-
-.order-item-note-editor {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  width: 100%;
-}
-
-.order-item-note-picker-chip {
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--muted-rgb), 0.16);
-  background: rgba(var(--panel-rgb), 0.78);
-  color: var(--muted);
-  font-size: 0.74rem;
-  font-weight: 700;
-  transition: background 0.14s, border-color 0.14s, color 0.14s;
-}
-
-.order-item-note-picker-chip:hover:not(:disabled):not(.is-active) {
-  background: rgba(var(--ember-rgb), 0.08);
-  border-color: rgba(var(--ember-rgb), 0.2);
-  color: var(--ember-strong);
-}
-
-.order-item-note-picker-chip.is-active {
-  background: rgba(var(--ember-rgb), 0.14);
-  border-color: rgba(var(--ember-rgb), 0.32);
-  color: var(--ember-strong);
-}
-
-.order-item-note-picker-chip:disabled {
-  opacity: 0.55;
-}
-
-.order-item-note-chip {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  max-width: 100%;
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1.35;
-  border: 1px solid transparent;
-}
-
-.order-item-note-chip.is-spicy {
-  background: rgba(var(--ember-rgb), 0.12);
-  border-color: rgba(var(--ember-rgb), 0.18);
-  color: var(--ember-strong);
-}
-
-.order-item-note-chip.is-sugar {
-  background: rgba(181, 123, 46, 0.14);
-  border-color: rgba(181, 123, 46, 0.18);
-  color: #9a5d12;
-}
-
-.order-item-note-chip.is-veggies {
-  background: rgba(var(--green-rgb), 0.12);
-  border-color: rgba(var(--green-rgb), 0.18);
-  color: var(--green);
-}
-
-.order-item-note-chip.is-sauce {
-  background: rgba(75, 120, 181, 0.12);
-  border-color: rgba(75, 120, 181, 0.18);
-  color: #325f99;
-}
-
-.order-item-note-chip.is-salt,
-.order-item-note-chip.is-custom {
-  background: rgba(var(--panel-alt-rgb), 0.08);
-  border-color: rgba(var(--muted-rgb), 0.16);
-  color: var(--muted);
-}
-
-.order-item-note-sep {
-  width: 1px;
-  align-self: stretch;
-  background: rgba(var(--muted-rgb), 0.14);
-}
-
-.order-item-total {
-  font-weight: 800;
-  color: var(--ember-strong);
-  white-space: nowrap;
-  text-align: right;
-}
-
-.order-item-side {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-self: start;
-}
-
-.order-item-editor {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.order-item-qty {
-  min-width: 26px;
-  padding: 0 5px;
-  border-radius: 4px;
-  background: #fff;
-  box-shadow: inset 0 1px 3px rgba(var(--text-rgb), 0.14), inset 0 1px 1px rgba(var(--text-rgb), 0.1);
-  text-align: center;
-  font-weight: 400;
-  font-size: 0.82rem;
-  line-height: 24px;
-  height: 24px;
-  font-variant-numeric: tabular-nums;
-}
-
-.order-qty-btn {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: 4px;
-  border: 1px solid rgba(var(--text-rgb), 0.1);
-  background: #fff;
-  box-shadow: 0 2px 4px rgba(var(--text-rgb), 0.12), 0 1px 2px rgba(var(--text-rgb), 0.08);
-  color: var(--text);
-  font-size: 0.85rem;
-  line-height: 1;
-}
-
-.order-qty-btn:hover  { background: #f5f5f5; box-shadow: 0 3px 6px rgba(var(--text-rgb), 0.14), 0 1px 2px rgba(var(--text-rgb), 0.08); }
-.order-qty-btn:active { background: #ebebeb; box-shadow: 0 1px 2px rgba(var(--text-rgb), 0.08); }
-
 .order-editor-panel { display: grid; gap: 12px; }
 
 .order-add-row,
@@ -1714,20 +1194,6 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   line-height: 1;
 }
 
-.order-item-qty-read {
-  min-width: 28px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: #fff;
-  box-shadow: inset 0 1px 3px rgba(var(--text-rgb), 0.14), inset 0 1px 1px rgba(var(--text-rgb), 0.1);
-  text-align: center;
-  font-weight: 400;
-  font-size: 0.82rem;
-  line-height: 24px;
-  height: 24px;
-  font-variant-numeric: tabular-nums;
-}
-
 .order-editor-note { width: 100%; color: var(--muted); font-size: 0.85rem; }
 
 /* Internal remove-item modal */
@@ -1759,27 +1225,6 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 .orders-modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 
 @media (max-width: 767px) {
-  .order-card { padding: 16px; }
-  .order-card-head { gap: 12px; }
-  .order-head-side { min-width: 96px; }
-
-  .order-progress-head { align-items: flex-start; flex-direction: column; }
-
-  .order-item-main { gap: 8px; }
-  .order-item-headline { gap: 4px 6px; }
-  .order-item-side { gap: 6px; }
-  .order-item-editor { gap: 6px; }
-
-  .order-qty-btn,
-  .order-item-qty,
-  .order-item-qty-read {
-    min-width: 22px;
-    height: 22px;
-    line-height: 22px;
-  }
-
-  .order-add-control { grid-template-columns: auto minmax(0, 1fr) auto; }
-
   .orders-modal { padding: 18px; }
 }
 </style>

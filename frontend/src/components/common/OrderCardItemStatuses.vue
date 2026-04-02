@@ -1,75 +1,51 @@
 <template>
-  <div class="admin-order-item-statuses">
-    <div v-if="showCancelled" class="order-item-status-block is-action">
-      <div class="order-item-stage-actions">
-        <span class="order-item-stage-chip is-cancelled">
-          <span class="order-item-action-label">Đã hủy</span>
-          <strong v-if="showCancelledCount">{{ cancelledCount }}</strong>
-        </span>
-        <button
-          type="button"
-          :class="[
-            'order-item-stage-action',
-            'is-ready',
-            {
-              'is-actionable': !restoreDisabled,
-              'is-pending': restorePending,
-            },
-          ]"
-          :disabled="restoreDisabled"
-          :aria-busy="restorePending ? 'true' : 'false'"
-          :title="restoreTitle"
-          @click="$emit('restoreCancelled')"
-        >
-          <span class="order-item-action-label">Phục hồi</span>
-          <span
-            v-if="restorePending"
-            class="order-item-action-spinner"
-            aria-hidden="true"
-          ></span>
-        </button>
-      </div>
+  <div class="order-card-item-statuses">
+    <div v-if="chips.length" class="order-item-stage-actions">
+      <span
+        v-for="chip in chips"
+        :key="chip.key"
+        :class="['order-item-stage-chip', chip.toneClass, { 'is-active': chip.active }]"
+      >
+        <i v-if="chip.iconClass" class="bi" :class="chip.iconClass"></i>
+        <span class="order-item-action-label">{{ chip.label }}</span>
+        <strong v-if="chip.showCount && chip.count != null">{{ chip.count }}</strong>
+      </span>
     </div>
 
-    <div v-else-if="stageControls.length" class="order-item-status-block is-action">
-      <div class="order-item-stage-actions">
-        <button
-          v-for="control in stageControls"
-          :key="control.key"
-          type="button"
-          :class="[
-            'order-item-stage-action',
-            control.toneClass,
-            {
-              'is-active': control.activeCount > 0,
-              'is-actionable': !control.disabled,
-              'is-pending': control.pending,
-            },
-          ]"
-          :disabled="control.disabled"
-          :aria-busy="control.pending ? 'true' : 'false'"
-          :title="control.title"
-          @click="$emit('openControl', control.key)"
-        >
-          <span class="order-item-action-label">{{ control.label }}</span>
-          <span v-if="control.showCount" class="order-item-action-count">{{ control.activeCount }}</span>
-          <span
-            v-if="control.pending"
-            class="order-item-action-spinner"
-            aria-hidden="true"
-          ></span>
-        </button>
-      </div>
+    <div v-if="actions.length" class="order-item-stage-actions">
+      <button
+        v-for="action in actions"
+        :key="action.key"
+        type="button"
+        :class="[
+          'order-item-stage-action',
+          action.toneClass,
+          {
+            'is-active': action.active,
+            'is-actionable': !action.disabled,
+            'is-pending': action.pending,
+          },
+        ]"
+        :disabled="action.disabled"
+        :aria-busy="action.pending ? 'true' : 'false'"
+        :title="action.title"
+        @click="$emit('triggerAction', action.key)"
+      >
+        <i v-if="action.iconClass" class="bi order-item-action-icon" :class="action.iconClass"></i>
+        <span class="order-item-action-label">{{ action.label }}</span>
+        <span v-if="action.showCount && action.count != null" class="order-item-action-count">{{ action.count }}</span>
+        <span v-if="action.pending" class="order-item-action-spinner" aria-hidden="true"></span>
+      </button>
     </div>
 
-    <div v-if="showStagePicker" class="order-item-stage-picker">
+    <div v-if="showPicker" class="order-item-stage-picker">
       <div class="order-item-stage-picker-copy">
-        <strong>{{ stagePickerLabel }}</strong>
-        <span>{{ stagePickerHint }}</span>
+        <strong>{{ pickerLabel }}</strong>
+        <span>{{ pickerHint }}</span>
       </div>
       <div class="order-item-stage-picker-controls">
         <button type="button" class="order-item-picker-btn" @click="$emit('nudgePicker', -1)">-</button>
-        <span class="order-item-picker-value">{{ stagePickerQuantity }}</span>
+        <span class="order-item-picker-value">{{ pickerQuantity }}</span>
         <button type="button" class="order-item-picker-btn" @click="$emit('nudgePicker', 1)">+</button>
       </div>
       <div class="order-item-stage-picker-actions">
@@ -81,34 +57,47 @@
 </template>
 
 <script setup lang="ts">
-type StageControlView = {
+export type OrderCardStatusChipView = {
   key: string;
   label: string;
   toneClass: string;
-  activeCount: number;
-  pending: boolean;
-  disabled: boolean;
-  title: string;
-  showCount: boolean;
+  count?: number | null;
+  showCount?: boolean;
+  active?: boolean;
+  iconClass?: string;
 };
 
-defineProps<{
-  showCancelled: boolean;
-  cancelledCount: number;
-  showCancelledCount: boolean;
-  restorePending: boolean;
-  restoreDisabled: boolean;
-  restoreTitle: string;
-  stageControls: StageControlView[];
-  showStagePicker: boolean;
-  stagePickerLabel: string;
-  stagePickerHint: string;
-  stagePickerQuantity: number;
-}>();
+export type OrderCardStatusActionView = {
+  key: string;
+  label: string;
+  toneClass: string;
+  count?: number | null;
+  showCount?: boolean;
+  active?: boolean;
+  pending?: boolean;
+  disabled?: boolean;
+  title?: string;
+  iconClass?: string;
+};
+
+withDefaults(defineProps<{
+  chips?: OrderCardStatusChipView[];
+  actions?: OrderCardStatusActionView[];
+  showPicker?: boolean;
+  pickerLabel?: string;
+  pickerHint?: string;
+  pickerQuantity?: number;
+}>(), {
+  chips: () => [],
+  actions: () => [],
+  showPicker: false,
+  pickerLabel: "",
+  pickerHint: "",
+  pickerQuantity: 1,
+});
 
 defineEmits<{
-  restoreCancelled: [];
-  openControl: [controlKey: string];
+  triggerAction: [key: string];
   nudgePicker: [delta: number];
   confirmPicker: [];
   closePicker: [];
@@ -116,15 +105,11 @@ defineEmits<{
 </script>
 
 <style scoped>
-.admin-order-item-statuses {
+.order-card-item-statuses {
   display: grid;
   gap: 8px;
   width: 100%;
-}
-
-.order-item-status-block {
-  display: grid;
-  gap: 6px;
+  justify-items: start;
 }
 
 .order-item-stage-actions,
@@ -146,6 +131,7 @@ defineEmits<{
   font-size: 0.76rem;
   font-weight: 700;
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 
 .order-item-stage-chip {
@@ -161,9 +147,28 @@ defineEmits<{
   font-variant-numeric: tabular-nums;
 }
 
+.order-item-stage-chip.is-active {
+  border-style: solid;
+  border-color: currentColor;
+  position: relative;
+  overflow: hidden;
+}
+
+.order-item-stage-chip.is-active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 80%;
+  height: 100%;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: glass-shine 1.2s linear infinite;
+  pointer-events: none;
+}
+
 .order-item-stage-action {
   position: relative;
-  min-width: 86px;
+  min-width: 0;
   cursor: pointer;
   background: rgba(var(--muted-rgb), 0.06);
   color: rgba(var(--text-rgb), 0.7);
@@ -181,13 +186,14 @@ defineEmits<{
 }
 
 .order-item-stage-action:disabled {
-  opacity: 1;
+  opacity: 0.65;
   cursor: default;
   box-shadow: none;
 }
 
 .order-item-stage-action.is-pending .order-item-action-label,
-.order-item-stage-action.is-pending .order-item-action-count {
+.order-item-stage-action.is-pending .order-item-action-count,
+.order-item-stage-action.is-pending .order-item-action-icon {
   opacity: 0.28;
 }
 
@@ -240,10 +246,20 @@ defineEmits<{
   color: #8f2f15;
 }
 
-.order-item-stage-action.is-muted {
+.order-item-stage-action.is-muted,
+.order-item-stage-chip.is-muted {
   background: rgba(var(--text-rgb), 0.06);
   border-color: rgba(var(--text-rgb), 0.12);
   color: var(--muted);
+}
+
+.order-item-action-icon {
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.order-item-action-icon.bi-arrow-repeat {
+  animation: spin 0.9s linear infinite;
 }
 
 .order-item-stage-picker {
@@ -266,59 +282,46 @@ defineEmits<{
 
 .order-item-stage-picker-copy span {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.76rem;
 }
 
 .order-item-stage-picker-controls {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+}
+
+.order-item-picker-btn,
+.order-item-picker-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .order-item-picker-btn {
-  width: 28px;
-  height: 28px;
-  padding: 0;
   border: 1px solid rgba(var(--text-rgb), 0.12);
-  border-radius: 999px;
   background: #fff;
   color: var(--text);
 }
 
 .order-item-picker-value {
-  min-width: 32px;
-  text-align: center;
-  font-size: 0.9rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.order-item-stage-picker-actions .btn {
-  min-height: 32px;
-}
-
-.order-item-action-label,
-.order-item-action-count {
-  transition: opacity 0.18s ease;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  background: rgba(var(--panel-rgb), 0.95);
 }
 
 .order-item-action-spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 14px;
-  height: 14px;
-  margin-top: -7px;
-  margin-left: -7px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
   border: 2px solid currentColor;
   border-right-color: transparent;
-  border-radius: 50%;
-  animation: order-item-spin 0.7s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes order-item-spin {
-  to { transform: rotate(360deg); }
+  animation: spin 0.75s linear infinite;
 }
 
 @keyframes glass-shine {
@@ -326,15 +329,8 @@ defineEmits<{
   to { transform: skewX(-18deg) translateX(280%); }
 }
 
-@media (max-width: 767px) {
-  .order-item-stage-actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .order-item-stage-action {
-    min-width: 0;
-    width: 100%;
-  }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
