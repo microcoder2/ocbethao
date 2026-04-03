@@ -14,6 +14,7 @@ import {
 } from "tsoa";
 import type { Request as ExRequest } from "express";
 import {
+  InventoryMovementType,
   OrderItemStatus,
   OrderSource,
   OrderStatus,
@@ -116,6 +117,13 @@ type ItemStageQuantities = {
   cancelledQuantity: number;
 };
 
+type StockUsageEntry = {
+  dailyStockPoolId: number;
+  ingredientId?: number | null;
+  consumeQuantity: number;
+  quantity: number;
+};
+
 type ResolvedOrderLine = {
   menuItemId: number | null;
   dailyMenuItemId: number | null;
@@ -129,10 +137,26 @@ type ResolvedOrderLine = {
   status: OrderItemStatus;
   lineTotal: number;
   note?: string;
-  stockUsage: Array<{
-    dailyStockPoolId: number;
-    quantity: number;
-  }>;
+  stockUsage: StockUsageEntry[];
+};
+
+type StockTrackedOrderItem = {
+  id?: number;
+  quantity: number;
+  status?: OrderItemStatus | string | null;
+  waitingQuantity?: number | null;
+  cookingQuantity?: number | null;
+  readyQuantity?: number | null;
+  cancelledQuantity?: number | null;
+  dailyMenuItem?: {
+    stockLinks?: Array<{
+      dailyStockPoolId: number;
+      consumeQuantity: Prisma.Decimal | number;
+      dailyStockPool?: {
+        ingredientId: number;
+      } | null;
+    }>;
+  } | null;
 };
 
 function money(value: number): Prisma.Decimal {
@@ -510,6 +534,31 @@ function aggregateStockUsage(lines: ResolvedOrderLine[]) {
   return usage;
 }
 
+function buildStockUsageEntriesForItem(
+  item: StockTrackedOrderItem,
+  activeQuantityOverride?: number
+) {
+  const activeQuantity =
+    typeof activeQuantityOverride === "number"
+      ? Math.max(0, Math.floor(activeQuantityOverride))
+      : getActiveQuantity(getItemStageQuantities(item));
+
+  if (activeQuantity <= 0) {
+    return [] as StockUsageEntry[];
+  }
+
+  const stockLinks = item.dailyMenuItem?.stockLinks || [];
+  return stockLinks.map((link) => {
+    const consumeQuantity = Number(link.consumeQuantity || 0);
+    return {
+      dailyStockPoolId: link.dailyStockPoolId,
+      ingredientId: link.dailyStockPool?.ingredientId ?? null,
+      consumeQuantity,
+      quantity: consumeQuantity * activeQuantity,
+    } satisfies StockUsageEntry;
+  }).filter((entry) => entry.quantity > 0);
+}
+
 async function ensureStockAvailability(
   tx: Prisma.TransactionClient,
   usage: Map<number, number>
@@ -540,12 +589,37 @@ async function ensureStockAvailability(
 async function applyStockUsage(
   tx: Prisma.TransactionClient,
   usage: Map<number, number>,
-  direction: 1 | -1
+  direction: 1 | -1,
+  audit?: {
+    movementType: InventoryMovementType;
+    dailyMenuId?: number | null;
+    orderId?: number | null;
+    orderItemId?: number | null;
+    createdById?: number | null;
+    note?: string | null;
+  }
 ) {
+  const stockPoolIds = Array.from(usage.keys());
+  if (stockPoolIds.length === 0) {
+    return;
+  }
+
+  const pools = await tx.dailyStockPool.findMany({
+    where: { id: { in: stockPoolIds } },
+    select: {
+      id: true,
+      ingredientId: true,
+      soldQuantity: true,
+    },
+  });
+  const poolMap = new Map(pools.map((pool) => [pool.id, pool]));
+  const movementRows: Prisma.InventoryMovementCreateManyInput[] = [];
+
   for (const [dailyStockPoolId, quantity] of usage.entries()) {
-    const pool = await tx.dailyStockPool.findUniqueOrThrow({
-      where: { id: dailyStockPoolId },
-    });
+    const pool = poolMap.get(dailyStockPoolId);
+    if (!pool) {
+      throw new Error("Khong tim thay nguon hang cua mon");
+    }
     const nextSoldQuantity = Math.max(
       0,
       Number(pool.soldQuantity) + quantity * direction
@@ -557,7 +631,73 @@ async function applyStockUsage(
         soldQuantity: money(nextSoldQuantity),
       },
     });
+
+    if (audit && quantity > 0) {
+      movementRows.push({
+        ingredientId: pool.ingredientId,
+        dailyMenuId: audit.dailyMenuId ?? null,
+        dailyStockPoolId,
+        orderId: audit.orderId ?? null,
+        orderItemId: audit.orderItemId ?? null,
+        movementType: audit.movementType,
+        quantityDelta: money(direction === 1 ? -quantity : quantity),
+        note: audit.note ?? null,
+        createdById: audit.createdById ?? null,
+      });
+    }
   }
+
+  if (movementRows.length) {
+    await tx.inventoryMovement.createMany({
+      data: movementRows,
+    });
+  }
+}
+
+async function syncOrderItemConsumptions(
+  tx: Prisma.TransactionClient,
+  entries: Array<{
+    orderItemId: number;
+    stockUsage: StockUsageEntry[];
+  }>
+) {
+  const orderItemIds = Array.from(
+    new Set(
+      entries
+        .map((entry) => entry.orderItemId)
+        .filter((value) => typeof value === "number" && value > 0)
+    )
+  );
+
+  if (!orderItemIds.length) {
+    return;
+  }
+
+  await tx.orderItemConsumption.deleteMany({
+    where: {
+      orderItemId: { in: orderItemIds },
+    },
+  });
+
+  const rows = entries.flatMap((entry) =>
+    entry.stockUsage
+      .filter((stock) => stock.quantity > 0 && typeof stock.ingredientId === "number")
+      .map((stock) => ({
+        orderItemId: entry.orderItemId,
+        ingredientId: Number(stock.ingredientId),
+        dailyStockPoolId: stock.dailyStockPoolId,
+        consumeQuantity: money(stock.consumeQuantity),
+        totalQuantity: money(stock.quantity),
+      }))
+  );
+
+  if (!rows.length) {
+    return;
+  }
+
+  await tx.orderItemConsumption.createMany({
+    data: rows,
+  });
 }
 
 async function resolveOrderLines(
@@ -585,7 +725,15 @@ async function resolveOrderLines(
           where: { id: { in: dailyMenuItemIds } },
           include: {
             menuItem: true,
-            stockLinks: true,
+            stockLinks: {
+              include: {
+                dailyStockPool: {
+                  select: {
+                    ingredientId: true,
+                  },
+                },
+              },
+            },
           },
         })
       : Promise.resolve([]),
@@ -636,6 +784,8 @@ async function resolveOrderLines(
         note: normalizeOrderItemNote(item.note) || undefined,
         stockUsage: stockLinks.map((link) => ({
           dailyStockPoolId: link.dailyStockPoolId,
+          ingredientId: link.dailyStockPool?.ingredientId ?? null,
+          consumeQuantity: Number(link.consumeQuantity),
           quantity: Number(link.consumeQuantity) * quantity,
         })),
       };
@@ -667,6 +817,48 @@ async function resolveOrderLines(
     }
 
     throw new Error("Each order item must include dailyMenuItemId or menuItemId");
+  });
+}
+
+function pairOrderItemsWithResolvedLines(
+  orderItems: Array<{
+    id: number;
+    dailyMenuItemId: number | null;
+    menuItemId: number | null;
+    note?: string | null;
+  }>,
+  lines: ResolvedOrderLine[]
+) {
+  const buckets = new Map<
+    string,
+    Array<{
+      id: number;
+      dailyMenuItemId: number | null;
+      menuItemId: number | null;
+      note?: string | null;
+    }>
+  >();
+
+  for (const item of orderItems) {
+    const key = getOrderItemKey(item.dailyMenuItemId, item.menuItemId, item.note);
+    const current = buckets.get(key);
+    if (current) {
+      current.push(item);
+    } else {
+      buckets.set(key, [item]);
+    }
+  }
+
+  return lines.flatMap((line) => {
+    const key = getOrderItemKey(line.dailyMenuItemId, line.menuItemId, line.note);
+    const target = buckets.get(key)?.shift();
+    if (!target) {
+      return [];
+    }
+    return [{
+      orderItemId: target.id,
+      stockUsage: line.stockUsage,
+    }];
   });
 }
 
@@ -751,7 +943,15 @@ async function getOrderForStockSync(id: number) {
         include: {
           dailyMenuItem: {
             include: {
-              stockLinks: true,
+              stockLinks: {
+                include: {
+                  dailyStockPool: {
+                    select: {
+                      ingredientId: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -765,34 +965,15 @@ function getStockUsageFromOrder(order: Awaited<ReturnType<typeof getOrderForStoc
 }
 
 function getStockUsageFromOrderItems(
-  items: Array<{
-    quantity: number;
-    status?: OrderItemStatus | string | null;
-    waitingQuantity?: number | null;
-    cookingQuantity?: number | null;
-    readyQuantity?: number | null;
-    cancelledQuantity?: number | null;
-    dailyMenuItem?: {
-      stockLinks?: Array<{
-        dailyStockPoolId: number;
-        consumeQuantity: Prisma.Decimal | number;
-      }>;
-    } | null;
-  }>
+  items: StockTrackedOrderItem[]
 ) {
   const usage = new Map<number, number>();
   for (const item of items) {
-    const activeQuantity = getActiveQuantity(getItemStageQuantities(item));
-    if (activeQuantity <= 0) {
-      continue;
-    }
-
-    const stockLinks = item.dailyMenuItem?.stockLinks || [];
+    const stockLinks = buildStockUsageEntriesForItem(item);
     for (const link of stockLinks) {
       usage.set(
         link.dailyStockPoolId,
-        (usage.get(link.dailyStockPoolId) || 0) +
-          Number(link.consumeQuantity) * activeQuantity
+        (usage.get(link.dailyStockPoolId) || 0) + link.quantity
       );
     }
   }
@@ -908,8 +1089,19 @@ export class OrdersController extends Controller {
       const stockUsage = getStockUsageFromOrder(
         orderWithStocks as Awaited<ReturnType<typeof getOrderForStockSync>>
       );
-      await applyStockUsage(tx, stockUsage, -1);
+      await applyStockUsage(tx, stockUsage, -1, {
+        movementType: InventoryMovementType.ORDER_RELEASE,
+        dailyMenuId: current.dailyMenuId,
+        orderId: current.id,
+        createdById: authUser.id,
+      });
       cancelPoolIds = Array.from(stockUsage.keys());
+
+      await tx.orderItemConsumption.deleteMany({
+        where: {
+          orderItemId: { in: orderWithStocks.items.map((item) => item.id) },
+        },
+      });
 
       for (const item of orderWithStocks.items) {
         await tx.orderItem.update({
@@ -969,7 +1161,15 @@ export class OrdersController extends Controller {
             include: {
               dailyMenuItem: {
                 include: {
-                  stockLinks: true,
+                  stockLinks: {
+                    include: {
+                      dailyStockPool: {
+                        select: {
+                          ingredientId: true,
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -996,8 +1196,18 @@ export class OrdersController extends Controller {
 
       cancelledItemName = targetItem.itemNameSnapshot;
       const itemUsage = getStockUsageFromOrderItems([targetItem]);
-      await applyStockUsage(tx, itemUsage, -1);
+      await applyStockUsage(tx, itemUsage, -1, {
+        movementType: InventoryMovementType.ORDER_RELEASE,
+        dailyMenuId: current.dailyMenuId,
+        orderId: current.id,
+        orderItemId: targetItem.id,
+        createdById: authUser.id,
+      });
       cancelPoolIds = Array.from(itemUsage.keys());
+
+      await tx.orderItemConsumption.deleteMany({
+        where: { orderItemId: targetItem.id },
+      });
 
       await tx.orderItem.update({
         where: { id: itemId },
@@ -1117,9 +1327,21 @@ export class OrdersController extends Controller {
 
       if (quantityDelta > 0) {
         await ensureStockAvailability(tx, usageDelta);
-        await applyStockUsage(tx, usageDelta, 1);
+        await applyStockUsage(tx, usageDelta, 1, {
+          movementType: InventoryMovementType.ORDER_RESERVE,
+          dailyMenuId: current.dailyMenuId,
+          orderId: current.id,
+          orderItemId: targetItem.id,
+          createdById: authUser.id,
+        });
       } else if (quantityDelta < 0) {
-        await applyStockUsage(tx, usageDelta, -1);
+        await applyStockUsage(tx, usageDelta, -1, {
+          movementType: InventoryMovementType.ORDER_RELEASE,
+          dailyMenuId: current.dailyMenuId,
+          orderId: current.id,
+          orderItemId: targetItem.id,
+          createdById: authUser.id,
+        });
       }
 
       const nextLineTotal = Number(targetItem.unitPrice || 0) * nextQuantity;
@@ -1151,6 +1373,11 @@ export class OrdersController extends Controller {
           totalAmount: money(nextTotalAmount),
         },
       });
+
+      await syncOrderItemConsumptions(tx, [{
+        orderItemId: itemId,
+        stockUsage: buildStockUsageEntriesForItem(targetItem, nextQuantity),
+      }]);
 
       updatePoolIds = Array.from(usageDelta.keys());
       changedFields = ["items"];
@@ -1223,7 +1450,12 @@ export class OrdersController extends Controller {
       const currentUsage = getStockUsageFromOrder(
         current as Awaited<ReturnType<typeof getOrderForStockSync>>
       );
-      await applyStockUsage(tx, currentUsage, -1);
+      await applyStockUsage(tx, currentUsage, -1, {
+        movementType: InventoryMovementType.ORDER_RELEASE,
+        dailyMenuId: current.dailyMenuId,
+        orderId: current.id,
+        createdById: authUser.id,
+      });
 
       const lines = await resolveOrderLines(tx, body.items);
       const nextUsage = aggregateStockUsage(lines);
@@ -1235,7 +1467,7 @@ export class OrdersController extends Controller {
       const totalAmount = subtotal + serviceFee - discountAmount;
       await tx.orderItem.deleteMany({ where: { orderId: id } });
 
-      await tx.order.update({
+      const updatedOrder = await tx.order.update({
         where: { id },
         data: {
           arrivalAt: arrivalAt ?? undefined,
@@ -1258,9 +1490,29 @@ export class OrdersController extends Controller {
             })),
           },
         },
+        include: {
+          items: {
+            select: {
+              id: true,
+              dailyMenuItemId: true,
+              menuItemId: true,
+              note: true,
+            },
+          },
+        },
       });
 
-      await applyStockUsage(tx, nextUsage, 1);
+      await syncOrderItemConsumptions(
+        tx,
+        pairOrderItemsWithResolvedLines(updatedOrder.items, lines)
+      );
+
+      await applyStockUsage(tx, nextUsage, 1, {
+        movementType: InventoryMovementType.ORDER_RESERVE,
+        dailyMenuId: current.dailyMenuId,
+        orderId: current.id,
+        createdById: authUser.id,
+      });
       updatePoolIds = Array.from(
         new Set([...currentUsage.keys(), ...nextUsage.keys()])
       );
@@ -1371,9 +1623,29 @@ export class OrdersController extends Controller {
             })),
           },
         },
+        include: {
+          items: {
+            select: {
+              id: true,
+              dailyMenuItemId: true,
+              menuItemId: true,
+              note: true,
+            },
+          },
+        },
       });
 
-      await applyStockUsage(tx, stockUsage, 1);
+      await syncOrderItemConsumptions(
+        tx,
+        pairOrderItemsWithResolvedLines(order.items, lines)
+      );
+
+      await applyStockUsage(tx, stockUsage, 1, {
+        movementType: InventoryMovementType.ORDER_RESERVE,
+        dailyMenuId: body.dailyMenuId ?? null,
+        orderId: order.id,
+        createdById: authUser.id,
+      });
       return { orderId: order.id, poolIds: Array.from(stockUsage.keys()) };
     });
 
@@ -1406,7 +1678,15 @@ export class OrdersController extends Controller {
             include: {
               dailyMenuItem: {
                 include: {
-                  stockLinks: true,
+                  stockLinks: {
+                    include: {
+                      dailyStockPool: {
+                        select: {
+                          ingredientId: true,
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -1433,8 +1713,17 @@ export class OrdersController extends Controller {
       }
 
       if (movingToCancelled) {
-        await applyStockUsage(tx, stockUsage, -1);
+        await applyStockUsage(tx, stockUsage, -1, {
+          movementType: InventoryMovementType.ORDER_RELEASE,
+          dailyMenuId: current.dailyMenuId,
+          orderId: current.id,
+        });
         statusPoolIds = Array.from(stockUsage.keys());
+        await tx.orderItemConsumption.deleteMany({
+          where: {
+            orderItemId: { in: orderWithStocks.items.map((item) => item.id) },
+          },
+        });
       }
 
       const data: Prisma.OrderUpdateInput = {
@@ -1503,7 +1792,11 @@ export class OrdersController extends Controller {
           }))
         );
         await ensureStockAvailability(tx, restoreUsage);
-        await applyStockUsage(tx, restoreUsage, 1);
+        await applyStockUsage(tx, restoreUsage, 1, {
+          movementType: InventoryMovementType.ORDER_RESTORE,
+          dailyMenuId: current.dailyMenuId,
+          orderId: current.id,
+        });
         statusPoolIds = Array.from(restoreUsage.keys());
 
         for (const item of orderWithStocks.items) {
@@ -1518,6 +1811,14 @@ export class OrdersController extends Controller {
             },
           });
         }
+
+        await syncOrderItemConsumptions(
+          tx,
+          orderWithStocks.items.map((item) => ({
+            orderItemId: item.id,
+            stockUsage: buildStockUsageEntriesForItem(item, item.quantity),
+          }))
+        );
       }
 
       await tx.order.update({
@@ -1578,7 +1879,11 @@ export class OrdersController extends Controller {
       const currentUsage = getStockUsageFromOrder(current as Awaited<
         ReturnType<typeof getOrderForStockSync>
       >);
-      await applyStockUsage(tx, currentUsage, -1);
+      await applyStockUsage(tx, currentUsage, -1, {
+        movementType: InventoryMovementType.ORDER_RELEASE,
+        dailyMenuId: current.dailyMenuId,
+        orderId: current.id,
+      });
 
       const lines = await resolveOrderLines(tx, body.items || []);
       const nextUsage = aggregateStockUsage(lines);
@@ -1603,7 +1908,7 @@ export class OrdersController extends Controller {
         where: { orderId: id },
       });
 
-      await tx.order.update({
+      const updatedOrder = await tx.order.update({
         where: { id },
         data: {
           arrivalAt: arrivalAt ?? undefined,
@@ -1630,9 +1935,28 @@ export class OrdersController extends Controller {
             }),
           },
         },
+        include: {
+          items: {
+            select: {
+              id: true,
+              dailyMenuItemId: true,
+              menuItemId: true,
+              note: true,
+            },
+          },
+        },
       });
 
-      await applyStockUsage(tx, nextUsage, 1);
+      await syncOrderItemConsumptions(
+        tx,
+        pairOrderItemsWithResolvedLines(updatedOrder.items, lines)
+      );
+
+      await applyStockUsage(tx, nextUsage, 1, {
+        movementType: InventoryMovementType.ORDER_RESERVE,
+        dailyMenuId: current.dailyMenuId,
+        orderId: current.id,
+      });
       updatePoolIds = Array.from(new Set([...currentUsage.keys(), ...nextUsage.keys()]));
     });
 
@@ -1662,7 +1986,15 @@ export class OrdersController extends Controller {
             include: {
               dailyMenuItem: {
                 include: {
-                  stockLinks: true,
+                  stockLinks: {
+                    include: {
+                      dailyStockPool: {
+                        select: {
+                          ingredientId: true,
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -1682,7 +2014,15 @@ export class OrdersController extends Controller {
         include: {
           dailyMenuItem: {
             include: {
-              stockLinks: true,
+              stockLinks: {
+                include: {
+                  dailyStockPool: {
+                    select: {
+                      ingredientId: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -1723,7 +2063,12 @@ export class OrdersController extends Controller {
           },
         ]);
         await ensureStockAvailability(tx, itemUsage);
-        await applyStockUsage(tx, itemUsage, 1);
+        await applyStockUsage(tx, itemUsage, 1, {
+          movementType: InventoryMovementType.ORDER_RESTORE,
+          dailyMenuId: order.dailyMenuId,
+          orderId: order.id,
+          orderItemId: targetItem.id,
+        });
         updatePoolIds = Array.from(itemUsage.keys());
 
         const nextSubtotal = Number(order.subtotal || 0) + Number(targetItem.lineTotal || 0);
@@ -1745,6 +2090,11 @@ export class OrdersController extends Controller {
           readyQuantity: 0,
           cancelledQuantity: 0,
         };
+
+        await syncOrderItemConsumptions(tx, [{
+          orderItemId: targetItem.id,
+          stockUsage: buildStockUsageEntriesForItem(targetItem, targetItem.quantity),
+        }]);
       } else {
         nextStages = moveItemStageQuantity(
           currentStages,

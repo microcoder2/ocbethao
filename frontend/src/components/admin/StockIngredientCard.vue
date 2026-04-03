@@ -19,6 +19,12 @@
         <div class="stock-card-info">
           <span class="stock-card-name">{{ ing.name }}</span>
           <span class="stock-card-unit">{{ ing.unit }}</span>
+          <div v-if="draft.active" class="stock-card-stats">
+            <span class="stock-card-stat">Còn {{ remainingQuantity }}</span>
+            <span v-if="soldQuantity > 0" class="stock-card-stat stock-card-stat--muted">
+              Đã dùng {{ soldQuantity }}
+            </span>
+          </div>
         </div>
         <button class="stock-toggle" :class="{ on: draft.active }" @click="emit('toggle')">
           <span class="stock-toggle-knob"></span>
@@ -30,7 +36,7 @@
         <input
           class="stock-qty-input"
           type="number"
-          min="1"
+          min="0"
           :value="draft.quantity"
           @input="emit('qtyInput', ($event.target as HTMLInputElement).value)"
         />
@@ -62,7 +68,7 @@ import { API_BASE_URL } from "../../config";
 import blankIngredientSvg from "../../assets/blank_ingredient.svg?raw";
 
 type Ingredient = { id: number; name: string; slug: string; unit: string; imageUrl: string | null };
-type Draft      = { active: boolean; quantity: string; saving: boolean };
+type Draft      = { active: boolean; quantity: string; saving: boolean; soldQuantity?: number };
 
 const props = defineProps<{ ing: Ingredient; draft: Draft; uploadingImg: boolean; showImg?: boolean }>();
 const emit  = defineEmits<{
@@ -78,6 +84,8 @@ const showConfirm = ref(false);
 const imgFailed   = ref(false);
 
 const hasImg = computed(() => !!props.ing.imageUrl && !imgFailed.value);
+const remainingQuantity = computed(() => Math.max(Number(props.draft.quantity || 0), 0));
+const soldQuantity = computed(() => Math.max(Number(props.draft.soldQuantity || 0), 0));
 const resolvedUrl = computed(() => {
   const url = props.ing.imageUrl;
   if (!url) return "";
@@ -166,6 +174,24 @@ function confirmDelete() {
 .stock-card-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stock-card-name { font-weight: 700; font-size: 0.97rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stock-card-unit { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.stock-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.stock-card-stat {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ember-strong);
+  background: rgba(var(--ember-rgb), 0.1);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+.stock-card-stat--muted {
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.06);
+}
 
 .stock-toggle { flex-shrink: 0; width: 44px; height: 24px; border-radius: 999px; border: none; background: var(--line); cursor: pointer; position: relative; transition: background 0.2s; padding: 0; }
 .stock-toggle.on { background: linear-gradient(135deg, var(--ember), var(--ember-strong)); }

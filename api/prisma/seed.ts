@@ -148,6 +148,8 @@ function buildSeedStageData(quantity: number, status: OrderItemStatus) {
 }
 
 async function cleanDatabase() {
+  await prisma.orderItemConsumption.deleteMany({});
+  await prisma.inventoryMovement.deleteMany({});
   await prisma.orderItem.deleteMany({});
   await prisma.order.deleteMany({});
   await prisma.dailyMenuItemStock.deleteMany({});
@@ -1296,12 +1298,9 @@ async function main() {
   console.log("Đang tạo users...");
   const users = await seedUsers();
 
-  console.log("Đang tạo danh mục & thực đơn...");
+  console.log("Đang tạo danh mục, nguyên liệu & ngân hàng món...");
   const admin = users.admin;
-  const { menuItemsBySlug, ingredientsBySlug } = await seedCatalog(admin.id);
-
-  console.log("Đang tạo đơn hàng mẫu...");
-  await seedOrders(users, admin.id, menuItemsBySlug, ingredientsBySlug);
+  await seedCatalog(admin.id);
 
   console.log("✓ Seed hoàn tất!");
 }

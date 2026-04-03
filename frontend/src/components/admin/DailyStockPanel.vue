@@ -361,7 +361,9 @@ function toggleIngredient(ing: Ingredient) {
 function changeQty(ingId: number, delta: number) {
   const d = drafts.value[ingId];
   if (!d) return;
-  d.quantity = String(Math.max(1, (Number(d.quantity) || 1) + delta));
+  const current = Number(d.quantity);
+  const base = Number.isFinite(current) ? current : 0;
+  d.quantity = String(Math.max(0, base + delta));
   emitUpdated();
 }
 

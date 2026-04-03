@@ -250,6 +250,44 @@ CREATE TABLE `AuditLog` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `InventoryMovement` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `ingredientId` INTEGER NOT NULL,
+    `dailyMenuId` INTEGER NULL,
+    `dailyStockPoolId` INTEGER NULL,
+    `orderId` INTEGER NULL,
+    `orderItemId` INTEGER NULL,
+    `movementType` ENUM('MENU_POOL_INCREASE', 'MENU_POOL_DECREASE', 'ORDER_RESERVE', 'ORDER_RELEASE', 'ORDER_RESTORE', 'MANUAL_ADJUST', 'CORRECTION') NOT NULL,
+    `quantityDelta` DECIMAL(10, 2) NOT NULL,
+    `note` LONGTEXT NULL,
+    `createdById` INTEGER NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `InventoryMovement_ingredientId_createdAt_idx`(`ingredientId`, `createdAt`),
+    INDEX `InventoryMovement_dailyStockPoolId_createdAt_idx`(`dailyStockPoolId`, `createdAt`),
+    INDEX `InventoryMovement_orderItemId_createdAt_idx`(`orderItemId`, `createdAt`),
+    INDEX `InventoryMovement_movementType_createdAt_idx`(`movementType`, `createdAt`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `OrderItemConsumption` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `orderItemId` INTEGER NOT NULL,
+    `ingredientId` INTEGER NOT NULL,
+    `dailyStockPoolId` INTEGER NULL,
+    `consumeQuantity` DECIMAL(10, 2) NOT NULL,
+    `totalQuantity` DECIMAL(10, 2) NOT NULL,
+    `inventoryMovementId` INTEGER NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `OrderItemConsumption_orderItemId_idx`(`orderItemId`),
+    INDEX `OrderItemConsumption_dailyStockPoolId_idx`(`dailyStockPoolId`),
+    INDEX `OrderItemConsumption_inventoryMovementId_idx`(`inventoryMovementId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `UserAuthIdentity` ADD CONSTRAINT `UserAuthIdentity_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -303,4 +341,34 @@ ALTER TABLE `UserSession` ADD CONSTRAINT `UserSession_authIdentityId_fkey` FOREI
 
 -- AddForeignKey
 ALTER TABLE `AuditLog` ADD CONSTRAINT `AuditLog_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_ingredientId_fkey` FOREIGN KEY (`ingredientId`) REFERENCES `Ingredient`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_dailyMenuId_fkey` FOREIGN KEY (`dailyMenuId`) REFERENCES `DailyMenu`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_dailyStockPoolId_fkey` FOREIGN KEY (`dailyStockPoolId`) REFERENCES `DailyStockPool`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_orderId_fkey` FOREIGN KEY (`orderId`) REFERENCES `Order`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_orderItemId_fkey` FOREIGN KEY (`orderItemId`) REFERENCES `OrderItem`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_createdById_fkey` FOREIGN KEY (`createdById`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `OrderItemConsumption` ADD CONSTRAINT `OrderItemConsumption_orderItemId_fkey` FOREIGN KEY (`orderItemId`) REFERENCES `OrderItem`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `OrderItemConsumption` ADD CONSTRAINT `OrderItemConsumption_ingredientId_fkey` FOREIGN KEY (`ingredientId`) REFERENCES `Ingredient`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `OrderItemConsumption` ADD CONSTRAINT `OrderItemConsumption_dailyStockPoolId_fkey` FOREIGN KEY (`dailyStockPoolId`) REFERENCES `DailyStockPool`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `OrderItemConsumption` ADD CONSTRAINT `OrderItemConsumption_inventoryMovementId_fkey` FOREIGN KEY (`inventoryMovementId`) REFERENCES `InventoryMovement`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 

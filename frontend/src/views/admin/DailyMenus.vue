@@ -617,20 +617,31 @@ function validateBeforeSave() {
 }
 
 function buildPayload() {
+  const referencedPoolRefs = new Set(
+    draftItems.value
+      .filter(i => i.enabled && i.stockPoolRef)
+      .map(i => i.stockPoolRef)
+  );
+
   return {
     title: form.title.trim() || buildDefaultTitle(),
     serviceDate: form.serviceDate,
     bannerText: form.bannerText,
     note: form.note,
     status: form.status,
-    stockPools: stockPools.value.map(p => ({
-      id: p.id || undefined, key: p.key,
-      ingredientId: p.ingredientId,
-      label: p.label || undefined,
-      quantity: Number(p.quantity || 0) + Number(p.soldQuantity || 0),
-      isAvailable: p.isAvailable,
-      note: p.note || undefined,
-    })),
+    stockPools: stockPools.value
+      .filter((p) => {
+        const ref = getPoolRef(p);
+        return p.isAvailable || Number(p.quantity || 0) > 0 || referencedPoolRefs.has(ref);
+      })
+      .map(p => ({
+        id: p.id || undefined, key: p.key,
+        ingredientId: p.ingredientId,
+        label: p.label || undefined,
+        quantity: Number(p.quantity || 0) + Number(p.soldQuantity || 0),
+        isAvailable: p.isAvailable,
+        note: p.note || undefined,
+      })),
     items: draftItems.value.filter(i => i.enabled).map(i => ({
       id: i.id || undefined,
       menuItemId: i.menuItemId,

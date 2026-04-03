@@ -67,6 +67,16 @@ enum PaymentMethod {
   E_WALLET
 }
 
+enum InventoryMovementType {
+  MENU_POOL_INCREASE
+  MENU_POOL_DECREASE
+  ORDER_RESERVE
+  ORDER_RELEASE
+  ORDER_RESTORE
+  MANUAL_ADJUST
+  CORRECTION
+}
+
 model User {
   id                    Int          @id @default(autoincrement())
   fullName              String
@@ -88,6 +98,7 @@ model User {
   createdOrders    Order[]     @relation("OrderCreator")
   assignedOrders   Order[]     @relation("OrderAssignee")
   customerOrders   Order[]     @relation("OrderCustomer")
+  createdInventoryMovements InventoryMovement[] @relation("InventoryMovementCreator")
   authIdentities   UserAuthIdentity[]
   authChallenges   AuthChallenge[]
   sessions         UserSession[]
@@ -166,6 +177,8 @@ model Ingredient {
 
   ingredientPresets MenuItemIngredientPreset[]
   dailyStockPools   DailyStockPool[]
+  inventoryMovements InventoryMovement[]
+  orderItemConsumptions OrderItemConsumption[]
 }
 
 model MenuItem {
@@ -244,6 +257,7 @@ model DailyMenu {
   stockPools DailyStockPool[]
   items      DailyMenuItem[]
   orders     Order[]
+  inventoryMovements InventoryMovement[]
 
   @@index([serviceDate, status])
 }
@@ -263,6 +277,8 @@ model DailyStockPool {
   dailyMenu   DailyMenu            @relation(fields: [dailyMenuId], references: [id], onDelete: Cascade)
   ingredient  Ingredient           @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
   itemLinks   DailyMenuItemStock[]
+  inventoryMovements InventoryMovement[]
+  orderItemConsumptions OrderItemConsumption[]
 
   @@index([dailyMenuId, ingredientId])
 }
@@ -332,6 +348,7 @@ model Order {
   customer     User?      @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: SetNull)
   dailyMenu    DailyMenu? @relation(fields: [dailyMenuId], references: [id], onDelete: SetNull)
   items        OrderItem[]
+  inventoryMovements InventoryMovement[]
 
   @@index([status, createdAt])
   @@index([status, arrivalAt])
@@ -358,10 +375,59 @@ model OrderItem {
   order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItem      MenuItem?      @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
   dailyMenuItem DailyMenuItem? @relation(fields: [dailyMenuItemId], references: [id], onDelete: SetNull)
+  inventoryMovements InventoryMovement[]
+  consumptions OrderItemConsumption[]
 
   @@index([menuItemId])
   @@index([dailyMenuItemId])
   @@index([status])
+}
+
+model InventoryMovement {
+  id               Int                   @id @default(autoincrement())
+  ingredientId     Int
+  dailyMenuId      Int?
+  dailyStockPoolId Int?
+  orderId          Int?
+  orderItemId      Int?
+  movementType     InventoryMovementType
+  quantityDelta    Decimal               @db.Decimal(10, 2)
+  note             String?               @db.LongText
+  createdById      Int?
+  createdAt        DateTime              @default(now())
+
+  ingredient       Ingredient            @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  dailyMenu        DailyMenu?            @relation(fields: [dailyMenuId], references: [id], onDelete: SetNull)
+  dailyStockPool   DailyStockPool?       @relation(fields: [dailyStockPoolId], references: [id], onDelete: SetNull)
+  order            Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderItem        OrderItem?            @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  createdBy        User?                 @relation("InventoryMovementCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  consumptions     OrderItemConsumption[]
+
+  @@index([ingredientId, createdAt])
+  @@index([dailyStockPoolId, createdAt])
+  @@index([orderItemId, createdAt])
+  @@index([movementType, createdAt])
+}
+
+model OrderItemConsumption {
+  id                  Int                @id @default(autoincrement())
+  orderItemId         Int
+  ingredientId        Int
+  dailyStockPoolId    Int?
+  consumeQuantity     Decimal            @db.Decimal(10, 2)
+  totalQuantity       Decimal            @db.Decimal(10, 2)
+  inventoryMovementId Int?
+  createdAt           DateTime           @default(now())
+
+  orderItem           OrderItem          @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  ingredient          Ingredient         @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  dailyStockPool      DailyStockPool?    @relation(fields: [dailyStockPoolId], references: [id], onDelete: SetNull)
+  inventoryMovement   InventoryMovement? @relation(fields: [inventoryMovementId], references: [id], onDelete: SetNull)
+
+  @@index([orderItemId])
+  @@index([dailyStockPoolId])
+  @@index([inventoryMovementId])
 }
 
 model UserSession {

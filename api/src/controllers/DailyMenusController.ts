@@ -299,13 +299,48 @@ function normalizeItems(inputs: DailyMenuItemInput[]) {
     }));
 }
 
+function filterMeaningfulStockPools(
+  stockPools: ReturnType<typeof normalizeStockPools>,
+  items: ReturnType<typeof normalizeItems>
+) {
+  const referencedPoolIds = new Set<number>();
+  const referencedPoolKeys = new Set<string>();
+
+  for (const item of items) {
+    for (const link of item.stockLinks) {
+      if (typeof link.dailyStockPoolId === "number") {
+        referencedPoolIds.add(link.dailyStockPoolId);
+      }
+      if (link.stockPoolKey) {
+        referencedPoolKeys.add(link.stockPoolKey);
+      }
+    }
+  }
+
+  return stockPools.filter((pool) => {
+    if (pool.isAvailable) {
+      return true;
+    }
+    if (pool.quantity > 0) {
+      return true;
+    }
+    if (typeof pool.id === "number" && referencedPoolIds.has(pool.id)) {
+      return true;
+    }
+    if (pool.key && referencedPoolKeys.has(pool.key)) {
+      return true;
+    }
+    return false;
+  });
+}
+
 async function syncDailyMenuResources(
   tx: Prisma.TransactionClient,
   dailyMenuId: number,
   body: DailyMenuBody
 ): Promise<void> {
-  const stockPools = normalizeStockPools(body.stockPools);
   const items = normalizeItems(body.items);
+  const stockPools = filterMeaningfulStockPools(normalizeStockPools(body.stockPools), items);
   const ingredientIds = Array.from(new Set(stockPools.map((pool) => pool.ingredientId)));
 
   const [ingredients, existingPools, existingItems] = await Promise.all([
