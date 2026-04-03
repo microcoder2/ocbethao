@@ -476,6 +476,8 @@ type UpdateOrderItemStageResponse = {
 
 type DailyMenuOption = {
   id: number;
+  dailyMenuItemId?: number | null;
+  menuItemId?: number | null;
   sellingPrice: number;
   isAvailable: boolean;
   availableQuantity?: number | null;
@@ -500,7 +502,8 @@ type DailyMenuRecord = {
 
 type ManualOrderLine = {
   key: string;
-  dailyMenuItemId: number;
+  dailyMenuItemId?: number;
+  menuItemId: number;
   name: string;
   price: number;
   quantity: number;
@@ -669,18 +672,32 @@ function buildCreateOrderDraftKey(seed: number) {
   return `manual-${seed}-${createOrderDraftKeySeed.value}`;
 }
 
+function getOptionMenuItemId(option: DailyMenuOption) {
+  return Number(option.menuItemId ?? option.menuItem?.id ?? 0);
+}
+
+function getOptionOfferKey(option: DailyMenuOption) {
+  const dailyMenuItemId = Number(option.dailyMenuItemId ?? 0);
+  if (dailyMenuItemId > 0) {
+    return `offer:${dailyMenuItemId}`;
+  }
+  return `menu:${getOptionMenuItemId(option)}`;
+}
+
 function addItemDirect(option: DailyMenuOption) {
   const existing = createOrderDialog.lines.find(
     (line) =>
-      line.dailyMenuItemId === option.id &&
+      line.dailyMenuItemId === (option.dailyMenuItemId ?? undefined) &&
+      line.menuItemId === getOptionMenuItemId(option) &&
       normalizeDraftLineNote(line.note) === ""
   );
   if (existing) {
     existing.quantity += 1;
   } else {
     createOrderDialog.lines.push({
-      key: buildCreateOrderDraftKey(option.id),
-      dailyMenuItemId: option.id,
+      key: `${getOptionOfferKey(option)}:${buildCreateOrderDraftKey(getOptionMenuItemId(option))}`,
+      dailyMenuItemId: option.dailyMenuItemId ?? undefined,
+      menuItemId: getOptionMenuItemId(option),
       name: option.menuItem.name,
       price: Number(option.sellingPrice || 0),
       quantity: 1,
@@ -892,6 +909,7 @@ async function submitCreateOrder() {
       note: createOrderDialog.note.trim() || undefined,
       items: createOrderDialog.lines.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
+        menuItemId: line.menuItemId,
         quantity: line.quantity,
         note: line.note?.trim() || undefined,
       })),

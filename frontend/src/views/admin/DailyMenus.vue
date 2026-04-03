@@ -576,7 +576,7 @@ async function editMenu(menu: MenuRecord) {
     for (const row of draftItems.value) {
       const matched = (detail.items || []).find((i: any) => i.menuItem?.id === row.menuItemId);
       if (!matched) continue;
-      row.id = matched.id;
+      row.id = typeof matched.dailyMenuItemId === "number" ? matched.dailyMenuItemId : null;
       row.enabled = true;
       row.overridePrice = Number(matched.overridePrice || matched.sellingPrice || row.overridePrice);
       row.highlightLabel = matched.highlightLabel || "";

@@ -176,6 +176,8 @@ type OrderRecord = {
 
 type MenuOption = {
   id: number;
+  dailyMenuItemId?: number | null;
+  menuItemId?: number | null;
   sellingPrice: number;
   isAvailable: boolean;
   menuItem: { id: number; name: string };
@@ -367,9 +369,15 @@ function addItem() {
   if (!selectedId) return;
   const option = props.menuOptions.find((item) => item.id === selectedId);
   if (!option) return;
+  const optionDailyMenuItemId = option.dailyMenuItemId ?? null;
+  const optionMenuItemId = Number(option.menuItemId ?? option.menuItem.id);
 
   ensureDraft();
-  const existingIndex = draft.value!.findIndex((item) => item.dailyMenuItemId === option.id);
+  const existingIndex = draft.value!.findIndex(
+    (item) =>
+      item.dailyMenuItemId === optionDailyMenuItemId &&
+      item.menuItemId === optionMenuItemId
+  );
   if (existingIndex >= 0) {
     const current = draft.value![existingIndex];
     draft.value![existingIndex] = {
@@ -380,12 +388,12 @@ function addItem() {
     flashItem(current.key);
     openItemNoteEditor(current.key);
   } else {
-    const key = `new-${option.id}`;
+    const key = `new-${optionDailyMenuItemId ?? optionMenuItemId}`;
     draft.value!.push({
       id: null,
       key,
-      menuItemId: option.menuItem.id,
-      dailyMenuItemId: option.id,
+      menuItemId: optionMenuItemId,
+      dailyMenuItemId: optionDailyMenuItemId,
       itemNameSnapshot: option.menuItem.name,
       unitPrice: Number(option.sellingPrice || 0),
       quantity: 1,

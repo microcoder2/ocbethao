@@ -232,6 +232,8 @@ type OrderRecord = {
 
 type DailyMenuOption = {
   id: number;
+  dailyMenuItemId?: number | null;
+  menuItemId?: number | null;
   sellingPrice: number;
   isAvailable: boolean;
   stockLinks?: Array<{
@@ -999,11 +1001,14 @@ function addItem() {
   if (!selectedId) return;
   const opt = props.menuOptions.find((o) => o.id === selectedId);
   if (!opt) return;
+  const optionDailyMenuItemId = opt.dailyMenuItemId ?? null;
+  const optionMenuItemId = Number(opt.menuItemId ?? opt.menuItem.id);
 
   ensureDraft();
   const existing = draft.value!.findIndex(
     (i) =>
-      i.dailyMenuItemId === opt.id &&
+      i.dailyMenuItemId === optionDailyMenuItemId &&
+      i.menuItemId === optionMenuItemId &&
       normalizeItemNote(i.note) === "" &&
       canAdjustDraftItem(i)
   );
@@ -1025,12 +1030,12 @@ function addItem() {
     flashItem(cur.key);
     openItemNoteEditor(cur.key);
   } else {
-    const newKey = buildDraftItemKey(opt.id);
+    const newKey = buildDraftItemKey(optionDailyMenuItemId ?? optionMenuItemId);
     draft.value!.push({
       id: null,
       key: newKey,
-      menuItemId: opt.menuItem.id,
-      dailyMenuItemId: opt.id,
+      menuItemId: optionMenuItemId,
+      dailyMenuItemId: optionDailyMenuItemId,
       itemNameSnapshot: opt.menuItem.name,
       unitPrice: Number(opt.sellingPrice || 0),
       quantity: 1,

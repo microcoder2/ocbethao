@@ -25,6 +25,11 @@ import {
 import { prisma } from "../utils/prisma";
 import { serializeOrder, serializeOrderList } from "../utils/mappers";
 import {
+  dailyMenuResourceInclude,
+  getEffectiveOfferForMenuItem,
+  loadCatalogMenuItems,
+} from "../services/dailyMenuOfferService";
+import {
   broadcastStockUpdate,
   broadcastNewOrder,
   broadcastOrderChanged,
@@ -702,24 +707,39 @@ async function syncOrderItemConsumptions(
 
 async function resolveOrderLines(
   tx: Prisma.TransactionClient,
-  items: OrderItemInput[]
+  items: OrderItemInput[],
+  dailyMenuId?: number | null
 ): Promise<ResolvedOrderLine[]> {
+  const normalizedItems = (items || []).map((item) => ({
+    ...item,
+    dailyMenuItemId:
+      typeof item.dailyMenuItemId === "number" && item.dailyMenuItemId > 0
+        ? item.dailyMenuItemId
+        : undefined,
+    menuItemId:
+      typeof item.menuItemId === "number" && item.menuItemId > 0
+        ? item.menuItemId
+        : typeof item.dailyMenuItemId === "number" && item.dailyMenuItemId < 0
+          ? Math.abs(item.dailyMenuItemId)
+          : undefined,
+  }));
+
   const dailyMenuItemIds = Array.from(
     new Set(
-      (items || [])
+      normalizedItems
         .map((item) => item.dailyMenuItemId)
         .filter((value): value is number => typeof value === "number")
     )
   );
   const menuItemIds = Array.from(
     new Set(
-      (items || [])
+      normalizedItems
         .map((item) => item.menuItemId)
         .filter((value): value is number => typeof value === "number")
     )
   );
 
-  const [dailyMenuItems, menuItems] = await Promise.all([
+  const [dailyMenuItems, menuItems, dailyMenu] = await Promise.all([
     dailyMenuItemIds.length
       ? tx.dailyMenuItem.findMany({
           where: { id: { in: dailyMenuItemIds } },
@@ -742,12 +762,29 @@ async function resolveOrderLines(
           where: { id: { in: menuItemIds } },
         })
       : Promise.resolve([]),
+    dailyMenuId
+      ? tx.dailyMenu.findUnique({
+          where: { id: dailyMenuId },
+          include: dailyMenuResourceInclude,
+        })
+      : Promise.resolve(null),
   ]);
 
   const dailyMenuItemMap = new Map(dailyMenuItems.map((item) => [item.id, item]));
   const menuItemMap = new Map(menuItems.map((item) => [item.id, item]));
+  const effectiveOfferMap = new Map<number, ReturnType<typeof getEffectiveOfferForMenuItem>>();
 
-  return (items || []).map((item) => {
+  if (dailyMenu && menuItemIds.length) {
+    const catalogItems = await loadCatalogMenuItems(tx, menuItemIds);
+    for (const menuItemId of menuItemIds) {
+      effectiveOfferMap.set(
+        menuItemId,
+        getEffectiveOfferForMenuItem(dailyMenu, catalogItems, menuItemId)
+      );
+    }
+  }
+
+  return normalizedItems.map((item) => {
     const quantity = normalizePositiveInt(item.quantity);
 
     if (item.dailyMenuItemId) {
@@ -792,6 +829,39 @@ async function resolveOrderLines(
     }
 
     if (item.menuItemId) {
+      if (dailyMenu) {
+        const effectiveOffer = effectiveOfferMap.get(item.menuItemId);
+        if (!effectiveOffer || !effectiveOffer.isAvailable) {
+          throw new Error("Mon trong menu ngay khong con kha dung");
+        }
+
+        if (!effectiveOffer.stockLinks?.length) {
+          throw new Error("Mon trong menu ngay chua duoc gan nguon hang");
+        }
+
+        const stageData = buildStageData(quantity, item.status ?? OrderItemStatus.WAITING);
+        return {
+          menuItemId: effectiveOffer.menuItemId,
+          dailyMenuItemId: effectiveOffer.dailyMenuItemId,
+          itemNameSnapshot: effectiveOffer.menuItem.name,
+          unitPrice: Number(effectiveOffer.sellingPrice),
+          quantity,
+          waitingQuantity: stageData.waitingQuantity,
+          cookingQuantity: stageData.cookingQuantity,
+          readyQuantity: stageData.readyQuantity,
+          cancelledQuantity: stageData.cancelledQuantity,
+          status: stageData.status,
+          lineTotal: Number(effectiveOffer.sellingPrice) * quantity,
+          note: normalizeOrderItemNote(item.note) || undefined,
+          stockUsage: effectiveOffer.stockLinks.map((link) => ({
+            dailyStockPoolId: link.dailyStockPoolId,
+            ingredientId: link.dailyStockPool?.ingredientId ?? null,
+            consumeQuantity: Number(link.consumeQuantity),
+            quantity: Number(link.consumeQuantity) * quantity,
+          })),
+        };
+      }
+
       const menuItem = menuItemMap.get(item.menuItemId);
       if (!menuItem || !menuItem.isAvailable) {
         throw new Error("Mon mau khong con kha dung");
@@ -1457,7 +1527,7 @@ export class OrdersController extends Controller {
         createdById: authUser.id,
       });
 
-      const lines = await resolveOrderLines(tx, body.items);
+      const lines = await resolveOrderLines(tx, body.items, current.dailyMenuId);
       const nextUsage = aggregateStockUsage(lines);
       await ensureStockAvailability(tx, nextUsage);
 
@@ -1571,7 +1641,7 @@ export class OrdersController extends Controller {
         : null;
 
     const { orderId, poolIds: createdPoolIds } = await prisma.$transaction(async (tx) => {
-      const lines = await resolveOrderLines(tx, body.items || []);
+      const lines = await resolveOrderLines(tx, body.items || [], body.dailyMenuId);
       const stockUsage = aggregateStockUsage(lines);
       await ensureStockAvailability(tx, stockUsage);
 
@@ -1885,7 +1955,7 @@ export class OrdersController extends Controller {
         orderId: current.id,
       });
 
-      const lines = await resolveOrderLines(tx, body.items || []);
+      const lines = await resolveOrderLines(tx, body.items || [], current.dailyMenuId);
       const nextUsage = aggregateStockUsage(lines);
       await ensureStockAvailability(tx, nextUsage);
 

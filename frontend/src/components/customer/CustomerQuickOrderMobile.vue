@@ -90,6 +90,8 @@ type FeedbackState = {
 
 type DailyMenuItemData = {
   id: number;
+  dailyMenuItemId?: number | null;
+  menuItemId?: number | null;
   sellingPrice: number;
   isAvailable: boolean;
   highlightLabel?: string | null;
@@ -117,7 +119,8 @@ type DailyMenuData = {
 
 type CartLine = {
   key: string;
-  dailyMenuItemId: number;
+  dailyMenuItemId?: number;
+  menuItemId: number;
   name: string;
   price: number;
   quantity: number;
@@ -185,6 +188,18 @@ function buildCartKey(seed: number) {
   return `quick-${seed}-${draftKeySeed.value}`;
 }
 
+function getMenuItemId(item: DailyMenuItemData) {
+  return Number(item.menuItemId ?? item.menuItem?.id ?? 0);
+}
+
+function getMenuOptionKey(item: DailyMenuItemData) {
+  const dailyMenuItemId = Number(item.dailyMenuItemId ?? 0);
+  if (dailyMenuItemId > 0) {
+    return `offer:${dailyMenuItemId}`;
+  }
+  return `menu:${getMenuItemId(item)}`;
+}
+
 function formatServiceDate(value?: string) {
   if (!value) return "Hôm nay";
   const date = new Date(value);
@@ -242,7 +257,7 @@ function addItemDirect(item: DailyMenuItemData) {
 
   const existing = cart.value.find(
     (line) =>
-      line.dailyMenuItemId === item.id &&
+      line.key === getMenuOptionKey(item) &&
       normalizeLineNote(line.note) === ""
   );
 
@@ -252,8 +267,9 @@ function addItemDirect(item: DailyMenuItemData) {
   }
 
   cart.value.push({
-    key: buildCartKey(item.id),
-    dailyMenuItemId: item.id,
+    key: buildCartKey(getMenuItemId(item)),
+    dailyMenuItemId: item.dailyMenuItemId ?? undefined,
+    menuItemId: getMenuItemId(item),
     name: item.menuItem.name,
     price: Number(item.sellingPrice || 0),
     quantity: 1,
@@ -309,6 +325,7 @@ async function submitOrder() {
       note: normalizeLineNote(note.value) || undefined,
       items: cart.value.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
+        menuItemId: line.menuItemId,
         quantity: line.quantity,
         note: normalizeLineNote(line.note) || undefined,
       })),

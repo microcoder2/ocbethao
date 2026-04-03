@@ -132,8 +132,8 @@
       >
         <div class="mobile-card__media" :style="getCardMediaStyle(item, index)">
           <span class="mobile-card__badge">{{ getHighlightLabel(item) }}</span>
-          <span v-if="getCartQuantity(item.id)" class="mobile-card__cart-count">
-            {{ getCartQuantity(item.id) }} trong giỏ
+          <span v-if="getCartQuantity(item)" class="mobile-card__cart-count">
+            {{ getCartQuantity(item) }} trong giỏ
           </span>
         </div>
 
@@ -273,6 +273,8 @@ type MenuItemData = {
 
 type DailyMenuItemData = {
   id: number;
+  dailyMenuItemId?: number | null;
+  menuItemId?: number | null;
   quantity?: number | null;
   soldQuantity?: number;
   availableQuantity?: number | null;
@@ -292,7 +294,9 @@ type DailyMenuData = {
 };
 
 type CartLine = {
-  dailyMenuItemId: number;
+  key: string;
+  dailyMenuItemId?: number;
+  menuItemId: number;
   name: string;
   price: number;
   quantity: number;
@@ -443,7 +447,7 @@ const cartTotal = computed(() =>
 );
 const cartDraftLines = computed(() =>
   cart.value.map((line) => ({
-    key: line.dailyMenuItemId,
+    key: line.key,
     name: line.name,
     price: line.price,
     quantity: line.quantity,
@@ -483,14 +487,17 @@ function addToCart(item: DailyMenuItemData) {
   if (!canOrderItem(item)) return;
 
   feedback.value = null;
-  const existing = cart.value.find((line) => line.dailyMenuItemId === item.id);
+  const key = getMenuOptionKey(item);
+  const existing = cart.value.find((line) => line.key === key);
   if (existing) {
     existing.quantity += 1;
     return;
   }
 
   cart.value.push({
-    dailyMenuItemId: item.id,
+    key,
+    dailyMenuItemId: item.dailyMenuItemId ?? undefined,
+    menuItemId: getMenuItemId(item),
     name: item.menuItem?.name || "Món đang cập nhật",
     price: Number(item.sellingPrice || 0),
     quantity: 1,
@@ -501,25 +508,25 @@ function addToCart(item: DailyMenuItemData) {
 function changeQty(line: CartLine, delta: number) {
   const nextQuantity = line.quantity + delta;
   if (nextQuantity <= 0) {
-    removeLine(line.dailyMenuItemId);
+    removeLine(line.key);
     return;
   }
 
   line.quantity = nextQuantity;
 }
 
-function removeLine(dailyMenuItemId: number) {
-  cart.value = cart.value.filter((line) => line.dailyMenuItemId !== dailyMenuItemId);
+function removeLine(key: string) {
+  cart.value = cart.value.filter((line) => line.key !== key);
 }
 
 function handleCartLineChange(payload: { key: string | number; delta: number }) {
-  const line = cart.value.find((entry) => entry.dailyMenuItemId === Number(payload.key));
+  const line = cart.value.find((entry) => entry.key === String(payload.key));
   if (!line) return;
   changeQty(line, payload.delta);
 }
 
 function updateCartLineNote(payload: { key: string | number; note: string }) {
-  const line = cart.value.find((entry) => entry.dailyMenuItemId === Number(payload.key));
+  const line = cart.value.find((entry) => entry.key === String(payload.key));
   if (!line) return;
   line.note = payload.note;
 }
@@ -545,6 +552,7 @@ async function submitOrder() {
       note: note.value,
       items: cart.value.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
+        menuItemId: line.menuItemId,
         quantity: line.quantity,
         note: line.note?.trim() || undefined,
       })),
@@ -581,8 +589,20 @@ function resetFilters() {
   activeFilter.value = "all";
 }
 
-function getCartQuantity(dailyMenuItemId: number) {
-  return cart.value.find((line) => line.dailyMenuItemId === dailyMenuItemId)?.quantity || 0;
+function getMenuItemId(item: DailyMenuItemData) {
+  return Number(item.menuItemId ?? item.menuItem?.id ?? 0);
+}
+
+function getMenuOptionKey(item: DailyMenuItemData) {
+  const dailyMenuItemId = Number(item.dailyMenuItemId ?? 0);
+  if (dailyMenuItemId > 0) {
+    return `offer:${dailyMenuItemId}`;
+  }
+  return `menu:${getMenuItemId(item)}`;
+}
+
+function getCartQuantity(item: DailyMenuItemData) {
+  return cart.value.find((line) => line.key === getMenuOptionKey(item))?.quantity || 0;
 }
 
 function canOrderItem(item: DailyMenuItemData) {

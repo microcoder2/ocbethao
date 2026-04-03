@@ -42,7 +42,7 @@
 
         <div v-if="cart.length === 0" class="text-muted small">Chưa có món nào trong đơn.</div>
         <div v-else class="d-grid gap-2 mb-3">
-          <div v-for="line in cart" :key="line.dailyMenuItemId" class="d-flex justify-content-between gap-2 align-items-center">
+          <div v-for="line in cart" :key="line.key" class="d-flex justify-content-between gap-2 align-items-center">
             <div>
               <div class="fw-semibold small">{{ line.name }}</div>
               <div class="small text-muted">{{ formatMoney(line.price) }}</div>
@@ -134,13 +134,16 @@ async function loadData() {
 }
 
 function addToCart(item: any) {
-  const existing = cart.value.find((line) => line.dailyMenuItemId === item.id);
+  const key = Number(item.dailyMenuItemId) > 0 ? `offer:${item.dailyMenuItemId}` : `menu:${item.menuItem?.id}`;
+  const existing = cart.value.find((line) => line.key === key);
   if (existing) {
     existing.quantity += 1;
     return;
   }
   cart.value.push({
-    dailyMenuItemId: item.id,
+    key,
+    dailyMenuItemId: item.dailyMenuItemId ?? undefined,
+    menuItemId: item.menuItem?.id,
     name: item.menuItem?.name,
     price: item.sellingPrice,
     quantity: 1,
@@ -182,6 +185,7 @@ async function submitOrder() {
       note: form.note,
       items: cart.value.map((line) => ({
         dailyMenuItemId: line.dailyMenuItemId,
+        menuItemId: line.menuItemId,
         quantity: line.quantity,
       })),
     });

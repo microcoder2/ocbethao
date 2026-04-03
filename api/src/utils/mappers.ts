@@ -268,6 +268,13 @@ export function serializeDailyMenuItem(item: AnyRecord) {
   const availableQuantity = computeOfferAvailableQuantity(item);
   return {
     id: item.id,
+    dailyMenuItemId:
+      typeof item.dailyMenuItemId === "number"
+        ? item.dailyMenuItemId
+        : typeof item.id === "number" && item.id > 0
+          ? item.id
+          : null,
+    menuItemId: item.menuItemId ?? item.menuItem?.id ?? null,
     quantity: null,
     soldQuantity: null,
     availableQuantity,
@@ -339,6 +346,13 @@ function serializeDailyMenuItemSummary(item: AnyRecord) {
   const availableQuantity = computeOfferAvailableQuantity(item);
   return {
     id: item.id,
+    dailyMenuItemId:
+      typeof item.dailyMenuItemId === "number"
+        ? item.dailyMenuItemId
+        : typeof item.id === "number" && item.id > 0
+          ? item.id
+          : null,
+    menuItemId: item.menuItemId ?? item.menuItem?.id ?? null,
     availableQuantity,
     overridePrice: toNumber(item.overridePrice),
     sellingPrice: toNumber(item.overridePrice ?? item.menuItem?.basePrice),
