@@ -3,14 +3,25 @@
     <section class="mi2-toolbar">
       <div class="mi2-toolbar-title-row">
         <div class="mi2-title">Ngân hàng món</div>
-        <RouterLink
-          class="mi2-mode-btn mi2-mode-btn--icon"
-          to="/admin/menu-items/classic"
-          title="Giao diện máy tính"
-          aria-label="Giao diện máy tính"
-        >
-          <i class="bi bi-pc-display"></i>
-        </RouterLink>
+        <div class="mi2-toolbar-actions">
+          <RouterLink
+            class="mi2-mode-btn mi2-mode-btn--icon"
+            to="/admin/menu-items/classic"
+            title="Giao diện máy tính"
+            aria-label="Giao diện máy tính"
+          >
+            <i class="bi bi-pc-display"></i>
+          </RouterLink>
+          <button
+            class="mi2-mode-btn mi2-mode-btn--icon"
+            type="button"
+            title="Tải lại"
+            aria-label="Tải lại"
+            @click="reloadPage"
+          >
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
       </div>
 
       <div class="mi2-toolbar-row">
@@ -49,14 +60,9 @@
         :key="group.key"
         :group="group"
         :open="openCards.has(group.key)"
-        :editing-price-id="editingPriceId"
-        :editing-price-text="editingPriceText"
         @toggle-collapse="toggleCard(group.key)"
         @open-add="openAddMethodModal(group)"
-        @clear-edit-price="clearInlinePriceText"
-        @update:editing-price-text="(value) => (editingPriceText = value)"
-        @start-inline-price="startInlinePrice"
-        @save-inline-price="saveInlinePrice"
+        @edit-price="openPriceEditModal"
       />
     </section>
 
@@ -73,6 +79,17 @@
       @update:method-id="(value) => (addMethodModal.methodId = value)"
       @update:price-text="(value) => (addMethodModal.priceText = value)"
     />
+
+    <MenuItemPriceEditModal
+      :open="priceEditModal.open"
+      :item-name="priceEditModal.item?.name || ''"
+      :current-price="priceEditModal.item?.currentPrice || 0"
+      :price-text="priceEditModal.priceText"
+      :saving="priceEditModal.saving"
+      @close="closePriceEditModal"
+      @submit="savePriceEditModal"
+      @update:price-text="(value) => (priceEditModal.priceText = value)"
+    />
   </div>
 </template>
 
@@ -81,6 +98,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import MenuIngredientFilterCard from "../../components/common/MenuIngredientFilterCard.vue";
 import MenuItemCreateMethodModal from "../../components/admin/MenuItemCreateMethodModal.vue";
+import MenuItemPriceEditModal from "../../components/admin/MenuItemPriceEditModal.vue";
 import MenuItemGroupCard from "../../components/admin/MenuItemGroupCard.vue";
 import { api } from "../../api";
 import { DEFAULT_COOKING_METHODS } from "../../constants/menuItemFormOptions";
@@ -142,8 +160,17 @@ const showAllIngredients = ref(true);
 const openBuckets = ref<Set<string>>(new Set());
 const openCards = ref<Set<string>>(new Set());
 const initializedGroupModes = ref<Set<"ingredient" | "method">>(new Set());
-const editingPriceId = ref<number | null>(null);
-const editingPriceText = ref("0");
+const priceEditModal = reactive<{
+  open: boolean;
+  item: EnrichedItem | null;
+  priceText: string;
+  saving: boolean;
+}>({
+  open: false,
+  item: null,
+  priceText: "0",
+  saving: false,
+});
 
 const addMethodModal = reactive<{
   open: boolean;
@@ -328,6 +355,19 @@ function formatPriceKInput(value: number | null | undefined) {
   return String(Math.round(Number(value || 0) / 1000));
 }
 
+function openPriceEditModal(item: EnrichedItem) {
+  priceEditModal.open = true;
+  priceEditModal.item = item;
+  priceEditModal.priceText = formatPriceKInput(item.currentPrice);
+}
+
+function closePriceEditModal() {
+  priceEditModal.open = false;
+  priceEditModal.item = null;
+  priceEditModal.priceText = "0";
+  priceEditModal.saving = false;
+}
+
 function toggleBucket(bucketName: string) {
   const next = new Set(openBuckets.value);
   if (next.has(bucketName)) next.delete(bucketName);
@@ -346,6 +386,10 @@ function toggleShowAllIngredients() {
   if (!nextValue) {
     openBuckets.value = new Set(ingredientBuckets.value.map((bucket) => bucket.name));
   }
+}
+
+function reloadPage() {
+  window.location.reload();
 }
 
 function toggleCard(key: string) {
@@ -377,27 +421,20 @@ function buildPayload(item: EnrichedItem, nextPrice: number) {
   };
 }
 
-function startInlinePrice(item: EnrichedItem) {
-  editingPriceId.value = item.id;
-  editingPriceText.value = formatPriceKInput(item.currentPrice);
-}
+async function savePriceEditModal() {
+  const item = priceEditModal.item;
+  if (!item) return;
 
-function clearInlinePriceText() {
-  editingPriceText.value = "";
-}
-
-async function saveInlinePrice(item: EnrichedItem) {
-  const rawPrice = editingPriceText.value.trim();
-  if (!rawPrice) {
-    editingPriceId.value = null;
-    editingPriceText.value = formatPriceKInput(item.currentPrice);
-    return;
+  const rawPrice = priceEditModal.priceText.trim();
+  const nextPrice = rawPrice ? parsePriceKInput(rawPrice) : item.currentPrice;
+  priceEditModal.saving = true;
+  try {
+    await api.put(`/menu-items/${item.id}`, buildPayload(item, nextPrice));
+    closePriceEditModal();
+    await loadData();
+  } finally {
+    priceEditModal.saving = false;
   }
-
-  const nextPrice = parsePriceKInput(rawPrice);
-  await api.put(`/menu-items/${item.id}`, buildPayload(item, nextPrice));
-  editingPriceId.value = null;
-  await loadData();
 }
 
 function openAddMethodModal(group: DisplayGroup) {
@@ -495,6 +532,12 @@ onMounted(loadData);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+
+.mi2-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
 }
 

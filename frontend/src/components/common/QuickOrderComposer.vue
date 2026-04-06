@@ -138,7 +138,7 @@ type PickerCategory = {
 const props = withDefaults(
   defineProps<{
     title: string;
-    summary: string;
+    summary?: string;
     lines: DraftLine[];
     arrivalTime: string;
     arrivalMode?: "scheduled" | "unknown" | "arrived";
@@ -160,11 +160,11 @@ const props = withDefaults(
     showSummary?: boolean;
     compact?: boolean;
     framed?: boolean;
-    variant?: "mobile" | "admin";
     accordion?: boolean;
     autoOpenCategories?: boolean;
   }>(),
   {
+    summary: "",
     bannerText: "",
     metaChips: () => [],
     stockRemainingMap: () => ({}),
@@ -182,7 +182,6 @@ const props = withDefaults(
     showSummary: false,
     compact: true,
     framed: false,
-    variant: "admin",
     accordion: false,
     autoOpenCategories: true,
   }

@@ -1,6 +1,6 @@
 <template>
   <div class="mi2c-card">
-    <div class="mi2c-head">
+    <div class="mi2c-head" role="button" tabindex="0" @click="$emit('toggleCollapse')" @keydown.enter.prevent="$emit('toggleCollapse')" @keydown.space.prevent="$emit('toggleCollapse')">
       <div class="mi2c-title-wrap">
         <div class="mi2c-title">{{ group.label }}</div>
         <div class="mi2c-meta">{{ group.items.length }} món · {{ group.meta }}</div>
@@ -12,7 +12,7 @@
         type="button"
         title="Thêm món"
         aria-label="Thêm món"
-        @click="$emit('openAdd')"
+        @click.stop="$emit('openAdd')"
       >
         <i class="bi bi-journal-plus"></i>
       </button>
@@ -22,7 +22,7 @@
         type="button"
         :title="open ? 'Thu gọn' : 'Mở rộng'"
         :aria-label="open ? 'Thu gọn' : 'Mở rộng'"
-        @click="$emit('toggleCollapse')"
+        @click.stop="$emit('toggleCollapse')"
       >
         <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
       </button>
@@ -35,28 +35,10 @@
         </div>
 
         <div class="mi2c-item-price">
-          <template v-if="editingPriceId === item.id">
-            <div class="mi2c-k-input-wrap mi2c-k-input-wrap--sm">
-              <input
-                :value="editingPriceText"
-                class="mi2c-k-input"
-                inputmode="numeric"
-                @focus="$emit('clearEditPrice')"
-                @input="$emit('update:editingPriceText', ($event.target as HTMLInputElement).value)"
-                @keyup.enter="$emit('saveInlinePrice', item)"
-              />
-              <span class="mi2c-k-suffix">k</span>
-            </div>
-            <button class="mi2c-icon-btn mi2c-icon-btn--accent" type="button" title="Lưu giá" @click="$emit('saveInlinePrice', item)">
-              <i class="bi bi-floppy-fill"></i>
-            </button>
-          </template>
-          <template v-else>
-            <strong class="mi2c-price-text">{{ formatMoneyK(item.currentPrice) }}</strong>
-            <button class="mi2c-icon-btn" type="button" title="Sửa giá" @click="$emit('startInlinePrice', item)">
-              <i class="bi bi-pencil"></i>
-            </button>
-          </template>
+          <strong class="mi2c-price-text">{{ formatMoneyK(item.currentPrice) }}</strong>
+          <button class="mi2c-icon-btn" type="button" title="Sửa giá" @click="$emit('editPrice', item)">
+            <i class="bi bi-pencil"></i>
+          </button>
         </div>
       </div>
     </div>
@@ -79,17 +61,12 @@ defineProps<{
     groupKind: "ingredient" | "method";
   };
   open: boolean;
-  editingPriceId: number | null;
-  editingPriceText: string;
 }>();
 
 defineEmits<{
   toggleCollapse: [];
   openAdd: [];
-  clearEditPrice: [];
-  "update:editingPriceText": [value: string];
-  startInlinePrice: [item: CardItem];
-  saveInlinePrice: [item: CardItem];
+  editPrice: [item: CardItem];
 }>();
 
 function formatMoneyK(value: number | null | undefined) {
@@ -226,36 +203,6 @@ function formatMoneyK(value: number | null | undefined) {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.mi2c-k-input-wrap {
-  position: relative;
-}
-
-.mi2c-k-input-wrap--sm {
-  width: 82px;
-  flex: 0 0 82px;
-}
-
-.mi2c-k-input {
-  width: 100%;
-  min-height: 46px;
-  border-radius: 16px;
-  border: 1px solid rgba(var(--text-rgb), 0.12);
-  background: rgba(255, 255, 255, 0.78);
-  color: var(--text);
-  box-shadow: none;
-  text-align: right;
-  padding: 0 28px 0 12px;
-}
-
-.mi2c-k-suffix {
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  transform: translateY(-50%);
-  color: var(--muted);
-  font-weight: 700;
 }
 
 .mi2c-icon-btn--accent {

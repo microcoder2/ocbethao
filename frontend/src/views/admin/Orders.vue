@@ -264,7 +264,6 @@
           <div class="orders-create-modal-body">
             <QuickOrderComposer
               title="Tạo đơn mới"
-              summary=""
               :lines="createOrderDialog.lines"
               :arrival-time="createOrderDialog.arrivalTime"
               :arrival-mode="createOrderDialog.arrivalMode"
@@ -274,12 +273,6 @@
               :disabled="createOrderSubmitting || !manualMenu"
               :submit-disabled="createOrderSubmitting || !canSubmitCreateOrder"
               :submitting="createOrderSubmitting"
-              :sticky="false"
-              :compact="true"
-              :framed="false"
-              :show-header="false"
-              :show-summary="false"
-              variant="admin"
               submit-label="Tạo đơn"
               submitting-label="Đang tạo đơn..."
               empty-title="Chưa có món trong đơn"
@@ -320,53 +313,6 @@
                     placeholder="Số điện thoại (tuỳ chọn)"
                   />
                 </div>
-
-                <div v-if="false" class="order-picker">
-                  <fieldset
-                    v-for="cat in pickerCategories"
-                    :key="cat.name"
-                    class="order-picker-fieldset"
-                  >
-                    <legend
-                      class="order-picker-legend"
-                      @click="toggleCat(cat.name)"
-                    >
-                      <i :class="['bi', openCats.has(cat.name) ? 'bi-chevron-down' : 'bi-chevron-right']"></i>
-                      {{ cat.name }}
-                    </legend>
-                    <div v-if="openCats.has(cat.name)" class="order-picker-ingredients">
-                      <button
-                        v-for="group in cat.groups"
-                        :key="group.label"
-                        type="button"
-                        :class="['order-picker-ing', { 'is-active': pickerIngredient === group.label }]"
-                        :disabled="createOrderSubmitting"
-                        @click="pickerIngredient = pickerIngredient === group.label ? null : group.label"
-                      >
-                        {{ group.label }}
-                        <span v-if="group.remaining != null" class="order-picker-rem">{{ group.remaining }}</span>
-                      </button>
-                    </div>
-                  </fieldset>
-                  <!-- cooking method fieldset -->
-                  <fieldset v-if="pickerIngredient" class="order-picker-fieldset order-picker-fieldset--methods">
-                    <legend class="order-picker-legend order-picker-legend--methods">Cách nấu</legend>
-                    <div class="order-picker-methods">
-                      <button
-                        v-for="item in pickerIngredientItems"
-                        :key="item.id"
-                        type="button"
-                        class="order-picker-method"
-                        :disabled="createOrderSubmitting"
-                        @click="addItemDirect(item)"
-                      >
-                        <span>{{ methodLabel(item, pickerIngredient) }}</span>
-                        <span class="order-picker-price">{{ formatMoneyShort(item.sellingPrice) }}</span>
-                      </button>
-                    </div>
-                  </fieldset>
-                </div>
-                <div v-else-if="false" class="order-add-hint">Chưa có menu cho ngày đang lọc.</div>
               </template>
             </QuickOrderComposer>
           </div>
@@ -377,12 +323,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { api } from "../../api";
 import { socket } from "../../socket";
 import QuickOrderComposer from "../../components/common/QuickOrderComposer.vue";
 import OrderCard from "../../components/admin/OrderCard.vue";
-import { formatMoney, formatMoneyShort } from "../../utils/format";
+import { formatMoney } from "../../utils/format";
 
 
 type OrderItem = {
@@ -598,68 +544,6 @@ const canSubmitCreateOrder = computed(
   () => Boolean(manualMenu.value && createOrderDialog.lines.length && createOrderDialog.guestName.trim())
 );
 
-// ── ingredient/method picker ─────────────────────────────────────────
-const pickerIngredient = ref<string | null>(null);
-const openCats = ref<Set<string>>(new Set());
-
-type PickerGroup = { label: string; poolId: number | null; remaining: number | null; items: DailyMenuOption[] };
-type PickerCategory = { name: string; groups: PickerGroup[] };
-
-const pickerCategories = computed((): PickerCategory[] => {
-  const cats = new Map<string, Map<string, Omit<PickerGroup, "remaining">>>();
-  for (const option of manualMenuOptions.value) {
-    const catName = option.menuItem?.category?.name ?? "Khác";
-    if (!cats.has(catName)) cats.set(catName, new Map());
-    const pool = option.stockLinks?.[0]?.stockPool;
-    const label = pool?.label || "Khác";
-    const poolId = pool?.id ?? null;
-    const key = `${label}::${poolId}`;
-    const catMap = cats.get(catName)!;
-    if (!catMap.has(key)) catMap.set(key, { label, poolId, items: [] });
-    catMap.get(key)!.items.push(option);
-  }
-  return Array.from(cats.entries()).map(([name, groupsMap]) => ({
-    name,
-    groups: Array.from(groupsMap.values()).map((g) => ({
-      ...g,
-      remaining: g.poolId != null ? (stockRemainingMap[g.poolId] ?? null) : null,
-    })),
-  }));
-});
-
-// auto-open new categories as data loads
-watch(pickerCategories, (cats) => {
-  for (const c of cats) openCats.value.add(c.name);
-}, { immediate: true });
-
-function toggleCat(name: string) {
-  if (openCats.value.has(name)) {
-    openCats.value.delete(name);
-    // clear selected ingredient if it belongs to this collapsed category
-    const cat = pickerCategories.value.find((c) => c.name === name);
-    if (cat?.groups.some((g) => g.label === pickerIngredient.value)) {
-      pickerIngredient.value = null;
-    }
-  } else {
-    openCats.value.add(name);
-  }
-  openCats.value = new Set(openCats.value);
-}
-
-const pickerIngredientItems = computed((): DailyMenuOption[] => {
-  if (!pickerIngredient.value) return [];
-  for (const cat of pickerCategories.value) {
-    const g = cat.groups.find((g) => g.label === pickerIngredient.value);
-    if (g) return g.items;
-  }
-  return [];
-});
-
-function methodLabel(item: DailyMenuOption, ingredientLabel: string): string {
-  const name = item.menuItem?.name ?? "";
-  const stripped = name.replace(new RegExp(`^${ingredientLabel}\\s*`, "i"), "").trim();
-  return stripped || name;
-}
 
 function normalizeDraftLineNote(value?: string | null) {
   return String(value || "").trim();
@@ -840,7 +724,6 @@ function resetCreateOrderDialog() {
   createOrderDialog.selectedItemId = "";
   createOrderDialog.lines = [];
   createOrderDraftKeySeed.value = 0;
-  pickerIngredient.value = null;
 }
 
 function closeCreateOrderDialog() {
