@@ -10,11 +10,14 @@ export type ParsedNoteChip = {
 };
 
 export const NOTE_CHIP_GROUPS: NoteChipGroup[] = [
-  { key: "spicy",   exclusive: true,  chips: ["Không cay", "Ít cay", "Cay vừa", "Cay đậm"] },
-  { key: "veggies", exclusive: true,  chips: ["Thêm rau", "Không rau"] },
-  { key: "sauce",   exclusive: false, chips: ["Ít nước chấm"] },
-  { key: "sugar",   exclusive: true,  chips: ["Ít đường", "Không đường"] },
-  { key: "salt",    exclusive: false, chips: ["Ít muối/hạt nêm"] },
+  {
+    key: "spicy",
+    exclusive: true,
+    chips: ["không cay", "cay ít", "cay vừa", "cay nhiều"],
+  },
+  { key: "veggies", exclusive: true, chips: ["không đậu", "không hành"] },
+  { key: "sugar", exclusive: true, chips: ["không đường", "ít đường"] },
+  { key: "salt", exclusive: false, chips: ["ít muối"] },
 ];
 
 export const NOTE_CHIPS = NOTE_CHIP_GROUPS.flatMap((g) => g.chips);

@@ -189,7 +189,7 @@ model MenuItem {
   unit               String         @default("phan")
   spicyLevel         Int?
   imageUrl           String?        @db.LongText
-  basePrice          Decimal        @db.Decimal(10, 2)
+  currentPrice       Decimal        @db.Decimal(10, 2)
   status             MenuItemStatus @default(ACTIVE)
   isFeatured         Boolean        @default(false)
   isAvailable        Boolean        @default(true)

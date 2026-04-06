@@ -1,0 +1,648 @@
+<template>
+  <div class="mi2-page">
+    <section class="mi2-toolbar">
+      <div class="mi2-toolbar-title-row">
+        <div class="mi2-title">Ngân hàng món</div>
+        <RouterLink
+          class="mi2-mode-btn mi2-mode-btn--icon"
+          to="/admin/menu-items/classic"
+          title="Giao diện máy tính"
+          aria-label="Giao diện máy tính"
+        >
+          <i class="bi bi-pc-display"></i>
+        </RouterLink>
+      </div>
+
+      <div class="mi2-toolbar-row">
+        <select v-model="groupMode" class="mi2-select">
+          <option value="ingredient">Nhóm theo nguyên liệu</option>
+          <option value="method">Nhóm theo cách chế biến</option>
+        </select>
+        <button class="mi2-mode-btn mi2-mode-btn--toggle" type="button" @click="toggleShowAllIngredients">
+          <i :class="['bi', showAllIngredients ? 'bi-grid-3x3-gap-fill' : 'bi-funnel-fill']"></i>
+          {{ showAllIngredients ? "Hiện hết" : "Đang lọc" }}
+        </button>
+      </div>
+
+      <div v-if="showAllIngredients" class="mi2-search-wrap">
+        <i class="bi bi-search mi2-search-icon"></i>
+        <input
+          v-model="search"
+          class="mi2-search"
+          :placeholder="`Tìm món, nguyên liệu... (${filteredItems.length} món)`"
+          autocomplete="off"
+        />
+      </div>
+    </section>
+
+    <MenuIngredientFilterCard
+      :buckets="ingredientBuckets"
+      :open-bucket-names="Array.from(openBuckets)"
+      :selected-key="selectedGroupKey"
+      @toggle-bucket="toggleBucket"
+      @select-group="selectIngredientGroup"
+    />
+
+    <section class="mi2-groups">
+      <MenuItemGroupCard
+        v-for="group in visibleGroups"
+        :key="group.key"
+        :group="group"
+        :open="openCards.has(group.key)"
+        :editing-price-id="editingPriceId"
+        :editing-price-text="editingPriceText"
+        @toggle-collapse="toggleCard(group.key)"
+        @open-add="openAddMethodModal(group)"
+        @clear-edit-price="clearInlinePriceText"
+        @update:editing-price-text="(value) => (editingPriceText = value)"
+        @start-inline-price="startInlinePrice"
+        @save-inline-price="saveInlinePrice"
+      />
+    </section>
+
+    <MenuItemCreateMethodModal
+      :open="addMethodModal.open"
+      :group-label="addMethodModal.group?.label || ''"
+      :method-id="addMethodModal.methodId"
+      :price-text="addMethodModal.priceText"
+      :preview-name="addMethodPreviewName"
+      :saving="addMethodSaving"
+      :methods="addMethodOptions"
+      @close="closeAddMethodModal"
+      @submit="createMethodItem"
+      @update:method-id="(value) => (addMethodModal.methodId = value)"
+      @update:price-text="(value) => (addMethodModal.priceText = value)"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
+import MenuIngredientFilterCard from "../../components/common/MenuIngredientFilterCard.vue";
+import MenuItemCreateMethodModal from "../../components/admin/MenuItemCreateMethodModal.vue";
+import MenuItemGroupCard from "../../components/admin/MenuItemGroupCard.vue";
+import { api } from "../../api";
+import { DEFAULT_COOKING_METHODS } from "../../constants/menuItemFormOptions";
+
+type Category = { id: number; name: string };
+type Ingredient = { id: number; name: string; unit?: string; slug?: string };
+type IngredientPreset = { ingredientId: number; consumeQuantity: number; ingredient?: Ingredient | null };
+type MenuItem = {
+  id: number;
+  name: string;
+  slug: string;
+  currentPrice: number;
+  status: string;
+  unit?: string;
+  description?: string;
+  imageUrl?: string;
+  spicyLevel?: number;
+  preparationTimeMin?: number;
+  isFeatured?: boolean;
+  isAvailable?: boolean;
+  category?: Category | null;
+  ingredientPresets?: IngredientPreset[];
+};
+type MethodInfo = { id: string; name: string; count: number };
+type EnrichedItem = MenuItem & {
+  ingredientId: number | null;
+  ingredientName: string;
+  categoryName: string;
+  methodId: string;
+  methodName: string;
+};
+type IngredientGroup = {
+  key: string;
+  label: string;
+  ingredientId: number | null;
+  categoryName: string;
+  items: EnrichedItem[];
+  methods: MethodInfo[];
+};
+type DisplayGroup = {
+  key: string;
+  label: string;
+  meta: string;
+  items: EnrichedItem[];
+  ingredientId: number | null;
+  groupKind: "ingredient" | "method";
+  categoryId: number | null;
+};
+
+
+const categories = ref<Category[]>([]);
+const items = ref<MenuItem[]>([]);
+const loading = ref(false);
+const addMethodSaving = ref(false);
+const search = ref("");
+const groupMode = ref<"ingredient" | "method">("ingredient");
+const selectedGroupKey = ref<string | null>(null);
+const showAllIngredients = ref(true);
+const openBuckets = ref<Set<string>>(new Set());
+const openCards = ref<Set<string>>(new Set());
+const initializedGroupModes = ref<Set<"ingredient" | "method">>(new Set());
+const editingPriceId = ref<number | null>(null);
+const editingPriceText = ref("0");
+
+const addMethodModal = reactive<{
+  open: boolean;
+  group: DisplayGroup | null;
+  methodId: string;
+  priceText: string;
+}>({
+  open: false,
+  group: null,
+  methodId: "",
+  priceText: "0",
+});
+
+const normalizedMethods = [...DEFAULT_COOKING_METHODS].sort((a, b) => b.name.length - a.name.length);
+
+function resolveMethod(item: MenuItem) {
+  const lowerName = item.name.toLowerCase();
+  const lowerSlug = item.slug.toLowerCase();
+  const match = normalizedMethods.find((method) => lowerSlug.includes(method.id) || lowerName.includes(method.name.toLowerCase()));
+  return match || { id: "khac", name: "Khác" };
+}
+
+const filteredItems = computed(() => {
+  const keyword = search.value.trim().toLowerCase();
+  if (!keyword) return items.value;
+  return items.value.filter((item) => {
+    const ing = item.ingredientPresets?.[0]?.ingredient?.name || "";
+    return [item.name, item.slug, ing].join(" ").toLowerCase().includes(keyword);
+  });
+});
+
+const enrichedItems = computed<EnrichedItem[]>(() =>
+  filteredItems.value.map((item) => {
+    const preset = item.ingredientPresets?.[0];
+    const method = resolveMethod(item);
+    return {
+      ...item,
+      ingredientId: preset?.ingredientId ?? null,
+      ingredientName: preset?.ingredient?.name || "Chưa gắn nguyên liệu",
+      categoryName: item.category?.name || "Khác",
+      methodId: method.id,
+      methodName: method.name,
+    };
+  })
+);
+
+function normalizeBucketName(name: string) {
+  if (name.toLowerCase().includes("hai")) return "Hai mảnh";
+  if (name.toLowerCase().includes("ốc") || name.toLowerCase().includes("oc")) return "Ốc";
+  return "Khác";
+}
+
+const ingredientGroups = computed<IngredientGroup[]>(() => {
+  const map = new Map<string, IngredientGroup>();
+  for (const item of enrichedItems.value) {
+    const key = item.ingredientId != null ? `ingredient:${item.ingredientId}` : `fallback:${item.id}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        label: item.ingredientName,
+        ingredientId: item.ingredientId,
+        categoryName: normalizeBucketName(item.categoryName),
+        items: [],
+        methods: [],
+      });
+    }
+    map.get(key)!.items.push(item);
+  }
+
+  for (const group of map.values()) {
+    const methodMap = new Map<string, MethodInfo>();
+    for (const item of group.items) {
+      const current = methodMap.get(item.methodId);
+      if (current) current.count += 1;
+      else methodMap.set(item.methodId, { id: item.methodId, name: item.methodName, count: 1 });
+    }
+    group.methods = Array.from(methodMap.values()).sort((a, b) => a.name.localeCompare(b.name, "vi"));
+    group.items.sort((a, b) => a.name.localeCompare(b.name, "vi"));
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "vi"));
+});
+
+const ingredientBuckets = computed(() => {
+  const buckets = new Map<string, IngredientGroup[]>();
+  for (const group of ingredientGroups.value) {
+    const bucket = group.categoryName || "Khác";
+    if (!buckets.has(bucket)) buckets.set(bucket, []);
+    buckets.get(bucket)!.push(group);
+  }
+  return Array.from(buckets.entries()).map(([name, groups]) => ({
+    name,
+    groups: groups.sort((a, b) => a.label.localeCompare(b.label, "vi")),
+  }));
+});
+
+const displayGroups = computed<DisplayGroup[]>(() => {
+  if (groupMode.value === "ingredient") {
+    return ingredientGroups.value.map((group) => ({
+      key: group.key,
+      label: group.label,
+      meta: `${group.methods.length} kiểu`,
+      items: group.items,
+      ingredientId: group.ingredientId,
+      groupKind: "ingredient" as const,
+      categoryId: group.items[0]?.category?.id ?? null,
+    }));
+  }
+
+  const map = new Map<string, DisplayGroup>();
+  for (const item of enrichedItems.value) {
+    const key = `method:${item.methodId}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        label: item.methodName,
+        meta: "",
+        items: [],
+        ingredientId: null,
+        groupKind: "method",
+        categoryId: null,
+      });
+    }
+    map.get(key)!.items.push(item);
+  }
+
+  return Array.from(map.values())
+    .map((group) => ({
+      ...group,
+      meta: `${group.items.length} món`,
+      items: [...group.items].sort((a, b) => a.name.localeCompare(b.name, "vi")),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, "vi"));
+});
+
+const visibleGroups = computed(() => {
+  if (groupMode.value !== "ingredient") return displayGroups.value;
+  if (showAllIngredients.value || selectedGroupKey.value == null) return displayGroups.value;
+  return displayGroups.value.filter((group) => group.key === selectedGroupKey.value);
+});
+
+watch(displayGroups, (groups) => {
+  if (!groups.length) {
+    openCards.value = new Set();
+    return;
+  }
+
+  if (!initializedGroupModes.value.has(groupMode.value)) {
+    openCards.value = new Set(groups.map((group) => group.key));
+    initializedGroupModes.value = new Set(initializedGroupModes.value).add(groupMode.value);
+    return;
+  }
+  const next = new Set<string>();
+  for (const group of groups) {
+    if (openCards.value.has(group.key)) next.add(group.key);
+  }
+  openCards.value = next;
+}, { immediate: true });
+
+watch(ingredientBuckets, (buckets) => {
+  const next = new Set<string>();
+  for (const bucket of buckets) {
+    if (openBuckets.value.has(bucket.name)) next.add(bucket.name);
+  }
+  openBuckets.value = next;
+}, { immediate: true });
+
+const addMethodOptions = computed(() => DEFAULT_COOKING_METHODS);
+const addMethodPreviewName = computed(() => {
+  const group = addMethodModal.group;
+  if (!group) return "";
+  const method = DEFAULT_COOKING_METHODS.find((entry) => entry.id === addMethodModal.methodId);
+  return [group.label, method?.name].filter(Boolean).join(" ");
+});
+
+function parsePriceKInput(value: string) {
+  const digits = String(value || "").replace(/[^\d]/g, "");
+  return Number(digits || 0) * 1000;
+}
+
+function formatPriceKInput(value: number | null | undefined) {
+  return String(Math.round(Number(value || 0) / 1000));
+}
+
+function toggleBucket(bucketName: string) {
+  const next = new Set(openBuckets.value);
+  if (next.has(bucketName)) next.delete(bucketName);
+  else next.add(bucketName);
+  openBuckets.value = next;
+}
+
+function selectIngredientGroup(key: string) {
+  selectedGroupKey.value = key;
+  showAllIngredients.value = false;
+}
+
+function toggleShowAllIngredients() {
+  const nextValue = !showAllIngredients.value;
+  showAllIngredients.value = nextValue;
+  if (!nextValue) {
+    openBuckets.value = new Set(ingredientBuckets.value.map((bucket) => bucket.name));
+  }
+}
+
+function toggleCard(key: string) {
+  const next = new Set(openCards.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  openCards.value = next;
+}
+
+function buildPayload(item: EnrichedItem, nextPrice: number) {
+  return {
+    name: item.name,
+    slug: item.slug,
+    description: item.description || "",
+    currentPrice: nextPrice,
+    categoryId: item.category?.id || categories.value[0]?.id,
+    unit: item.unit || "phần",
+    spicyLevel: item.spicyLevel || 0,
+    preparationTimeMin: item.preparationTimeMin || 10,
+    status: item.status,
+    isAvailable: item.isAvailable ?? true,
+    isFeatured: item.isFeatured ?? false,
+    imageUrl: item.imageUrl || "",
+    ingredientPresets: item.ingredientPresets?.map((preset, index) => ({
+      ingredientId: preset.ingredientId,
+      consumeQuantity: preset.consumeQuantity,
+      sortOrder: index,
+    })) || [],
+  };
+}
+
+function startInlinePrice(item: EnrichedItem) {
+  editingPriceId.value = item.id;
+  editingPriceText.value = formatPriceKInput(item.currentPrice);
+}
+
+function clearInlinePriceText() {
+  editingPriceText.value = "";
+}
+
+async function saveInlinePrice(item: EnrichedItem) {
+  const rawPrice = editingPriceText.value.trim();
+  if (!rawPrice) {
+    editingPriceId.value = null;
+    editingPriceText.value = formatPriceKInput(item.currentPrice);
+    return;
+  }
+
+  const nextPrice = parsePriceKInput(rawPrice);
+  await api.put(`/menu-items/${item.id}`, buildPayload(item, nextPrice));
+  editingPriceId.value = null;
+  await loadData();
+}
+
+function openAddMethodModal(group: DisplayGroup) {
+  addMethodModal.open = true;
+  addMethodModal.group = group;
+  addMethodModal.methodId = "";
+  addMethodModal.priceText = "0";
+}
+
+function closeAddMethodModal() {
+  addMethodModal.open = false;
+}
+
+function slugify(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/đ/g, "d")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+}
+
+async function createMethodItem() {
+  const group = addMethodModal.group;
+  if (!group || !group.ingredientId || !addMethodModal.methodId) return;
+  addMethodSaving.value = true;
+  try {
+    const method = DEFAULT_COOKING_METHODS.find((entry) => entry.id === addMethodModal.methodId);
+    const name = addMethodPreviewName.value;
+    await api.post("/menu-items", {
+      name,
+      slug: slugify(name),
+      description: "",
+      currentPrice: parsePriceKInput(addMethodModal.priceText),
+      categoryId: group.categoryId || categories.value[0]?.id,
+      unit: "ph?n",
+      spicyLevel: 0,
+      preparationTimeMin: 10,
+      status: "ACTIVE",
+      isAvailable: true,
+      isFeatured: false,
+      imageUrl: "",
+      ingredientPresets: [{
+        ingredientId: group.ingredientId,
+        consumeQuantity: 1,
+        sortOrder: 0,
+        note: method?.name || "",
+      }],
+    });
+    closeAddMethodModal();
+    await loadData();
+  } finally {
+    addMethodSaving.value = false;
+  }
+}
+
+async function loadData() {
+  loading.value = true;
+  try {
+    const [categoriesRes, itemsRes] = await Promise.all([
+      api.get("/categories"),
+      api.get("/menu-items"),
+    ]);
+    categories.value = categoriesRes.data;
+    items.value = itemsRes.data;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(loadData);
+</script>
+
+<style scoped>
+.mi2-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: -24px -24px 0;
+  padding: 0;
+}
+
+.mi2-toolbar {
+  background: rgba(var(--panel-rgb), 0.94);
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  border-radius: 0;
+  box-shadow: var(--shadow);
+  padding: 8px;
+}
+
+.mi2-toolbar-title-row,
+.mi2-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mi2-title {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mi2-mode-btn {
+  border: 1px solid rgba(var(--text-rgb), 0.12);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text);
+  min-height: 38px;
+  border-radius: 10px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background .12s, border-color .12s, color .12s, box-shadow .12s;
+}
+
+.mi2-mode-btn--icon {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.mi2-mode-btn--toggle {
+  min-height: 46px;
+  min-width: 116px;
+  padding: 0 14px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  border-color: rgba(var(--ember-rgb), 0.44);
+  background: rgba(var(--ember-rgb), 0.14);
+  color: var(--ember-strong);
+  box-shadow: inset 0 0 0 1px rgba(var(--ember-rgb), 0.08);
+}
+
+.mi2-mode-btn--toggle .bi {
+  font-size: 0.86rem;
+}
+
+.mi2-mode-btn:hover,
+.mi2-mode-btn:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.mi2-mode-btn--toggle:hover,
+.mi2-mode-btn--toggle:focus-visible {
+  color: var(--ember-strong);
+  border-color: rgba(var(--ember-rgb), 0.6);
+  background: rgba(var(--ember-rgb), 0.2);
+}
+
+.mi2-search-wrap {
+  position: relative;
+  margin-top: 8px;
+}
+
+.mi2-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  color: #988270;
+}
+
+.mi2-search,
+.mi2-select {
+  width: 100%;
+  min-height: 46px;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--text-rgb), 0.12);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.mi2-search {
+  padding: 0 12px 0 36px;
+}
+
+.mi2-select {
+  padding: 0 12px;
+}
+
+.mi2-toolbar-row {
+  margin-top: 8px;
+}
+
+.mi2-toolbar-row .mi2-select {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 46px;
+  height: 46px;
+  border-radius: 999px;
+  padding: 0 34px 0 14px;
+  font-weight: 700;
+  cursor: pointer;
+  appearance: none;
+  border-color: rgba(var(--ember-rgb), 0.38);
+  background-color: rgba(var(--ember-rgb), 0.12);
+  color: var(--ember-strong);
+  box-shadow: inset 0 0 0 1px rgba(var(--ember-rgb), 0.06);
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 13px) calc(50% - 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.mi2-toolbar-row .mi2-select:focus-visible {
+  outline: none;
+  border-color: rgba(var(--ember-rgb), 0.6);
+  background-color: rgba(var(--ember-rgb), 0.18);
+}
+
+.mi2-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 6px;
+}
+
+@media (min-width: 768px) {
+  .mi2-page {
+    gap: 12px;
+  }
+}
+</style>
+
+
+
+
+
+

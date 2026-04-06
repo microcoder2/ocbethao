@@ -93,7 +93,7 @@ function isBaseMenuItemAvailable(menuItem: CatalogMenuItem) {
 }
 
 export function getCurrentMenuItemPrice(menuItem: CatalogMenuItem) {
-  return normalizeMoney(menuItem.priceHistories?.[0]?.price ?? menuItem.basePrice);
+  return normalizeMoney(menuItem.currentPrice);
 }
 
 export function getDefaultHighlightLabel(menuItem: CatalogMenuItem) {

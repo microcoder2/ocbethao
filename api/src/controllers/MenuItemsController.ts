@@ -30,7 +30,7 @@ class MenuItemBody {
   unit?: string;
   spicyLevel?: number;
   imageUrl?: string;
-  basePrice!: number;
+  currentPrice!: number;
   categoryId!: number;
   status?: MenuItemStatus;
   isFeatured?: boolean;
@@ -143,7 +143,7 @@ export class MenuItemsController extends Controller {
         unit: body.unit || "phan",
         spicyLevel: body.spicyLevel,
         imageUrl: body.imageUrl,
-        basePrice: toMoney(body.basePrice),
+        currentPrice: toMoney(body.currentPrice),
         categoryId: body.categoryId,
         status: body.status ?? MenuItemStatus.ACTIVE,
         isFeatured: body.isFeatured ?? false,
@@ -152,9 +152,9 @@ export class MenuItemsController extends Controller {
         createdById: authUser.id,
         priceHistories: {
           create: {
-            price: toMoney(body.basePrice),
+            price: toMoney(body.currentPrice),
             effectiveFrom: new Date(),
-            note: "Giá mẫu khởi tạo",
+            note: "Giá hiện hành khởi tạo",
           },
         },
         ingredientPresets: {
@@ -203,14 +203,14 @@ export class MenuItemsController extends Controller {
       },
     };
 
-    const newBasePrice = toMoney(body.basePrice);
-    if (Number(current.basePrice) !== body.basePrice) {
-      data.basePrice = newBasePrice;
+    const newCurrentPrice = toMoney(body.currentPrice);
+    if (Number(current.currentPrice) !== body.currentPrice) {
+      data.currentPrice = newCurrentPrice;
       data.priceHistories = {
         create: {
-          price: newBasePrice,
+          price: newCurrentPrice,
           effectiveFrom: new Date(),
-          note: "Cập nhật giá mẫu từ trang quản lý món",
+          note: "Cập nhật giá hiện hành từ trang quản lý món",
         },
       };
     }
@@ -240,7 +240,7 @@ export class MenuItemsController extends Controller {
     await prisma.menuItem.update({
       where: { id },
       data: {
-        basePrice: price,
+        currentPrice: price,
       },
     });
 

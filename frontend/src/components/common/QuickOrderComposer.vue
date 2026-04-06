@@ -46,38 +46,13 @@
         </div>
 
         <div v-if="menuOptions.length" class="quick-order-picker">
-          <fieldset
-            v-for="category in pickerCategories"
-            :key="category.name"
-            class="quick-order-picker__fieldset"
-          >
-            <legend
-              class="quick-order-picker__legend"
-              @click="toggleCat(category.name)"
-            >
-              <i :class="['bi', openCats.has(category.name) ? 'bi-chevron-down' : 'bi-chevron-right']"></i>
-              {{ category.name }}
-            </legend>
-
-            <div
-              v-if="openCats.has(category.name)"
-              class="quick-order-picker__ingredients"
-            >
-              <button
-                v-for="group in category.groups"
-                :key="group.key"
-                type="button"
-                :class="['quick-order-picker__ingredient', { 'is-active': selectedGroupKey === group.key }]"
-                :disabled="disabled || submitting"
-                @click="selectedGroupKey = selectedGroupKey === group.key ? null : group.key"
-              >
-                {{ group.label }}
-                <span v-if="group.remaining != null" class="quick-order-picker__remaining">
-                  {{ group.remaining }}
-                </span>
-              </button>
-            </div>
-          </fieldset>
+          <MenuIngredientFilterCard
+            :buckets="pickerBuckets"
+            :open-bucket-names="Array.from(openCats)"
+            :selected-key="selectedGroupKey"
+            @toggle-bucket="toggleCat"
+            @select-group="handleSelectGroup"
+          />
 
           <fieldset
             v-if="selectedGroup"
@@ -113,6 +88,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import OrderDraftPanel from "./OrderDraftPanel.vue";
+import MenuIngredientFilterCard from "./MenuIngredientFilterCard.vue";
 import { formatMoneyShort } from "../../utils/format";
 
 type DraftLine = {
@@ -275,6 +251,22 @@ const selectedGroup = computed((): PickerGroup | null => {
 
 const pickerIngredientItems = computed(() => selectedGroup.value?.items ?? []);
 
+const pickerBuckets = computed(() =>
+  pickerCategories.value.map((category) => ({
+    name: category.name,
+    groups: category.groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      badge: group.remaining,
+      items: group.items,
+    })),
+  }))
+);
+
+function handleSelectGroup(key: string) {
+  selectedGroupKey.value = selectedGroupKey.value === key ? null : key;
+}
+
 watch(
   pickerCategories,
   (categories) => {
@@ -401,20 +393,16 @@ function methodLabel(item: QuickOrderMenuOption, ingredientLabel: string) {
   margin-bottom: 10px;
 }
 
-.quick-order-picker__fieldset {
+.quick-order-picker__fieldset--methods {
   display: grid;
   padding: 0;
   margin: 0;
-  border: 1px solid rgba(var(--muted-rgb), 0.15);
+  border: 1px solid rgba(var(--ember-rgb), 0.25);
   border-radius: 10px;
-}
-
-.quick-order-picker__fieldset--methods {
-  border-color: rgba(var(--ember-rgb), 0.25);
   background: rgba(var(--ember-rgb), 0.03);
 }
 
-.quick-order-picker__legend {
+.quick-order-picker__legend--methods {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -425,75 +413,16 @@ function methodLabel(item: QuickOrderMenuOption, ingredientLabel: string) {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--muted);
-  cursor: pointer;
+  color: var(--ember-strong);
+  cursor: default;
   user-select: none;
 }
 
-.quick-order-picker__legend:hover {
-  color: var(--text);
-}
-
-.quick-order-picker__legend--methods {
-  color: var(--ember-strong);
-  cursor: default;
-}
-
-.quick-order-picker__ingredients,
 .quick-order-picker__methods {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   padding: 0 8px 8px;
-}
-
-.quick-order-picker__ingredient,
-.quick-order-picker__method {
-  min-height: 0;
-  font-size: 0.82rem;
-}
-
-.quick-order-picker__ingredient {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border: 1px solid rgba(var(--muted-rgb), 0.2);
-  border-radius: 999px;
-  background: rgba(var(--panel-rgb), 0.8);
-  color: var(--text);
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-
-.quick-order-picker__ingredient.is-active {
-  background: rgba(var(--ember-rgb), 0.15);
-  border-color: rgba(var(--ember-rgb), 0.5);
-  color: var(--ember-strong);
-}
-
-.quick-order-picker__ingredient.is-active:hover:not(:disabled) {
-  background: rgba(var(--ember-rgb), 0.08);
-}
-
-.quick-order-picker__remaining {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  min-height: 0;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(var(--ember-rgb), 0.12);
-  color: var(--ember-strong);
-  font-size: 0.74rem;
-  font-weight: 800;
-}
-
-.quick-order-picker__ingredient.is-active .quick-order-picker__remaining {
-  background: rgba(255, 255, 255, 0.25);
-  color: inherit;
 }
 
 .quick-order-picker__method {
@@ -520,18 +449,13 @@ function methodLabel(item: QuickOrderMenuOption, ingredientLabel: string) {
   background: rgba(var(--muted-rgb), 0.08);
 }
 
-.quick-order-picker__ingredient:hover:not(:disabled):not(.is-active),
 .quick-order-picker__method:hover:not(:disabled) {
   background: rgba(var(--ember-rgb), 0.12);
   border-color: rgba(var(--ember-rgb), 0.4);
   color: var(--ember-strong);
-}
-
-.quick-order-picker__method:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
-.quick-order-picker__ingredient:disabled,
 .quick-order-picker__method:disabled {
   opacity: 0.5;
   cursor: default;

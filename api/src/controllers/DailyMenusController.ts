@@ -13,7 +13,7 @@ import {
   Tags,
 } from "tsoa";
 import type { Request as ExRequest } from "express";
-import { DailyMenuStatus, Prisma } from "@prisma/client";
+import { DailyMenuStatus, InventoryMovementType, Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import {
   serializeDailyMenu,
@@ -62,6 +62,7 @@ class DailyMenuBody {
   status?: DailyMenuStatus;
   note?: string;
   bannerText?: string;
+  allowDailyPriceOverride?: boolean;
   stockPools!: DailyMenuStockPoolInput[];
   items!: DailyMenuItemInput[];
 }
@@ -261,11 +262,47 @@ function filterMeaningfulStockPools(
   });
 }
 
+async function createPoolAdjustmentMovement(
+  tx: Prisma.TransactionClient,
+  input: {
+    ingredientId: number;
+    dailyMenuId: number;
+    dailyStockPoolId?: number | null;
+    quantityDelta: number;
+    createdById?: number | null;
+    note?: string | null;
+  }
+) {
+  const quantityDelta = Number(input.quantityDelta.toFixed(2));
+  if (!Number.isFinite(quantityDelta) || quantityDelta === 0) {
+    return;
+  }
+
+  await tx.inventoryMovement.create({
+    data: {
+      ingredientId: input.ingredientId,
+      dailyMenuId: input.dailyMenuId,
+      dailyStockPoolId: input.dailyStockPoolId ?? null,
+      movementType:
+        quantityDelta > 0
+          ? InventoryMovementType.MENU_POOL_INCREASE
+          : InventoryMovementType.MENU_POOL_DECREASE,
+      quantityDelta: toMoney(quantityDelta),
+      note: input.note ?? null,
+      createdById: input.createdById ?? null,
+    },
+  });
+}
+
 async function syncDailyMenuResources(
   tx: Prisma.TransactionClient,
   dailyMenuId: number,
-  body: DailyMenuBody
+  body: DailyMenuBody,
+  options?: {
+    createdById?: number | null;
+  }
 ): Promise<void> {
+  const allowDailyPriceOverride = body.allowDailyPriceOverride === true;
   const items = normalizeItems(body.items);
   const stockPools = filterMeaningfulStockPools(normalizeStockPools(body.stockPools), items);
   const ingredientIds = Array.from(new Set(stockPools.map((pool) => pool.ingredientId)));
@@ -335,8 +372,41 @@ async function syncDailyMenuResources(
           note: pool.note,
         },
       });
+
+      const previousQuantity = Number(existingPool.quantity);
+      if (existingPool.ingredientId !== pool.ingredientId) {
+        await createPoolAdjustmentMovement(tx, {
+          ingredientId: existingPool.ingredientId,
+          dailyMenuId,
+          dailyStockPoolId: null,
+          quantityDelta: -previousQuantity,
+          createdById: options?.createdById ?? null,
+          note: "Doi nguyen lieu cua pool kho ngay",
+        });
+        await createPoolAdjustmentMovement(tx, {
+          ingredientId: pool.ingredientId,
+          dailyMenuId,
+          dailyStockPoolId: updated.id,
+          quantityDelta: pool.quantity,
+          createdById: options?.createdById ?? null,
+          note: "Doi nguyen lieu cua pool kho ngay",
+        });
+      } else {
+        await createPoolAdjustmentMovement(tx, {
+          ingredientId: pool.ingredientId,
+          dailyMenuId,
+          dailyStockPoolId: updated.id,
+          quantityDelta: pool.quantity - previousQuantity,
+          createdById: options?.createdById ?? null,
+          note: "Cap nhat so luong pool kho ngay",
+        });
+      }
+
       keptPoolIds.push(updated.id);
       poolRefs.set(`id:${updated.id}`, updated.id);
+      if (typeof pool.id === "number") {
+        poolRefs.set(`id:${pool.id}`, updated.id);
+      }
       if (pool.key) {
         poolRefs.set(`key:${pool.key}`, updated.id);
       }
@@ -353,8 +423,19 @@ async function syncDailyMenuResources(
         note: pool.note,
       },
     });
+    await createPoolAdjustmentMovement(tx, {
+      ingredientId: pool.ingredientId,
+      dailyMenuId,
+      dailyStockPoolId: created.id,
+      quantityDelta: pool.quantity,
+      createdById: options?.createdById ?? null,
+      note: "Them pool kho ngay",
+    });
     keptPoolIds.push(created.id);
     poolRefs.set(`id:${created.id}`, created.id);
+    if (typeof pool.id === "number") {
+      poolRefs.set(`id:${pool.id}`, created.id);
+    }
     if (pool.key) {
       poolRefs.set(`key:${pool.key}`, created.id);
     }
@@ -374,6 +455,15 @@ async function syncDailyMenuResources(
       poolRefs.set(`id:${pool.id}`, pool.id);
       continue;
     }
+
+    await createPoolAdjustmentMovement(tx, {
+      ingredientId: pool.ingredientId,
+      dailyMenuId,
+      dailyStockPoolId: pool.id,
+      quantityDelta: -Number(pool.quantity),
+      createdById: options?.createdById ?? null,
+      note: "Xoa pool kho ngay",
+    });
 
     await tx.dailyStockPool.delete({
       where: { id: pool.id },
@@ -451,10 +541,18 @@ async function syncDailyMenuResources(
     const defaultLinkSignature = normalizeStockLinkSignature(defaultLinks);
 
     if (submittedItem) {
+      const existingOverridePrice =
+        existingItem && existingItem.overridePrice != null
+          ? Number(existingItem.overridePrice)
+          : undefined;
       const submittedPrice =
-        typeof submittedItem.overridePrice === "number"
-          ? submittedItem.overridePrice
-          : defaultPrice;
+        allowDailyPriceOverride
+          ? typeof submittedItem.overridePrice === "number"
+            ? submittedItem.overridePrice
+            : defaultPrice
+          : typeof existingOverridePrice === "number"
+            ? Number(existingOverridePrice.toFixed(2))
+            : defaultPrice;
       const priceDiff = Number(submittedPrice.toFixed(2)) !== Number(defaultPrice.toFixed(2));
       const highlightDiff =
         normalizeDailyMenuText(submittedItem.highlightLabel) !== defaultHighlight;
@@ -683,7 +781,9 @@ export class DailyMenusController extends Controller {
         select: { id: true },
       });
 
-      await syncDailyMenuResources(tx, menu.id, body);
+      await syncDailyMenuResources(tx, menu.id, body, {
+        createdById: authUser.id,
+      });
       return menu.id;
     });
 
@@ -694,7 +794,12 @@ export class DailyMenusController extends Controller {
 
   @Put("{id}")
   @Security("bearerAuth", ["ADMIN"])
-  public async updateDailyMenu(@Path() id: number, @Body() body: DailyMenuBody) {
+  public async updateDailyMenu(
+    @Path() id: number,
+    @Request() req: ExRequest,
+    @Body() body: DailyMenuBody
+  ) {
+    const authUser = (req as any).user;
     const serviceDate = parseDateOnly(body.serviceDate, "Ngay menu");
     await prisma.$transaction(async (tx) => {
       await tx.dailyMenu.update({
@@ -709,7 +814,9 @@ export class DailyMenusController extends Controller {
         },
       });
 
-      await syncDailyMenuResources(tx, id, body);
+      await syncDailyMenuResources(tx, id, body, {
+        createdById: authUser.id,
+      });
     });
 
     const menu = await getMergedDailyMenuById(id, true);

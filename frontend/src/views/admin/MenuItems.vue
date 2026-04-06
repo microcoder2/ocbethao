@@ -4,7 +4,9 @@
     <!-- ── Header ── -->
     <div class="mi-header">
       <div class="mi-header-top">
-        <h1 class="mi-title">Ngân hàng món</h1>
+        <div class="mi-header-title">
+          <div class="mi-title">Ngân hàng món</div>
+        </div>
         <div class="mi-header-btns">
           <button class="mi-icon-btn" :class="{ 'mi-icon-btn--spin': loading }" title="Làm mới" @click="loadData">
             <i class="bi bi-arrow-clockwise"></i>
@@ -17,7 +19,12 @@
       <div class="mi-header-filters">
         <div class="mi-search-wrap">
           <i class="bi bi-search mi-search-icon"></i>
-          <input v-model="search" class="mi-search" placeholder="Tìm tên món..." autocomplete="off" />
+          <input
+            v-model="search"
+            class="mi-search"
+            :placeholder="searchPlaceholder"
+            autocomplete="off"
+          />
         </div>
         <select v-model.number="filterCategoryId" class="mi-filter-select">
           <option :value="0">Tất cả nhóm</option>
@@ -27,98 +34,109 @@
     </div>
 
     <!-- ── Table ── -->
-    <div class="mi-table-wrap">
-      <table class="mi-table">
-        <thead>
-          <tr>
-            <th class="mi-th mi-th--img"></th>
-            <th class="mi-th">Tên món</th>
-            <th class="mi-th mi-col-nhom">Nhóm</th>
-            <th class="mi-th mi-col-ing">Nguyên liệu</th>
-            <th class="mi-th mi-th--right mi-col-price">Giá mẫu</th>
-            <th class="mi-th mi-col-status">Trạng thái</th>
-            <th class="mi-th mi-th--actions"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="loading">
-            <td colspan="7" class="mi-td mi-td--center">
-              <i class="bi bi-hourglass-split"></i> Đang tải...
-            </td>
-          </tr>
-          <tr v-else-if="filteredItems.length === 0">
-            <td colspan="7" class="mi-td mi-td--center mi-td--muted">Không tìm thấy món nào.</td>
-          </tr>
-          <template v-else>
-            <tr
-              v-for="item in filteredItems"
-              :key="item.id"
-              class="mi-row"
-              :class="{ 'mi-row--dim': item.status !== 'ACTIVE' }"
-            >
-              <td class="mi-td mi-td--img">
-                <img v-if="item.imageUrl && !failedImgs[item.id]" :src="resolveImg(item.imageUrl)" class="mi-thumb" @error="failedImgs[item.id] = true" />
-                <div v-else class="mi-thumb mi-thumb--blank" v-html="blankIngredientSvg"></div>
-              </td>
-              <td class="mi-td">
-                <div class="mi-name">{{ item.name }}</div>
-                <div class="mi-slug">{{ item.slug }}</div>
-                <!-- mobile-only: category + status inline -->
-                <div class="mi-mobile-meta">
-                  <span v-if="item.category" class="mi-badge">{{ item.category.name }}</span>
-                  <span class="mi-status" :class="`mi-status--${(item.status || '').toLowerCase()}`">
-                    {{ item.status }}
-                  </span>
-                </div>
-              </td>
-              <td class="mi-td mi-col-nhom">
-                <span v-if="item.category" class="mi-badge">{{ item.category.name }}</span>
-                <span v-else class="mi-muted">—</span>
-              </td>
-              <td class="mi-td mi-col-ing">
-                <template v-if="item.ingredientPresets?.[0]">
-                  <div class="mi-name">{{ item.ingredientPresets[0].ingredient?.name }}</div>
-                  <div class="mi-slug">
-                    {{ item.ingredientPresets[0].consumeQuantity }}
-                    {{ item.ingredientPresets[0].ingredient?.unit }}
-                  </div>
-                </template>
-                <span v-else class="mi-muted">—</span>
-              </td>
-              <td class="mi-td mi-td--right mi-col-price">
-                <span class="mi-price-full">{{ formatMoney(item.currentPrice) }}</span>
-                <span class="mi-price-short">{{ formatMoneyShort(item.currentPrice) }}</span>
-              </td>
-              <td class="mi-td mi-col-status">
-                <span class="mi-status" :class="`mi-status--${(item.status || '').toLowerCase()}`">
-                  {{ item.status }}
-                </span>
-              </td>
-              <td class="mi-td mi-td--actions">
-                <div v-if="deleteConfirmId === item.id" class="mi-row-confirm">
-                  <button class="mi-row-btn mi-row-btn--yes" title="Xác nhận xóa" @click="confirmDelete(item)">
-                    <i class="bi bi-check-lg"></i>
-                  </button>
-                  <button class="mi-row-btn mi-row-btn--no" title="Hủy" @click="deleteConfirmId = null">
-                    <i class="bi bi-x-lg"></i>
-                  </button>
-                </div>
-                <div v-else class="mi-row-actions">
-                  <button class="mi-row-btn" title="Xem" @click="openView(item)">
-                    <i class="bi bi-eye"></i>
-                  </button>
-                  <button class="mi-row-btn" title="Sửa" @click="openEdit(item)">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                  <button class="mi-row-btn mi-row-btn--del" title="Xóa" @click="deleteConfirmId = item.id">
-                    <i class="bi bi-trash3"></i>
-                  </button>
-                </div>
-              </td>
-            </tr>
+    <div class="mi-list-card">
+
+      <DataTable
+        :columns="tableColumns"
+        :items="pagedItems"
+        row-key="id"
+        :loading="loading"
+        empty-text="Không tìm thấy món nào."
+        responsive-class="mi-table-wrap"
+        table-class="mi-table"
+        header-cell-class="mi-th"
+        body-row-class="mi-row"
+        body-cell-class="mi-td"
+        action-header-class="mi-th mi-th--actions"
+        action-cell-class="mi-td mi-td--actions"
+        empty-cell-class="mi-td mi-td--center"
+      >
+        <template #cell-image="{ row }">
+          <div class="mi-table-thumbcell">
+            <img
+              v-if="row.imageUrl && !failedImgs[row.id]"
+              :src="resolveImg(row.imageUrl)"
+              class="mi-thumb"
+              @error="failedImgs[row.id] = true"
+            />
+            <div v-else class="mi-thumb mi-thumb--blank" v-html="blankIngredientSvg"></div>
+          </div>
+        </template>
+
+        <template #cell-name="{ row }">
+          <div class="mi-table-namecell">
+            <div class="mi-name">{{ row.name }}</div>
+            <div class="mi-slug">{{ row.slug }}</div>
+            <div class="mi-mobile-meta">
+              <span v-if="row.category" class="mi-badge">{{ row.category.name }}</span>
+              <span class="mi-status" :class="`mi-status--${(row.status || '').toLowerCase()}`">
+                {{ row.status }}
+              </span>
+            </div>
+          </div>
+        </template>
+
+        <template #cell-category="{ row }">
+          <span v-if="row.category" class="mi-badge">{{ row.category.name }}</span>
+          <span v-else class="mi-muted">—</span>
+        </template>
+
+        <template #cell-ingredient="{ row }">
+          <template v-if="row.ingredientPresets?.[0]">
+            <div class="mi-name">{{ row.ingredientPresets[0].ingredient?.name }}</div>
+            <div class="mi-slug">
+              {{ row.ingredientPresets[0].consumeQuantity }}
+              {{ row.ingredientPresets[0].ingredient?.unit }}
+            </div>
           </template>
-        </tbody>
-      </table>
+          <span v-else class="mi-muted">—</span>
+        </template>
+
+        <template #cell-currentPrice="{ row }">
+          <div class="mi-price-cell">
+            <span class="mi-price-full">{{ formatMoney(row.currentPrice) }}</span>
+            <span class="mi-price-short">{{ formatMoneyShort(row.currentPrice) }}</span>
+          </div>
+        </template>
+
+        <template #cell-status="{ row }">
+          <span class="mi-status" :class="`mi-status--${(row.status || '').toLowerCase()}`">
+            {{ row.status }}
+          </span>
+        </template>
+
+        <template #row-actions="{ row }">
+          <div v-if="deleteConfirmId === row.id" class="mi-row-confirm">
+            <button class="mi-row-btn mi-row-btn--yes" title="Xác nhận xóa" @click="confirmDelete(row)">
+              <i class="bi bi-check-lg"></i>
+            </button>
+            <button class="mi-row-btn mi-row-btn--no" title="Hủy" @click="deleteConfirmId = null">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+          <div v-else class="mi-row-actions">
+            <button class="mi-row-btn" title="Xem" @click="openView(row)">
+              <i class="bi bi-eye"></i>
+            </button>
+            <button class="mi-row-btn" title="Sửa" @click="openEdit(row)">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="mi-row-btn mi-row-btn--del" title="Xóa" @click="deleteConfirmId = row.id">
+              <i class="bi bi-trash3"></i>
+            </button>
+          </div>
+        </template>
+      </DataTable>
+
+      <div class="mi-pagination-wrap">
+        <AppPagination
+          v-model:page="page"
+          v-model:page-size="pageSize"
+          :total="filteredItems.length"
+          :disabled="loading"
+          :page-size-options="[10, 20, 30, 50]"
+        />
+      </div>
     </div>
 
   </div>
@@ -204,8 +222,8 @@
                 </div>
               </div>
               <div class="mi-field">
-                <label class="mi-label">Giá mẫu (đ)</label>
-                <input v-model.number="modal.form.basePrice" class="mi-input" type="number" min="0" step="1000" />
+                <label class="mi-label">Giá hiện hành (đ)</label>
+                <input v-model.number="modal.form.currentPrice" class="mi-input" type="number" min="0" step="1000" />
               </div>
             </div>
 
@@ -308,7 +326,7 @@
             <dl class="mi-view-dl">
               <dt>Nhóm</dt>
               <dd>{{ viewModal.item.category?.name || '—' }}</dd>
-              <dt>Giá mẫu</dt>
+              <dt>Giá hiện hành</dt>
               <dd>{{ formatMoney(viewModal.item.currentPrice) }}</dd>
               <dt>Đơn vị</dt>
               <dd>{{ viewModal.item.unit }}</dd>
@@ -362,6 +380,13 @@ import { API_BASE_URL } from "../../config";
 import blankIngredientSvg from "../../assets/blank_ingredient.svg?raw";
 import CropDialog from "../../components/admin/CropDialog.vue";
 import QuickListManager from "../../components/admin/QuickListManager.vue";
+import DataTable from "../../components/common/DataTable.vue";
+import AppPagination from "../../components/common/Pagination.vue";
+import {
+  DEFAULT_COOKING_METHODS,
+  DEFAULT_MENU_ITEM_UNITS,
+  type LocalOption,
+} from "../../constants/menuItemFormOptions";
 
 type FieldDef = { key: string; label: string; type?: "text" | "number" | "checkbox"; placeholder?: string };
 type ListItem  = { id: string | number; [key: string]: any };
@@ -389,9 +414,11 @@ type MenuItem   = {
 };
 
 // ── local list helper ──────────────────────────────────────────────────
-function makeLocalList(storageKey: string, defaults: { id: string; name: string }[]) {
+function makeLocalList(storageKey: string, defaults: LocalOption[]) {
   const stored = localStorage.getItem(storageKey);
-  const data: { id: string; name: string }[] = stored ? JSON.parse(stored) : defaults;
+  const data: LocalOption[] = stored
+    ? JSON.parse(stored)
+    : defaults.map((item) => ({ ...item }));
   const items = ref(data);
 
   function persist() { localStorage.setItem(storageKey, JSON.stringify(items.value)); }
@@ -412,29 +439,9 @@ function makeLocalList(storageKey: string, defaults: { id: string; name: string 
 }
 
 // ── local lists ────────────────────────────────────────────────────────
-const cookingMethods = makeLocalList("oc_cooking_methods", [
-  { id: "xao-bo",        name: "Xào bơ" },
-  { id: "rang-muoi",     name: "Rang muối" },
-  { id: "xao-me",        name: "Xào me" },
-  { id: "nuong-mo-hanh", name: "Nướng mỡ hành" },
-  { id: "nuong-muoi-ot", name: "Nướng muối ớt" },
-  { id: "nuong-moi",     name: "Nướng mọi" },
-  { id: "luoc",          name: "Luộc" },
-  { id: "hap-sa",        name: "Hấp sả" },
-  { id: "chien",         name: "Chiên" },
-  { id: "sot-ca",        name: "Sốt cà" },
-]);
+const cookingMethods = makeLocalList("oc_cooking_methods_v2", DEFAULT_COOKING_METHODS);
 
-const units = makeLocalList("oc_units", [
-  { id: "phan",  name: "phần" },
-  { id: "con",   name: "con" },
-  { id: "kg",    name: "kg" },
-  { id: "lang",  name: "lạng" },
-  { id: "hop",   name: "hộp" },
-  { id: "dia",   name: "đĩa" },
-  { id: "to",    name: "tô" },
-  { id: "chiec", name: "chiếc" },
-]);
+const units = makeLocalList("oc_units_v2", DEFAULT_MENU_ITEM_UNITS);
 
 
 // ── db state ───────────────────────────────────────────────────────────
@@ -445,6 +452,27 @@ const loading     = ref(false);
 const search      = ref("");
 const filterCategoryId = ref(0);
 const deleteConfirmId  = ref<number | null>(null);
+const page        = ref(1);
+const pageSize    = ref(10);
+
+const tableColumns = [
+  {
+    key: "image",
+    title: "",
+    thClass: "mi-th--img mi-col-image",
+    tdClass: "mi-td--img mi-col-image",
+  },
+  { key: "name", title: "Tên món", thClass: "mi-col-name", tdClass: "mi-col-name" },
+  { key: "category", title: "Nhóm", thClass: "mi-col-nhom", tdClass: "mi-col-nhom" },
+  { key: "ingredient", title: "Nguyên liệu", thClass: "mi-col-ing", tdClass: "mi-col-ing" },
+  {
+    key: "currentPrice",
+    title: "Giá hiện hành",
+    thClass: "mi-th--right text-end mi-col-price",
+    tdClass: "mi-td--right text-end mi-col-price",
+  },
+  { key: "status", title: "Trạng thái", thClass: "mi-col-status", tdClass: "mi-col-status" },
+];
 
 // ── image upload via CropDialog ────────────────────────────────────────
 const imgRef  = ref<HTMLInputElement | null>(null);
@@ -488,7 +516,7 @@ const modal = reactive<{
     name: string;
     slug: string;
     description: string;
-    basePrice: number;
+    currentPrice: number;
     categoryId: number;
     unit: string;
     spicyLevel: number;
@@ -505,7 +533,7 @@ const modal = reactive<{
   open: false, isEdit: false, saving: false, uploading: false,
   form: {
     id: null, name: "", slug: "", description: "",
-    basePrice: 0, categoryId: 0, unit: "phần",
+    currentPrice: 0, categoryId: 0, unit: DEFAULT_MENU_ITEM_UNITS[0]?.name || "",
     spicyLevel: 0, preparationTimeMin: 10,
     status: "ACTIVE", isAvailable: true, isFeatured: false,
     imageUrl: "", ingredientId: 0, consumeQuantity: 1, cookingMethod: "",
@@ -631,6 +659,16 @@ const filteredItems = computed(() => {
   return list;
 });
 
+const searchPlaceholder = computed(() => {
+  const total = filteredItems.value.length;
+  return `Tìm tên món... (${total} mục)`;
+});
+
+const pagedItems = computed(() => {
+  const start = (page.value - 1) * pageSize.value;
+  return filteredItems.value.slice(start, start + pageSize.value);
+});
+
 const selectedIngUnit = computed(() =>
   ingredients.value.find(i => i.id === modal.form.ingredientId)?.unit ?? ""
 );
@@ -642,6 +680,11 @@ const viewImgFailed  = ref(false);
 
 watch(() => modal.form.imageUrl,   () => { modalImgFailed.value = false; });
 watch(() => viewModal.item?.imageUrl, () => { viewImgFailed.value  = false; });
+watch([search, filterCategoryId], () => { page.value = 1; });
+watch([filteredItems, pageSize], () => {
+  const totalPages = Math.max(1, Math.ceil(filteredItems.value.length / Math.max(1, pageSize.value)));
+  if (page.value > totalPages) page.value = totalPages;
+}, { deep: true });
 
 function resolveImg(url?: string | null): string {
   if (!url) return "";
@@ -651,7 +694,7 @@ function resolveImg(url?: string | null): string {
 function slugify(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[đĐ]/g, "d")
+    .replace(/[\u0111\u0110]/g, "d")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9\s-]/g, "")
@@ -697,8 +740,8 @@ const originalImageUrl = ref("");
 function resetForm() {
   Object.assign(modal.form, {
     id: null, name: "", slug: "", description: "",
-    basePrice: 0, categoryId: categories.value[0]?.id || 0,
-    unit: units.items.value[0]?.name || "phần",
+    currentPrice: 0, categoryId: categories.value[0]?.id || 0,
+    unit: units.items.value[0]?.name || DEFAULT_MENU_ITEM_UNITS[0]?.name || "",
     spicyLevel: 0, preparationTimeMin: 10,
     status: "ACTIVE", isAvailable: true, isFeatured: false,
     imageUrl: "", ingredientId: 0, consumeQuantity: 1, cookingMethod: "",
@@ -722,9 +765,9 @@ function openEdit(item: MenuItem) {
     name: item.name,
     slug: item.slug,
     description: item.description || "",
-    basePrice: item.currentPrice || 0,
+    currentPrice: item.currentPrice || 0,
     categoryId: item.category?.id || 0,
-    unit: item.unit || units.items.value[0]?.name || "phần",
+    unit: item.unit || units.items.value[0]?.name || DEFAULT_MENU_ITEM_UNITS[0]?.name || "",
     spicyLevel: (item as any).spicyLevel ?? 0,
     preparationTimeMin: (item as any).preparationTimeMin || 10,
     status: item.status,
@@ -764,7 +807,7 @@ async function saveItem() {
       name: modal.form.name,
       slug: modal.form.slug,
       description: modal.form.description,
-      basePrice: modal.form.basePrice,
+      currentPrice: modal.form.currentPrice,
       categoryId: modal.form.categoryId || categories.value[0]?.id,
       unit: modal.form.unit,
       spicyLevel: modal.form.spicyLevel,
@@ -798,7 +841,7 @@ async function confirmDelete(item: MenuItem) {
   await api.put(`/menu-items/${item.id}`, {
     name: item.name,
     slug: item.slug,
-    basePrice: item.currentPrice,
+    currentPrice: item.currentPrice,
     categoryId: item.category?.id || categories.value[0]?.id,
     status: "ARCHIVED",
     ingredientPresets: preset?.ingredientId
@@ -829,6 +872,15 @@ onMounted(loadData);
 }
 .mi-title { font-size: 1.25rem; font-weight: 700; color: var(--text); margin: 0; }
 .mi-header-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.mi-header-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mi-header-subtitle {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
 
 .mi-header-filters { display: flex; gap: 8px; }
 
@@ -876,48 +928,48 @@ onMounted(loadData);
 @keyframes mi-spin { to { transform: rotate(360deg); } }
 
 /* ── table ── */
-.mi-table-wrap {
+:deep(.mi-table-wrap) {
   background: rgba(var(--panel-rgb), 0.75);
   border: 1px solid var(--line); border-radius: 16px;
   overflow-x: auto; -webkit-overflow-scrolling: touch;
 }
-.mi-table { width: 100%; border-collapse: collapse; min-width: 480px; }
+:deep(.mi-table) { width: 100%; border-collapse: collapse; min-width: 480px; }
 
-.mi-th {
+:deep(.mi-th) {
   padding: 10px 14px; font-size: 0.75rem; font-weight: 700;
   color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
   border-bottom: 1px solid var(--line); text-align: left;
   background: rgba(245,240,232,0.55); white-space: nowrap;
 }
-.mi-th--img     { width: 56px; }
-.mi-th--right   { text-align: right; }
-.mi-th--actions {
+:deep(.mi-th--img)     { width: 56px; }
+:deep(.mi-th--right)   { text-align: right; }
+:deep(.mi-th--actions) {
   width: 108px;
   position: sticky; right: 0; z-index: 2;
   background: rgba(245,240,232,0.92);
   box-shadow: -2px 0 6px rgba(0,0,0,0.06);
 }
 
-.mi-td {
+:deep(.mi-td) {
   padding: 10px 14px; font-size: 0.88rem;
   color: var(--text); border-bottom: 1px solid rgba(0,0,0,0.04); vertical-align: middle;
 }
-.mi-td--img     { padding: 8px 8px 8px 14px; }
-.mi-td--right   { text-align: right; font-weight: 600; }
-.mi-td--actions {
+:deep(.mi-td--img)     { padding: 8px 8px 8px 14px; }
+:deep(.mi-td--right)   { text-align: right; font-weight: 600; }
+:deep(.mi-td--actions) {
   padding: 8px 10px;
   position: sticky; right: 0; z-index: 1;
   background: rgba(var(--panel-rgb), 0.97);
   box-shadow: -2px 0 6px rgba(0,0,0,0.05);
 }
-.mi-td--center  { text-align: center; color: var(--muted); padding: 32px; }
-.mi-td--muted   { color: var(--muted); }
+:deep(.mi-td--center)  { text-align: center; color: var(--muted); padding: 32px; }
+:deep(.mi-td--muted)   { color: var(--muted); }
 
-.mi-row { transition: background 0.1s; }
-.mi-row:hover { background: rgba(var(--ember-rgb), 0.04); }
-.mi-row:hover .mi-td--actions { background: rgba(255,246,240,0.98); }
-.mi-row--dim { opacity: 0.48; }
-.mi-row:last-child .mi-td { border-bottom: none; }
+:deep(.mi-row) { transition: background 0.1s; }
+:deep(.mi-row:hover) { background: rgba(var(--ember-rgb), 0.04); }
+:deep(.mi-row:hover .mi-td--actions) { background: rgba(255,246,240,0.98); }
+:deep(.mi-row--dim) { opacity: 0.48; }
+:deep(.mi-row:last-child .mi-td) { border-bottom: none; }
 
 /* mobile-only meta: hidden on desktop */
 .mi-mobile-meta { display: none; }
@@ -1140,29 +1192,29 @@ onMounted(loadData);
 /* ── MOBILE ── */
 @media (max-width: 639px) {
   /* table: ẩn cột phụ — không cần thiết trên điện thoại */
-  .mi-col-nhom,
-  .mi-col-ing,
-  .mi-col-status { display: none; }
+  :deep(.mi-col-nhom),
+  :deep(.mi-col-ing),
+  :deep(.mi-col-status) { display: none; }
 
   /* ẩn slug và mobile-meta — chỉ hiện tên sạch */
   .mi-slug,
   .mi-mobile-meta { display: none; }
 
   /* table: thu nhỏ cells */
-  .mi-td { padding: 8px 10px; font-size: 0.85rem; }
-  .mi-td--img { padding: 6px 6px 6px 10px; }
-  .mi-td--actions { padding: 6px 8px; }
-  .mi-th { padding: 8px 10px; }
+  :deep(.mi-td) { padding: 8px 10px; font-size: 0.85rem; }
+  :deep(.mi-td--img) { padding: 6px 6px 6px 10px; }
+  :deep(.mi-td--actions) { padding: 6px 8px; }
+  :deep(.mi-th) { padding: 8px 10px; }
 
   /* table: bỏ min-width để vừa màn hình */
-  .mi-table { min-width: unset; width: 100%; }
+  :deep(.mi-table) { min-width: unset; width: 100%; }
 
   /* thumbnail nhỏ hơn */
   .mi-thumb { width: 40px; height: 32px; }
 
   /* action buttons lớn hơn cho ngón tay */
   .mi-row-btn { width: 40px; height: 40px; font-size: 0.95rem; border-radius: 10px; }
-  .mi-th--actions { width: 92px; }
+  :deep(.mi-th--actions) { width: 92px; }
 
   /* modal: bottom sheet */
   .mi-backdrop { padding: 0; align-items: flex-end; }
@@ -1199,9 +1251,56 @@ onMounted(loadData);
 }
 
 @media (max-width: 400px) {
-  .mi-th--img, .mi-td--img { display: none; }
+  :deep(.mi-th--img), :deep(.mi-td--img) { display: none; }
   .mi-price-full { display: none; }
   .mi-price-short { display: inline; }
   .mi-row3 { grid-template-columns: 1fr; }
 }
+
+.mi-list-card {
+  background: rgba(var(--panel-rgb), 0.75);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.mi-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px 10px;
+}
+
+.mi-list-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.mi-list-subtitle {
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.mi-pagination-wrap {
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--line);
+  background: rgba(255,255,255,0.45);
+}
+
+.mi-table-thumbcell {
+  width: 48px;
+}
+
+.mi-table-namecell {
+  min-width: 180px;
+}
+
+.mi-price-cell {
+  text-align: right;
+  font-weight: 600;
+}
+
 </style>

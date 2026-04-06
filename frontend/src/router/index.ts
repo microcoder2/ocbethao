@@ -33,8 +33,13 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: "admin/menu-items",
-        component: () => import("../views/admin/MenuItems.vue"),
+        component: () => import("../views/admin/MenuItemsV2.vue"),
         meta: { title: "Ngân hàng món" },
+      },
+      {
+        path: "admin/menu-items/classic",
+        component: () => import("../views/admin/MenuItems.vue"),
+        meta: { title: "Ngân hàng món cũ" },
       },
       {
         path: "admin/daily-menus",

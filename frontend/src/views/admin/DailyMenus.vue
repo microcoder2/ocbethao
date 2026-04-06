@@ -57,6 +57,10 @@
         <div class="dm-panel-title-group">
           <span class="dm-panel-title">Món bán hôm nay</span>
           <span class="dm-muted">{{ enabledDraftCount }}/{{ draftItems.length }}</span>
+          <label class="dm-special-price-toggle" title="Bật để cho phép chỉnh giá riêng trong ngày">
+            <input type="checkbox" v-model="allowSpecialPrice" />
+            <span>Giá đặc biệt hôm nay</span>
+          </label>
         </div>
         <button
           v-if="itemsOpen && suggestedDraftItems.length > 0"
@@ -129,7 +133,7 @@
 
           <!-- Price -->
           <div class="dm-item-price-wrap">
-            <span v-if="!row.enabled" class="dm-price-display">{{ formatMoneyShort(row.overridePrice) }}</span>
+            <span v-if="!row.enabled || !allowSpecialPrice" class="dm-price-display">{{ formatMoneyShort(row.overridePrice) }}</span>
             <input
               v-else
               :value="formatPriceInput(row.overridePrice)"
@@ -243,7 +247,6 @@ interface MenuItemRecord {
   name: string;
   description?: string | null;
   currentPrice?: number | null;
-  basePrice?: number | null;
   isFeatured?: boolean;
   imageUrl?: string | null;
   category?: { id?: number; name?: string | null } | null;
@@ -306,6 +309,7 @@ const stockPools  = ref<StockPoolDraft[]>([]);
 const loading     = ref(false);
 const saving      = ref(false);
 const errorMessage = ref("");
+const allowSpecialPrice = ref(false);
 const itemSearch     = ref("");
 const itemFilter     = ref<ItemFilter>("suggested");
 const deletingMenuId = ref<number | null>(null);
@@ -470,7 +474,7 @@ function resetDraftItems() {
       categoryName: item.category?.name || "",
       imageUrl: item.imageUrl || "",
       enabled: false,
-      overridePrice: Number(item.currentPrice || item.basePrice || 0),
+      overridePrice: Number(item.currentPrice || 0),
       highlightLabel: item.isFeatured ? "Bán chạy" : "",
       isAvailable: true,
       stockPoolRef: "",
@@ -532,6 +536,7 @@ function resetForm() {
   errorMessage.value = "";
   itemSearch.value = "";
   itemFilter.value = "suggested";
+  allowSpecialPrice.value = false;
   Object.assign(form, {
     id: null, title: defaultMenuTitle(),
     serviceDate: getTodayInputValue(), bannerText: "", note: "", status: "DRAFT",
@@ -586,6 +591,9 @@ async function editMenu(menu: MenuRecord) {
         ? `id:${matched.stockLinks[0].stockPool.id}`
         : "";
     }
+    allowSpecialPrice.value = (detail.items || []).some(
+      (item: any) => typeof item.overridePrice === "number" && Number.isFinite(item.overridePrice)
+    );
 
     await nextTick();
     await (
@@ -629,6 +637,7 @@ function buildPayload() {
     bannerText: form.bannerText,
     note: form.note,
     status: form.status,
+    allowDailyPriceOverride: allowSpecialPrice.value,
     stockPools: stockPools.value
       .filter((p) => {
         const ref = getPoolRef(p);
@@ -645,7 +654,7 @@ function buildPayload() {
     items: draftItems.value.filter(i => i.enabled).map(i => ({
       id: i.id || undefined,
       menuItemId: i.menuItemId,
-      overridePrice: Number(i.overridePrice || 0),
+      overridePrice: allowSpecialPrice.value ? Number(i.overridePrice || 0) : undefined,
       highlightLabel: i.highlightLabel || "",
       isAvailable: i.isAvailable,
       stockLinks: [buildStockLinkPayload(i.stockPoolRef, Number(i.consumeQuantity || 1))].filter(Boolean),
@@ -867,6 +876,21 @@ onMounted(async () => {
 .dm-panel-title-group { display: flex; align-items: baseline; gap: 8px; }
 .dm-panel-title { font-size: 0.9rem; font-weight: 700; color: var(--text); text-transform: uppercase; letter-spacing: 0.06em; }
 .dm-muted { font-size: 0.78rem; color: var(--muted); }
+.dm-special-price-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  user-select: none;
+  cursor: pointer;
+}
+.dm-special-price-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--ember);
+}
 
 /* ── toolbar ── */
 .dm-toolbar { display: flex; gap: 8px; flex-wrap: wrap; }

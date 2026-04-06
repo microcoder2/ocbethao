@@ -91,7 +91,7 @@ CREATE TABLE `MenuItem` (
     `unit` VARCHAR(191) NOT NULL DEFAULT 'phan',
     `spicyLevel` INTEGER NULL,
     `imageUrl` LONGTEXT NULL,
-    `basePrice` DECIMAL(10, 2) NOT NULL,
+    `currentPrice` DECIMAL(10, 2) NOT NULL,
     `status` ENUM('ACTIVE', 'SOLD_OUT', 'HIDDEN') NOT NULL DEFAULT 'ACTIVE',
     `isFeatured` BOOLEAN NOT NULL DEFAULT false,
     `isAvailable` BOOLEAN NOT NULL DEFAULT true,

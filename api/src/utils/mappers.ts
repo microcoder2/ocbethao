@@ -137,6 +137,37 @@ function computeOfferAvailableQuantity(item: AnyRecord): number | null {
   return Number.isFinite(capacity) ? Math.max(capacity, 0) : null;
 }
 
+function resolveDailyMenuItemIds(item: AnyRecord) {
+  const menuItemId =
+    typeof item.menuItemId === "number"
+      ? item.menuItemId
+      : typeof item.menuItem?.id === "number"
+        ? item.menuItem.id
+        : null;
+
+  const dailyMenuItemId =
+    typeof item.dailyMenuItemId === "number"
+      ? item.dailyMenuItemId
+      : typeof item.id === "number" &&
+          typeof menuItemId === "number" &&
+          item.id > 0 &&
+          item.id !== menuItemId
+        ? item.id
+        : null;
+
+  return {
+    id: menuItemId ?? item.id ?? null,
+    key:
+      typeof dailyMenuItemId === "number"
+        ? `offer:${dailyMenuItemId}`
+        : typeof menuItemId === "number"
+          ? `menu:${menuItemId}`
+          : `item:${String(item.id ?? "unknown")}`,
+    menuItemId,
+    dailyMenuItemId,
+  };
+}
+
 export function serializeUser(user: AnyRecord) {
   const authIdentities = Array.isArray(user.authIdentities)
     ? user.authIdentities
@@ -205,7 +236,6 @@ export function serializeIngredient(ingredient: AnyRecord) {
 }
 
 export function serializeMenuItem(item: AnyRecord) {
-  const latestPrice = Array.isArray(item.priceHistories) ? item.priceHistories[0] : null;
   return {
     id: item.id,
     name: item.name,
@@ -214,8 +244,7 @@ export function serializeMenuItem(item: AnyRecord) {
     unit: item.unit,
     spicyLevel: item.spicyLevel ?? null,
     imageUrl: item.imageUrl ?? null,
-    basePrice: toNumber(item.basePrice),
-    currentPrice: toNumber(latestPrice?.price ?? item.basePrice),
+    currentPrice: toNumber(item.currentPrice),
     status: item.status as MenuItemStatus,
     isFeatured: Boolean(item.isFeatured),
     isAvailable: Boolean(item.isAvailable),
@@ -266,20 +295,17 @@ export function serializeDailyStockPool(pool: AnyRecord) {
 
 export function serializeDailyMenuItem(item: AnyRecord) {
   const availableQuantity = computeOfferAvailableQuantity(item);
+  const ids = resolveDailyMenuItemIds(item);
   return {
-    id: item.id,
-    dailyMenuItemId:
-      typeof item.dailyMenuItemId === "number"
-        ? item.dailyMenuItemId
-        : typeof item.id === "number" && item.id > 0
-          ? item.id
-          : null,
-    menuItemId: item.menuItemId ?? item.menuItem?.id ?? null,
+    id: ids.id,
+    key: ids.key,
+    dailyMenuItemId: ids.dailyMenuItemId,
+    menuItemId: ids.menuItemId,
     quantity: null,
     soldQuantity: null,
     availableQuantity,
     overridePrice: toNumber(item.overridePrice),
-    sellingPrice: toNumber(item.overridePrice ?? item.menuItem?.basePrice),
+    sellingPrice: toNumber(item.overridePrice ?? item.menuItem?.currentPrice),
     isAvailable: Boolean(item.isAvailable) && availableQuantity !== 0,
     highlightLabel: item.highlightLabel ?? null,
     createdAt: item.createdAt,
@@ -344,18 +370,15 @@ function serializeDailyStockPoolLink(pool: AnyRecord) {
 
 function serializeDailyMenuItemSummary(item: AnyRecord) {
   const availableQuantity = computeOfferAvailableQuantity(item);
+  const ids = resolveDailyMenuItemIds(item);
   return {
-    id: item.id,
-    dailyMenuItemId:
-      typeof item.dailyMenuItemId === "number"
-        ? item.dailyMenuItemId
-        : typeof item.id === "number" && item.id > 0
-          ? item.id
-          : null,
-    menuItemId: item.menuItemId ?? item.menuItem?.id ?? null,
+    id: ids.id,
+    key: ids.key,
+    dailyMenuItemId: ids.dailyMenuItemId,
+    menuItemId: ids.menuItemId,
     availableQuantity,
     overridePrice: toNumber(item.overridePrice),
-    sellingPrice: toNumber(item.overridePrice ?? item.menuItem?.basePrice),
+    sellingPrice: toNumber(item.overridePrice ?? item.menuItem?.currentPrice),
     isAvailable: Boolean(item.isAvailable) && availableQuantity !== 0,
     highlightLabel: item.highlightLabel ?? null,
     menuItem: item.menuItem
