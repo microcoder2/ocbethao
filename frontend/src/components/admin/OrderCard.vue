@@ -6,6 +6,7 @@
     :info-aria-label="`Thông tin đơn ${order.orderNumber}`"
     :info-lines="infoTooltipLines"
     :arrival-text="order.arrivalAt ? queueTime : 'Chưa xác định'"
+    :guest-count-text="guestCountChipText"
     :status-meta-text="showPaymentMethod && order.paymentMethod ? paymentMethodLabel : ''"
     :item-count-text="`${editableItems.length} món`"
     :status-text="statusLabel"
@@ -94,29 +95,42 @@
             >+</button>
           </div>
         </div>
-        <div v-if="arrivalEditOpen" class="order-arrival-row">
-          <div class="order-arrival-segment">
-            <button type="button" :class="['order-arrival-seg', { 'is-active': arrivalMode === 'scheduled' }]" :disabled="busy" @click="arrivalMode = 'scheduled'">Có giờ hẹn</button>
-            <button type="button" :class="['order-arrival-seg', { 'is-active': arrivalMode === 'unknown' }]"   :disabled="busy" @click="arrivalMode = 'unknown'">Chưa xác định</button>
-            <button type="button" :class="['order-arrival-seg', { 'is-active': arrivalMode === 'arrived' }]"   :disabled="busy" @click="arrivalMode = 'arrived'">Đã tới bàn</button>
+        <div v-if="arrivalEditOpen" class="order-arrival-row order-arrival-row--stacked">
+          <div class="order-arrival-field">
+            <div class="order-arrival-time-shell">
+              <i class="bi bi-clock order-arrival-time-icon" aria-hidden="true"></i>
+              <input
+                v-model="arrivalTimeDraft"
+                type="time"
+                class="form-control order-arrival-time-input"
+                :disabled="busy"
+                min="13:30"
+                max="20:30"
+                placeholder="Giờ hẹn"
+                @input="handleArrivalTimeInput"
+                @change="handleArrivalTimeInput"
+              />
+            </div>
           </div>
-          <input
-            v-if="arrivalMode === 'scheduled'"
-            v-model="arrivalTimeDraft"
-            type="time"
-            class="form-control order-arrival-time-input"
-            :disabled="busy"
-            min="13:30"
-            max="20:30"
-          />
+          <div class="order-arrival-field">
+            <input
+              v-model="guestCountDraft"
+              type="number"
+              min="1"
+              inputmode="numeric"
+              class="form-control order-select order-guest-count-input"
+              placeholder="Số người"
+              :disabled="busy"
+            />
+          </div>
         </div>
       </div>
       <div v-else class="order-add-hint">
         Hôm nay không còn món khả dụng để thêm vào đơn này.
       </div>
 
-      <div v-if="draftChanged || arrivalChanged" class="order-editor-actions">
-        <div v-if="draftChanged" class="order-editor-note">Lưu thay đổi món trước khi hoàn tất hoặc hủy đơn.</div>
+      <div v-if="hasPendingSaveChanges" class="order-editor-actions">
+        <div v-if="draftChanged || hasPendingMetaChange" class="order-editor-note">Lưu thay đổi trước khi hoàn tất hoặc hủy đơn.</div>
         <button class="btn btn-dark" type="button" :disabled="busy" @click="emitSave">
           {{ isSaving ? "Đang lưu..." : "Lưu" }}
         </button>
@@ -217,6 +231,7 @@ type OrderRecord = {
   totalAmount: number;
   guestName?: string | null;
   guestPhone?: string | null;
+  guestCount?: number | null;
   createdAt: string;
   arrivalAt?: string | null;
   itemProgress?: {
@@ -310,7 +325,7 @@ const emit = defineEmits<{
   openComplete: [];
   openCancel: [];
   deleteOrder: [];
-  saveItems: [items: SavePayload[], arrivalTime: string | null];
+  saveItems: [items: SavePayload[], arrivalTime: string | null, guestCount?: number | null];
   moveItemStage: [payload: MoveItemStagePayload];
 }>();
 
@@ -330,6 +345,7 @@ const draft = ref<EditableItem[] | null>(null);
 const arrivalTimeDraft = ref<string>(
   props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""
 );
+const guestCountDraft = ref<string>(formatGuestCountDraft(props.order.guestCount));
 
 type ArrivalMode = "scheduled" | "unknown" | "arrived";
 const initialArrivalMode: ArrivalMode = props.order.arrivalAt ? "scheduled" : "unknown";
@@ -340,6 +356,8 @@ const addSelection = ref("");
 const highlightedKey = ref<string | number | null>(null);
 const openItemNoteKeys = ref<Set<string>>(new Set());
 const draftKeySeed = ref(0);
+const arrivalMetaDirty = ref(false);
+const guestCountDirty = ref(false);
 
 function flashItem(key: string | number) {
   highlightedKey.value = key;
@@ -386,6 +404,36 @@ watch(
     addSelection.value = "";
     closeStagePicker();
     openItemNoteKeys.value = new Set();
+    arrivalMetaDirty.value = false;
+    guestCountDirty.value = false;
+  }
+);
+
+watch(
+  () => props.order.guestCount,
+  (value) => {
+    guestCountDraft.value = formatGuestCountDraft(value);
+  }
+);
+
+watch(arrivalTimeDraft, () => {
+  arrivalMetaDirty.value =
+    arrivalMode.value !== initialArrivalMode ||
+    (arrivalMode.value === "scheduled" && arrivalTimeDraft.value !== initialArrivalTime);
+});
+
+watch([arrivalMode, guestCountDraft], () => {
+  arrivalMetaDirty.value =
+    arrivalMode.value !== initialArrivalMode ||
+    (arrivalMode.value === "scheduled" && arrivalTimeDraft.value !== initialArrivalTime);
+  guestCountDirty.value = String(guestCountDraft.value ?? "").trim() !== formatGuestCountDraft(props.order.guestCount);
+});
+
+watch(
+  () => props.order.id,
+  () => {
+    arrivalMetaDirty.value = false;
+    guestCountDirty.value = false;
   }
 );
 
@@ -415,6 +463,25 @@ function formatTime(value: string) {
 
 function normalizeItemNote(note?: string | null) {
   return String(note || "").trim();
+}
+
+function formatGuestCountDraft(value?: number | null) {
+  const next = Number(value || 0);
+  return next > 0 ? String(next) : "";
+}
+
+function handleArrivalTimeInput() {
+  if (String(arrivalTimeDraft.value || "").trim()) {
+    arrivalMode.value = "scheduled";
+  }
+  arrivalMetaDirty.value =
+    arrivalMode.value !== initialArrivalMode ||
+    (arrivalMode.value === "scheduled" && arrivalTimeDraft.value !== initialArrivalTime);
+}
+
+function parseGuestCountDraft(value: string) {
+  const next = Number.parseInt(String(value || "").trim(), 10);
+  return Number.isFinite(next) && next > 0 ? next : null;
 }
 
 function canEditItemNote(item: EditableItem) {
@@ -492,6 +559,11 @@ function discardDraft() {
   addSelection.value = "";
   closeStagePicker();
   openItemNoteKeys.value = new Set();
+  guestCountDraft.value = formatGuestCountDraft(props.order.guestCount);
+  arrivalTimeDraft.value = initialArrivalTime;
+  arrivalMode.value = initialArrivalMode;
+  arrivalMetaDirty.value = false;
+  guestCountDirty.value = false;
 }
 
 // Computed
@@ -507,6 +579,10 @@ const statusLabel = computed(() => {
 
 const customerName = computed(() => props.order.customer?.fullName || props.order.guestName || "Khách lẻ");
 const customerPhone = computed(() => props.order.guestPhone || props.order.customer?.phone || "Không có SĐT");
+const guestCountChipText = computed(() => {
+  const value = Number(props.order.guestCount || 0);
+  return value > 0 ? `${value} khách` : "";
+});
 const infoTooltipLines = computed(() => [
   `ID đơn: ${props.order.orderNumber}`,
   `Giờ đặt: ${formatTime(props.order.createdAt)}`,
@@ -542,17 +618,24 @@ const progressLegend = computed(() => {
 
 const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
 
-const arrivalChanged = computed(() =>
-  arrivalMode.value !== initialArrivalMode ||
-  (arrivalMode.value === "scheduled" && arrivalTimeDraft.value !== initialArrivalTime)
-);
-
 const draftChanged = computed(() => {
-  if (!draft.value) return false;
-  const orig = cloneItems(props.order.items).map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|");
-  const curr = draft.value.map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|");
+  const orig = [
+    cloneItems(props.order.items).map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|"),
+    formatGuestCountDraft(props.order.guestCount),
+  ].join("||");
+  const curr = [
+    (draft.value ?? cloneItems(props.order.items)).map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|"),
+    String(guestCountDraft.value ?? "").trim(),
+  ].join("||");
   return orig !== curr;
 });
+const guestCountValue = computed(() => parseGuestCountDraft(guestCountDraft.value));
+const hasPendingMetaChange = computed(() =>
+  arrivalMode.value !== initialArrivalMode ||
+  (arrivalMode.value === "scheduled" && arrivalTimeDraft.value !== initialArrivalTime) ||
+  String(guestCountDraft.value ?? "").trim() !== formatGuestCountDraft(props.order.guestCount)
+);
+const hasPendingSaveChanges = computed(() => draftChanged.value || hasPendingMetaChange.value);
 
 const canEdit    = computed(() => {
   const s = simplifyStatus(props.order.status);
@@ -1056,7 +1139,7 @@ function addItem() {
 }
 
 function emitSave() {
-  if (!draft.value && !arrivalChanged.value) return;
+  if (!hasPendingSaveChanges.value) return;
   emit(
     "saveItems",
     editableItems.value.map((i) => ({
@@ -1068,6 +1151,7 @@ function emitSave() {
     arrivalMode.value === "scheduled" ? (arrivalTimeDraft.value || null)
       : arrivalMode.value === "arrived" ? "ARRIVED"
       : null,
+    guestCountValue.value,
   );
 }
 
@@ -1113,6 +1197,32 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   gap: 8px;
 }
 
+.order-arrival-row--stacked {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.order-arrival-field {
+  min-width: 0;
+}
+
+.order-arrival-time-shell {
+  position: relative;
+  min-width: 0;
+}
+
+.order-arrival-time-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.95rem;
+  color: var(--muted);
+  pointer-events: none;
+  z-index: 1;
+}
+
 .order-arrival-segment {
   display: flex;
   border: 1px solid rgba(var(--text-rgb), 0.14);
@@ -1150,7 +1260,17 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 .order-arrival-time-input {
   flex: 1;
   min-width: 0;
-  height: 36px;
+  min-height: 46px;
+  height: 46px;
+  border-radius: 16px;
+  padding-left: 38px;
+}
+
+.order-guest-count-input {
+  width: 100%;
+  min-height: 46px;
+  height: 46px;
+  border-radius: 16px;
 }
 
 .order-editor-panel { display: grid; gap: 12px; }

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Path,
   Post,
@@ -221,6 +222,42 @@ export class MenuItemsController extends Controller {
       include: menuItemInclude,
     });
     return serializeMenuItem(updated);
+  }
+
+  @Delete("{id}")
+  @Security("bearerAuth", ["ADMIN"])
+  public async deleteMenuItem(@Path() id: number) {
+    const current = await prisma.menuItem.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        _count: {
+          select: {
+            dailyMenuItems: true,
+          },
+        },
+      },
+    });
+
+    if (!current) {
+      this.setStatus(404);
+      throw new Error("Mon khong ton tai");
+    }
+
+    if (current._count.dailyMenuItems > 0) {
+      this.setStatus(409);
+      throw new Error(
+        `Khong the xoa mon "${current.name}" vi da duoc dung trong ${current._count.dailyMenuItems} menu ngay`
+      );
+    }
+
+    await prisma.menuItem.delete({
+      where: { id },
+    });
+
+    this.setStatus(204);
+    return;
   }
 
   @Post("{id}/price")

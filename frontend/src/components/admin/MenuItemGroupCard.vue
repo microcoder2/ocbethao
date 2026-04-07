@@ -39,6 +39,9 @@
           <button class="mi2c-icon-btn" type="button" title="Sửa giá" @click="$emit('editPrice', item)">
             <i class="bi bi-pencil"></i>
           </button>
+          <button class="mi2c-icon-btn mi2c-icon-btn--danger" type="button" title="Xóa món" @click="$emit('deleteItem', item)">
+            <i class="bi bi-trash3"></i>
+          </button>
         </div>
       </div>
     </div>
@@ -67,6 +70,7 @@ defineEmits<{
   toggleCollapse: [];
   openAdd: [];
   editPrice: [item: CardItem];
+  deleteItem: [item: CardItem];
 }>();
 
 function formatMoneyK(value: number | null | undefined) {
@@ -132,9 +136,9 @@ function formatMoneyK(value: number | null | undefined) {
 
 .mi2c-add-btn,
 .mi2c-icon-btn {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -207,5 +211,9 @@ function formatMoneyK(value: number | null | undefined) {
 
 .mi2c-icon-btn--accent {
   color: var(--ember-strong);
+}
+
+.mi2c-icon-btn--danger {
+  color: #9c3b31;
 }
 </style>

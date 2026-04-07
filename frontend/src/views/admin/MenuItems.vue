@@ -1,13 +1,16 @@
-<template>
+﻿<template>
   <div class="mi-shell">
 
-    <!-- ── Header ── -->
+    <!-- â”€â”€ Header â”€â”€ -->
     <div class="mi-header">
       <div class="mi-header-top">
         <div class="mi-header-title">
-          <div class="mi-title">Ngân hàng món</div>
+          <div class="mi2-title">Ngân hàng món</div>
         </div>
         <div class="mi-header-btns">
+          <RouterLink class="mi-icon-btn" title="Giao diá»‡n mobile" to="/admin/menu-items">
+            <i class="bi bi-phone"></i>
+          </RouterLink>
           <button class="mi-icon-btn" :class="{ 'mi-icon-btn--spin': loading }" title="Làm mới" @click="loadData">
             <i class="bi bi-arrow-clockwise"></i>
           </button>
@@ -33,7 +36,7 @@
       </div>
     </div>
 
-    <!-- ── Table ── -->
+    <!-- â”€â”€ Table â”€â”€ -->
     <div class="mi-list-card">
 
       <DataTable
@@ -78,18 +81,17 @@
 
         <template #cell-category="{ row }">
           <span v-if="row.category" class="mi-badge">{{ row.category.name }}</span>
-          <span v-else class="mi-muted">—</span>
+          <span v-else class="mi-muted">â€”</span>
         </template>
 
         <template #cell-ingredient="{ row }">
           <template v-if="row.ingredientPresets?.[0]">
             <div class="mi-name">{{ row.ingredientPresets[0].ingredient?.name }}</div>
             <div class="mi-slug">
-              {{ row.ingredientPresets[0].consumeQuantity }}
-              {{ row.ingredientPresets[0].ingredient?.unit }}
+              {{ row.ingredientPresets[0].note || `${row.ingredientPresets[0].consumeQuantity} ${row.ingredientPresets[0].ingredient?.unit}` }}
             </div>
           </template>
-          <span v-else class="mi-muted">—</span>
+          <span v-else class="mi-muted">â€”</span>
         </template>
 
         <template #cell-currentPrice="{ row }">
@@ -118,10 +120,10 @@
             <button class="mi-row-btn" title="Xem" @click="openView(row)">
               <i class="bi bi-eye"></i>
             </button>
-            <button class="mi-row-btn" title="Sửa" @click="openEdit(row)">
+            <button class="mi-row-btn" title="Sá»­a" @click="openEdit(row)">
               <i class="bi bi-pencil"></i>
             </button>
-            <button class="mi-row-btn mi-row-btn--del" title="Xóa" @click="deleteConfirmId = row.id">
+            <button class="mi-row-btn mi-row-btn--del" title="XÃ³a" @click="deleteConfirmId = row.id">
               <i class="bi bi-trash3"></i>
             </button>
           </div>
@@ -141,222 +143,26 @@
 
   </div>
 
-  <!-- ── CropDialog (outside main container, always mounted) ── -->
-  <CropDialog :file="cropFile" @done="onCropDone" />
-
-  <!-- ── Add / Edit Modal ── -->
-  <Teleport to="body">
-    <Transition name="mi-fade">
-      <div v-if="modal.open" class="mi-backdrop" @click.self="cancelModal">
-        <div class="mi-modal">
-          <div class="mi-modal-header">
-            <span>{{ modal.isEdit ? `Sửa: ${modal.form.name || '—'}` : 'Thêm món mẫu mới' }}</span>
-            <button class="mi-modal-close" @click="cancelModal"><i class="bi bi-x-lg"></i></button>
-          </div>
-
-          <div class="mi-modal-body">
-
-            <!-- ── image upload via CropDialog ── -->
-            <div class="mi-img-wrap" @click="imgRef?.click()">
-              <img v-if="modal.form.imageUrl && !modalImgFailed" :src="resolveImg(modal.form.imageUrl)" class="mi-img-preview" @error="modalImgFailed = true" />
-              <div v-else class="mi-img-preview mi-img-preview--blank" v-html="blankIngredientSvg"></div>
-              <div class="mi-img-overlay">
-                <i v-if="modal.uploading" class="bi bi-hourglass-split"></i>
-                <i v-else class="bi bi-camera-fill"></i>
-              </div>
-              <input ref="imgRef" type="file" accept="image/*" hidden @change="onImgFileChange" />
-            </div>
-
-            <!-- ── ingredient + cooking method ── -->
-            <div class="mi-row2">
-              <div class="mi-field">
-                <label class="mi-label">Nguyên liệu chính</label>
-                <select v-model.number="modal.form.ingredientId" class="mi-select" @change="autoFillName">
-                  <option :value="0">— chọn nguyên liệu —</option>
-                  <option v-for="ing in ingredients" :key="ing.id" :value="ing.id">{{ ing.name }}</option>
-                </select>
-              </div>
-              <div class="mi-field">
-                <label class="mi-label">Cách chế biến</label>
-                <div class="mi-select-group">
-                  <select v-model="modal.form.cookingMethod" class="mi-select" @change="autoFillName">
-                    <option value="">— chọn —</option>
-                    <option v-for="m in cookingMethods.items.value" :key="m.id" :value="m.id">{{ m.name }}</option>
-                  </select>
-                  <button class="mi-manage-btn" title="Quản lý cách chế biến" @click.stop="managing = 'cookingMethod'">
-                    <i class="bi bi-sliders"></i>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- ── name + slug ── -->
-            <div class="mi-row2">
-              <div class="mi-field mi-field--grow">
-                <label class="mi-label">Tên món</label>
-                <input
-                  v-model="modal.form.name"
-                  class="mi-input"
-                  placeholder="Vd: Sò huyết xào bơ"
-                  @input="autoSlug"
-                />
-              </div>
-              <div class="mi-field">
-                <label class="mi-label">Slug</label>
-                <input v-model="modal.form.slug" class="mi-input mi-input--mono" placeholder="so-huyet-xao-bo" />
-              </div>
-            </div>
-
-            <!-- ── category + price ── -->
-            <div class="mi-row2">
-              <div class="mi-field">
-                <label class="mi-label">Nhóm món</label>
-                <div class="mi-select-group">
-                  <select v-model.number="modal.form.categoryId" class="mi-select">
-                    <option :value="0">— chọn nhóm —</option>
-                    <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
-                  </select>
-                  <button class="mi-manage-btn" title="Quản lý nhóm món" @click.stop="managing = 'category'">
-                    <i class="bi bi-sliders"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="mi-field">
-                <label class="mi-label">Giá hiện hành (đ)</label>
-                <input v-model.number="modal.form.currentPrice" class="mi-input" type="number" min="0" step="1000" />
-              </div>
-            </div>
-
-            <!-- ── unit + time ── -->
-            <div class="mi-row2">
-              <div class="mi-field">
-                <label class="mi-label">Đơn vị bán</label>
-                <div class="mi-select-group">
-                  <select v-model="modal.form.unit" class="mi-select">
-                    <option v-for="u in units.items.value" :key="u.id" :value="u.name">{{ u.name }}</option>
-                  </select>
-                  <button class="mi-manage-btn" title="Quản lý đơn vị" @click.stop="managing = 'unit'">
-                    <i class="bi bi-sliders"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="mi-field">
-                <label class="mi-label">Chuẩn bị (phút)</label>
-                <input v-model.number="modal.form.preparationTimeMin" class="mi-input" type="number" min="0" />
-              </div>
-            </div>
-
-            <!-- ── qty (only if ingredient selected) ── -->
-            <div v-if="modal.form.ingredientId > 0" class="mi-field">
-              <label class="mi-label">
-                Định lượng mặc định{{ selectedIngUnit ? ` (${selectedIngUnit})` : '' }}
-              </label>
-              <input
-                v-model.number="modal.form.consumeQuantity"
-                class="mi-input mi-input--sm"
-                type="number"
-                min="0"
-                step="0.25"
-              />
-            </div>
-
-            <!-- ── description ── -->
-            <div class="mi-field">
-              <label class="mi-label">Mô tả</label>
-              <textarea
-                v-model="modal.form.description"
-                class="mi-input mi-textarea"
-                rows="2"
-                placeholder="Hương vị, cách phục vụ, ghi chú..."
-              ></textarea>
-            </div>
-
-            <!-- ── status + flags ── -->
-            <div class="mi-row-flags">
-              <div class="mi-field">
-                <label class="mi-label">Trạng thái</label>
-                <select v-model="modal.form.status" class="mi-select">
-                  <option value="ACTIVE">ACTIVE</option>
-                  <option value="HIDDEN">HIDDEN</option>
-                  <option value="ARCHIVED">ARCHIVED</option>
-                </select>
-              </div>
-              <label class="mi-checkbox-label">
-                <input v-model="modal.form.isAvailable" type="checkbox" />
-                <span>Khả dụng</span>
-              </label>
-              <label class="mi-checkbox-label">
-                <input v-model="modal.form.isFeatured" type="checkbox" />
-                <span>Nổi bật ⭐</span>
-              </label>
-            </div>
-
-          </div>
-
-          <div class="mi-modal-footer">
-            <button class="mi-btn mi-btn--ghost" @click="cancelModal">Hủy</button>
-            <button
-              class="mi-btn mi-btn--save btn-ember"
-              :disabled="modal.saving || !modal.form.name.trim()"
-              @click="saveItem"
-            >
-              <i v-if="modal.saving" class="bi bi-hourglass-split"></i>
-              <span v-else>{{ modal.isEdit ? 'Cập nhật' : 'Tạo món' }}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
-
-  <!-- ── View Modal ── -->
-  <Teleport to="body">
-    <Transition name="mi-fade">
-      <div v-if="viewModal.open" class="mi-backdrop" @click.self="viewModal.open = false">
-        <div class="mi-modal mi-modal--sm">
-          <div class="mi-modal-header">
-            <span>{{ viewModal.item?.name }}</span>
-            <button class="mi-modal-close" @click="viewModal.open = false">
-              <i class="bi bi-x-lg"></i>
-            </button>
-          </div>
-          <div v-if="viewModal.item" class="mi-modal-body">
-            <img v-if="viewModal.item.imageUrl && !viewImgFailed" :src="resolveImg(viewModal.item.imageUrl)" class="mi-view-img" @error="viewImgFailed = true" />
-            <div v-else class="mi-view-img mi-view-img--blank" v-html="blankIngredientSvg"></div>
-            <dl class="mi-view-dl">
-              <dt>Nhóm</dt>
-              <dd>{{ viewModal.item.category?.name || '—' }}</dd>
-              <dt>Giá hiện hành</dt>
-              <dd>{{ formatMoney(viewModal.item.currentPrice) }}</dd>
-              <dt>Đơn vị</dt>
-              <dd>{{ viewModal.item.unit }}</dd>
-              <dt>Trạng thái</dt>
-              <dd>
-                <span
-                  class="mi-status"
-                  :class="`mi-status--${(viewModal.item.status || '').toLowerCase()}`"
-                >{{ viewModal.item.status }}</span>
-              </dd>
-              <template v-if="viewModal.item.ingredientPresets?.[0]">
-                <dt>Nguyên liệu</dt>
-                <dd>
-                  {{ viewModal.item.ingredientPresets[0].ingredient?.name }}
-                  — {{ viewModal.item.ingredientPresets[0].consumeQuantity }}
-                  {{ viewModal.item.ingredientPresets[0].ingredient?.unit }}
-                </dd>
-              </template>
-              <template v-if="viewModal.item.description">
-                <dt>Mô tả</dt>
-                <dd>{{ viewModal.item.description }}</dd>
-              </template>
-            </dl>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
-
-  <!-- ── QuickListManager ── -->
+  <MenuItemFormModal
+    :open="modal.open"
+    :is-edit="modal.isEdit"
+    :form="modal.form"
+    :categories="categories"
+    :ingredients="ingredients"
+    :units="units.items.value"
+    :cooking-methods="cookingMethods.items.value"
+    :selected-ing-unit="selectedIngUnit"
+    :saving="modal.saving"
+    :uploading="modal.uploading"
+    :can-submit="canSubmitModal"
+    :error-message="modal.errorMessage"
+    :blank-ingredient-svg="blankIngredientSvg"
+    :resolve-img="resolveImg"
+    @close="cancelModal"
+    @save="saveItem"
+    @image-crop="onModalImageCrop"
+  />
+  <!-- â”€â”€ QuickListManager â”€â”€ -->
   <QuickListManager
     v-if="managing"
     :title="activeManager.title"
@@ -374,11 +180,12 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted } from "vue";
+import { RouterLink } from "vue-router";
 import { api } from "../../api";
 import { formatMoney, formatMoneyShort } from "../../utils/format";
 import { API_BASE_URL } from "../../config";
 import blankIngredientSvg from "../../assets/blank_ingredient.svg?raw";
-import CropDialog from "../../components/admin/CropDialog.vue";
+import MenuItemFormModal from "../../components/admin/MenuItemFormModal.vue";
 import QuickListManager from "../../components/admin/QuickListManager.vue";
 import DataTable from "../../components/common/DataTable.vue";
 import AppPagination from "../../components/common/Pagination.vue";
@@ -391,7 +198,7 @@ import {
 type FieldDef = { key: string; label: string; type?: "text" | "number" | "checkbox"; placeholder?: string };
 type ListItem  = { id: string | number; [key: string]: any };
 
-// ── types ──────────────────────────────────────────────────────────────
+// â”€â”€ types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type Category   = { id: number; name: string; slug: string; sortOrder: number; isActive: boolean };
 type Ingredient = { id: number; name: string; slug: string; unit: string };
 type MenuItem   = {
@@ -410,10 +217,11 @@ type MenuItem   = {
     consumeQuantity: number;
     ingredientId?: number;
     ingredient?: Ingredient;
+    note?: string | null;
   }[];
 };
 
-// ── local list helper ──────────────────────────────────────────────────
+// â”€â”€ local list helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function makeLocalList(storageKey: string, defaults: LocalOption[]) {
   const stored = localStorage.getItem(storageKey);
   const data: LocalOption[] = stored
@@ -438,13 +246,13 @@ function makeLocalList(storageKey: string, defaults: LocalOption[]) {
   return { items, add, update, remove };
 }
 
-// ── local lists ────────────────────────────────────────────────────────
+// â”€â”€ local lists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const cookingMethods = makeLocalList("oc_cooking_methods_v2", DEFAULT_COOKING_METHODS);
 
 const units = makeLocalList("oc_units_v2", DEFAULT_MENU_ITEM_UNITS);
 
 
-// ── db state ───────────────────────────────────────────────────────────
+// â”€â”€ db state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const categories  = ref<Category[]>([]);
 const ingredients = ref<Ingredient[]>([]);
 const items       = ref<MenuItem[]>([]);
@@ -474,43 +282,13 @@ const tableColumns = [
   { key: "status", title: "Trạng thái", thClass: "mi-col-status", tdClass: "mi-col-status" },
 ];
 
-// ── image upload via CropDialog ────────────────────────────────────────
-const imgRef  = ref<HTMLInputElement | null>(null);
-const cropFile = ref<File | null>(null);
-
-function onImgFileChange(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0];
-  if (!file) return;
-  if (imgRef.value) imgRef.value.value = "";
-  cropFile.value = file;
-}
-
-async function onCropDone(blob: Blob) {
-  modal.uploading = true;
-  cropFile.value = null;
-  let uploadedUrl = "";
-  try {
-    const fd = new FormData();
-    fd.append("file", new File([blob], "image.jpg", { type: "image/jpeg" }));
-    const { data } = await api.post("/uploads/images", fd, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    uploadedUrl = data.url;
-    modal.form.imageUrl = uploadedUrl;
-  } finally {
-    modal.uploading = false;
-    if (!modal.open && uploadedUrl) {
-      api.delete("/uploads/images", { data: { url: uploadedUrl } }).catch(() => {});
-    }
-  }
-}
-
-// ── modal state ────────────────────────────────────────────────────────
+// â”€â”€ modal state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const modal = reactive<{
   open: boolean;
   isEdit: boolean;
   saving: boolean;
   uploading: boolean;
+  errorMessage: string;
   form: {
     id: number | null;
     name: string;
@@ -527,16 +305,18 @@ const modal = reactive<{
     imageUrl: string;
     ingredientId: number;
     consumeQuantity: number;
+    consumeQuantityNote: string;
     cookingMethod: string;
   };
 }>({
   open: false, isEdit: false, saving: false, uploading: false,
+  errorMessage: "",
   form: {
     id: null, name: "", slug: "", description: "",
     currentPrice: 0, categoryId: 0, unit: DEFAULT_MENU_ITEM_UNITS[0]?.name || "",
     spicyLevel: 0, preparationTimeMin: 10,
     status: "ACTIVE", isAvailable: true, isFeatured: false,
-    imageUrl: "", ingredientId: 0, consumeQuantity: 1, cookingMethod: "",
+    imageUrl: "", ingredientId: 0, consumeQuantity: 1, consumeQuantityNote: "", cookingMethod: "",
   },
 });
 
@@ -544,7 +324,7 @@ const viewModal = reactive<{ open: boolean; item: MenuItem | null }>({
   open: false, item: null,
 });
 
-// ── quick manager state ────────────────────────────────────────────────
+// â”€â”€ quick manager state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type ManagingType = "cookingMethod" | "unit" | "category" | null;
 const managing = ref<ManagingType>(null);
 const categoryManagerBusy = ref(false);
@@ -562,7 +342,7 @@ const activeManager = computed<{
       return {
         title: "Cách chế biến",
         items: cookingMethods.items.value,
-        fields: [{ key: "name", label: "Tên cách chế biến", placeholder: "Vd: Hấp sả gừng" }],
+        fields: [{ key: "name", label: "TÃªn cÃ¡ch cháº¿ biáº¿n", placeholder: "Vd: Háº¥p sáº£ gá»«ng" }],
         allowAdd: true, allowDelete: true, busy: false,
       };
     case "unit":
@@ -644,7 +424,7 @@ async function saveCategoryUpdate(id: number, data: Record<string, any>) {
   }
 }
 
-// ── computed ───────────────────────────────────────────────────────────
+// â”€â”€ computed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const filteredItems = computed(() => {
   let list = items.value;
   if (filterCategoryId.value) {
@@ -673,7 +453,7 @@ const selectedIngUnit = computed(() =>
   ingredients.value.find(i => i.id === modal.form.ingredientId)?.unit ?? ""
 );
 
-// ── image helpers ───────────────────────────────────────────────────────
+// â”€â”€ image helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const failedImgs     = reactive<Record<number, boolean>>({});
 const modalImgFailed = ref(false);
 const viewImgFailed  = ref(false);
@@ -717,7 +497,7 @@ function autoFillName() {
   if (modal.form.name) modal.form.slug = slugify(modal.form.name);
 }
 
-// ── data ───────────────────────────────────────────────────────────────
+// â”€â”€ data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function loadData() {
   loading.value = true;
   try {
@@ -734,17 +514,39 @@ async function loadData() {
   }
 }
 
-// ── modal open/close ───────────────────────────────────────────────────
+// â”€â”€ modal open/close â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const originalImageUrl = ref("");
 
+async function onModalImageCrop(blob: Blob | null) {
+  if (!blob) return;
+  modal.uploading = true;
+  let uploadedUrl = "";
+  try {
+    const fd = new FormData();
+    fd.append("file", new File([blob], "image.jpg", { type: "image/jpeg" }));
+    const { data } = await api.post("/uploads/images", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    uploadedUrl = data.url;
+    modal.form.imageUrl = uploadedUrl;
+  } finally {
+    modal.uploading = false;
+    if (!modal.open && uploadedUrl) {
+      api.delete("/uploads/images", { data: { url: uploadedUrl } }).catch(() => {});
+    }
+  }
+}
+
 function resetForm() {
+  modal.errorMessage = "";
   Object.assign(modal.form, {
     id: null, name: "", slug: "", description: "",
-    currentPrice: 0, categoryId: categories.value[0]?.id || 0,
-    unit: units.items.value[0]?.name || DEFAULT_MENU_ITEM_UNITS[0]?.name || "",
-    spicyLevel: 0, preparationTimeMin: 10,
-    status: "ACTIVE", isAvailable: true, isFeatured: false,
-    imageUrl: "", ingredientId: 0, consumeQuantity: 1, cookingMethod: "",
+    currentPrice: "",
+    categoryId: 0,
+    unit: "",
+    spicyLevel: 0, preparationTimeMin: "",
+    status: "", isAvailable: true, isFeatured: false,
+    imageUrl: "", ingredientId: 0, consumeQuantity: "", cookingMethod: "",
   });
 }
 
@@ -752,6 +554,7 @@ function openAdd() {
   modal.isEdit = false;
   resetForm();
   originalImageUrl.value = "";
+  modal.errorMessage = "";
   modal.open = true;
 }
 
@@ -760,22 +563,24 @@ function openEdit(item: MenuItem) {
   const name   = item.name.toLowerCase();
   const method = cookingMethods.items.value.find(m => name.includes(m.name.toLowerCase()));
   modal.isEdit = true;
+  modal.errorMessage = "";
   Object.assign(modal.form, {
     id: item.id,
     name: item.name,
     slug: item.slug,
     description: item.description || "",
-    currentPrice: item.currentPrice || 0,
+    currentPrice: item.currentPrice || "",
     categoryId: item.category?.id || 0,
     unit: item.unit || units.items.value[0]?.name || DEFAULT_MENU_ITEM_UNITS[0]?.name || "",
     spicyLevel: (item as any).spicyLevel ?? 0,
-    preparationTimeMin: (item as any).preparationTimeMin || 10,
+    preparationTimeMin: (item as any).preparationTimeMin || "",
     status: item.status,
     isAvailable: item.isAvailable,
     isFeatured: item.isFeatured,
     imageUrl: item.imageUrl || "",
     ingredientId: preset?.ingredientId || 0,
-    consumeQuantity: preset?.consumeQuantity || 1,
+    consumeQuantity: preset?.consumeQuantity || "",
+    consumeQuantityNote: preset?.note || "",
     cookingMethod: method?.id || "",
   });
   originalImageUrl.value = item.imageUrl || "";
@@ -787,8 +592,16 @@ function openView(item: MenuItem) {
   viewModal.open = true;
 }
 
+function parseConsumeQuantityNote(value: string) {
+  const text = String(value || "").trim();
+  if (!text) return 1;
+  const match = text.replace(",", ".").match(/(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) || 1 : 1;
+}
+
 function closeModal() {
   modal.open = false;
+  modal.errorMessage = "";
 }
 
 async function cancelModal() {
@@ -796,28 +609,39 @@ async function cancelModal() {
     try { await api.delete("/uploads/images", { data: { url: modal.form.imageUrl } }); } catch { /* best-effort */ }
   }
   modal.open = false;
+  modal.errorMessage = "";
 }
 
-// ── save ───────────────────────────────────────────────────────────────
+// â”€â”€ save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function saveItem() {
-  if (!modal.form.name.trim()) return;
+  const validation = validateModalForm();
+  if (validation) {
+    modal.errorMessage = validation;
+    return;
+  }
   modal.saving = true;
+  modal.errorMessage = "";
   try {
     const payload = {
       name: modal.form.name,
       slug: modal.form.slug,
       description: modal.form.description,
-      currentPrice: modal.form.currentPrice,
+      currentPrice: Number(modal.form.currentPrice) || 0,
       categoryId: modal.form.categoryId || categories.value[0]?.id,
       unit: modal.form.unit,
       spicyLevel: modal.form.spicyLevel,
-      preparationTimeMin: modal.form.preparationTimeMin,
-      status: modal.form.status,
+      preparationTimeMin: Number(modal.form.preparationTimeMin) || 0,
+      status: modal.form.status || "ACTIVE",
       isAvailable: modal.form.isAvailable,
       isFeatured: modal.form.isFeatured,
       imageUrl: modal.form.imageUrl,
       ingredientPresets: modal.form.ingredientId > 0
-        ? [{ ingredientId: modal.form.ingredientId, consumeQuantity: modal.form.consumeQuantity, sortOrder: 0 }]
+        ? [{
+            ingredientId: modal.form.ingredientId,
+            consumeQuantity: parseConsumeQuantityNote(modal.form.consumeQuantityNote),
+            sortOrder: 0,
+            note: modal.form.consumeQuantityNote.trim() || "",
+          }]
         : [],
     };
 
@@ -829,12 +653,39 @@ async function saveItem() {
 
     await loadData();
     closeModal();
+  } catch (error: any) {
+    modal.errorMessage = getApiErrorMessage(error, "Không thể lưu món");
   } finally {
     modal.saving = false;
   }
 }
 
-// ── delete (soft: ARCHIVED) ────────────────────────────────────────────
+const canSubmitModal = computed(() => !validateModalForm());
+
+function validateModalForm() {
+  if (!modal.form.name.trim()) return "Thiếu tên món";
+  if (!modal.form.slug.trim()) return "Thiếu slug";
+  if (!modal.form.categoryId) return "Thiếu nhóm món";
+  if (!Number(modal.form.currentPrice)) return "Thiếu giá";
+  if (!modal.form.unit.trim()) return "Thiếu đơn vị bán";
+  if (!modal.form.ingredientId) return "Thiếu nguyên liệu chính";
+  if (!modal.form.cookingMethod.trim()) return "Thiếu cách chế biến";
+  if (!modal.form.status.trim()) return "Thiếu trạng thái";
+  return "";
+}
+
+function getApiErrorMessage(error: any, fallback: string) {
+  const raw = String(error?.response?.data?.message || error?.message || fallback);
+  if (raw.includes("MenuItem_slug_key") || raw.toLowerCase().includes("slug")) {
+    return "Slug đã tồn tại";
+  }
+  if (raw.includes("P2002")) {
+    return "Dữ liệu bị trùng";
+  }
+  return raw.replace(/\n+/g, " ").trim() || fallback;
+}
+
+// â”€â”€ delete (soft: ARCHIVED) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function confirmDelete(item: MenuItem) {
   deleteConfirmId.value = null;
   const preset = item.ingredientPresets?.[0];
@@ -855,7 +706,7 @@ onMounted(loadData);
 </script>
 
 <style scoped>
-/* ── shell ── */
+/* â”€â”€ shell â”€â”€ */
 .mi-shell {
   display: flex; flex-direction: column; gap: 20px;
   margin-inline: -24px;
@@ -864,13 +715,21 @@ onMounted(loadData);
   padding-top: 12px;
 }
 
-/* ── header ── */
+/* â”€â”€ header â”€â”€ */
 .mi-header { display: flex; flex-direction: column; gap: 10px; }
 
 .mi-header-top {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
 }
-.mi-title { font-size: 1.25rem; font-weight: 700; color: var(--text); margin: 0; }
+.mi-title,
+.mi2-title {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0;
+}
 .mi-header-btns { display: flex; gap: 8px; flex-shrink: 0; }
 .mi-header-title {
   display: flex;
@@ -927,7 +786,7 @@ onMounted(loadData);
 
 @keyframes mi-spin { to { transform: rotate(360deg); } }
 
-/* ── table ── */
+/* â”€â”€ table â”€â”€ */
 :deep(.mi-table-wrap) {
   background: rgba(var(--panel-rgb), 0.75);
   border: 1px solid var(--line); border-radius: 16px;
@@ -1002,7 +861,7 @@ onMounted(loadData);
 .mi-status--hidden   { background: rgba(251,191,36,0.15); color: #92400e; }
 .mi-status--archived { background: rgba(0,0,0,0.07);      color: var(--muted); }
 
-/* ── row actions ── */
+/* â”€â”€ row actions â”€â”€ */
 .mi-row-actions, .mi-row-confirm {
   display: flex; align-items: center; justify-content: flex-end; gap: 4px;
 }
@@ -1035,7 +894,7 @@ onMounted(loadData);
 .mi-row-btn--no:hover  { background: rgba(0,0,0,0.1); color: var(--text); }
 .mi-row-btn--no:active { background: rgba(0,0,0,0.15); }
 
-/* ── modal backdrop ── */
+/* â”€â”€ modal backdrop â”€â”€ */
 .mi-backdrop {
   position: fixed; inset: 0; z-index: 1000;
   background: rgba(18,16,13,0.55);
@@ -1076,7 +935,7 @@ onMounted(loadData);
   display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0;
 }
 
-/* ── image upload ── */
+/* â”€â”€ image upload â”€â”€ */
 .mi-img-wrap {
   position: relative; width: 100%; height: 150px;
   border-radius: 12px; overflow: hidden; cursor: pointer;
@@ -1095,7 +954,7 @@ onMounted(loadData);
 }
 .mi-img-wrap:hover .mi-img-overlay { opacity: 1; }
 
-/* ── form layout ── */
+/* â”€â”€ form layout â”€â”€ */
 .mi-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .mi-row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 .mi-row-flags { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
@@ -1143,7 +1002,7 @@ onMounted(loadData);
 }
 .mi-checkbox-label input[type="checkbox"] { width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
 
-/* ── footer buttons ── */
+/* â”€â”€ footer buttons â”€â”€ */
 .mi-btn {
   padding: 10px 22px; border-radius: 10px;
   font-size: 0.9rem; font-weight: 700;
@@ -1158,7 +1017,7 @@ onMounted(loadData);
 .mi-btn--ghost:active { background: rgba(0,0,0,0.08); }
 .mi-btn--save { min-width: 100px; justify-content: center; }
 
-/* ── view modal ── */
+/* â”€â”€ view modal â”€â”€ */
 .mi-view-img {
   width: 100%; border-radius: 12px; object-fit: cover;
   max-height: 200px; display: block; background: var(--surface, #f5f3ef);
@@ -1183,36 +1042,36 @@ onMounted(loadData);
 }
 .mi-view-dl dd { margin: 0; color: var(--text); }
 
-/* ── transition ── */
+/* â”€â”€ transition â”€â”€ */
 .mi-fade-enter-active, .mi-fade-leave-active { transition: opacity 0.18s; }
 .mi-fade-enter-from,   .mi-fade-leave-to     { opacity: 0; }
 .mi-fade-enter-active .mi-modal, .mi-fade-leave-active .mi-modal { transition: transform 0.18s; }
 .mi-fade-enter-from .mi-modal,   .mi-fade-leave-to .mi-modal     { transform: translateY(14px) scale(0.97); }
 
-/* ── MOBILE ── */
+/* â”€â”€ MOBILE â”€â”€ */
 @media (max-width: 639px) {
-  /* table: ẩn cột phụ — không cần thiết trên điện thoại */
+  /* table: áº©n cá»™t phá»¥ â€” khÃ´ng cáº§n thiáº¿t trÃªn Ä‘iá»‡n thoáº¡i */
   :deep(.mi-col-nhom),
   :deep(.mi-col-ing),
   :deep(.mi-col-status) { display: none; }
 
-  /* ẩn slug và mobile-meta — chỉ hiện tên sạch */
+  /* áº©n slug vÃ  mobile-meta â€” chá»‰ hiá»‡n tÃªn sáº¡ch */
   .mi-slug,
   .mi-mobile-meta { display: none; }
 
-  /* table: thu nhỏ cells */
+  /* table: thu nhá» cells */
   :deep(.mi-td) { padding: 8px 10px; font-size: 0.85rem; }
   :deep(.mi-td--img) { padding: 6px 6px 6px 10px; }
   :deep(.mi-td--actions) { padding: 6px 8px; }
   :deep(.mi-th) { padding: 8px 10px; }
 
-  /* table: bỏ min-width để vừa màn hình */
+  /* table: bá» min-width Ä‘á»ƒ vá»«a mÃ n hÃ¬nh */
   :deep(.mi-table) { min-width: unset; width: 100%; }
 
-  /* thumbnail nhỏ hơn */
+  /* thumbnail nhá» hÆ¡n */
   .mi-thumb { width: 40px; height: 32px; }
 
-  /* action buttons lớn hơn cho ngón tay */
+  /* action buttons lá»›n hÆ¡n cho ngÃ³n tay */
   .mi-row-btn { width: 40px; height: 40px; font-size: 0.95rem; border-radius: 10px; }
   :deep(.mi-th--actions) { width: 92px; }
 
@@ -1225,20 +1084,20 @@ onMounted(loadData);
   }
   .mi-modal--sm { max-width: 100%; }
 
-  /* modal body: padding nhỏ hơn */
+  /* modal body: padding nhá» hÆ¡n */
   .mi-modal-body { padding: 14px 16px; gap: 12px; }
   .mi-modal-header { padding: 14px 16px; }
   .mi-modal-footer { padding: 12px 16px; }
 
-  /* form: 1 cột */
+  /* form: 1 cá»™t */
   .mi-row2 { grid-template-columns: 1fr; gap: 10px; }
   .mi-row3 { grid-template-columns: 1fr 1fr; gap: 10px; }
 
-  /* inputs lớn hơn cho touch */
+  /* inputs lá»›n hÆ¡n cho touch */
   .mi-input, .mi-select { padding: 11px 12px; font-size: 1rem; }
   .mi-manage-btn { width: 44px; height: 44px; }
 
-  /* image area cao hơn trên mobile */
+  /* image area cao hÆ¡n trÃªn mobile */
   .mi-img-wrap { height: 180px; }
   .mi-img-overlay { opacity: 0.35; } /* visible by default on touch */
 
@@ -1304,3 +1163,4 @@ onMounted(loadData);
 }
 
 </style>
+

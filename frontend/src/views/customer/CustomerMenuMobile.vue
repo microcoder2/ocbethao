@@ -242,6 +242,7 @@ import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import { API_BASE_URL } from "../../config";
 import blankIngredientUrl from "../../assets/blank_ingredient.svg";
 import { getUser } from "../../utils/auth";
+import { clearCustomerCart, loadCustomerCart, saveCustomerCart } from "../../utils/customerCart";
 import { formatMoney } from "../../utils/format";
 
 type FilterKey = "all" | "featured" | `category:${string}`;
@@ -305,7 +306,7 @@ type CartLine = {
 
 const currentUser = getUser();
 const menu = ref<DailyMenuData | null>(null);
-const cart = ref<CartLine[]>([]);
+const cart = ref<CartLine[]>(loadCustomerCart());
 const note = ref("");
 const arrivalTime = ref("");
 const loading = ref(true);
@@ -456,12 +457,14 @@ const cartDraftLines = computed(() =>
 );
 
 watch(
-  () => cart.value.length,
-  (length) => {
-    if (!length) {
+  cart,
+  (value) => {
+    saveCustomerCart(value);
+    if (!value.length) {
       sheetOpen.value = false;
     }
-  }
+  },
+  { deep: true, immediate: true }
 );
 
 async function loadMenu() {
@@ -541,6 +544,15 @@ function buildArrivalAt(serviceDate?: string, time?: string) {
 
 async function submitOrder() {
   if (!menu.value?.id || cart.value.length === 0) return;
+  const authUser = getUser();
+  if (!authUser || String(authUser.role || "").toUpperCase() !== "CUSTOMER") {
+    feedback.value = {
+      type: "error",
+      text: "Vui lòng đăng nhập để gửi đơn. Giỏ hàng của bạn vẫn được giữ lại.",
+    };
+    window.location.hash = "#/login";
+    return;
+  }
 
   submitting.value = true;
   feedback.value = null;
@@ -559,6 +571,7 @@ async function submitOrder() {
     });
 
     cart.value = [];
+    clearCustomerCart();
     note.value = "";
     arrivalTime.value = "";
     feedback.value = {

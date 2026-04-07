@@ -34,6 +34,7 @@
 
     <div :class="['order-status-line', statusLineClass]">
       <span class="order-arrival-chip"><i class="bi bi-clock"></i> {{ arrivalText }}</span>
+      <span v-if="guestCountText" class="order-pill is-muted">{{ guestCountText }}</span>
       <span v-if="statusMetaText" class="order-pill is-muted">{{ statusMetaText }}</span>
       <span class="order-item-count-chip">{{ itemCountText }}</span>
       <span :class="['order-pill', `is-${tone}`]">{{ statusText }}</span>
@@ -65,6 +66,7 @@ const props = withDefaults(defineProps<{
   infoAriaLabel?: string;
   infoLines?: string[];
   arrivalText: string;
+  guestCountText?: string;
   itemCountText: string;
   statusText: string;
   statusMetaText?: string | null;
@@ -76,6 +78,7 @@ const props = withDefaults(defineProps<{
   tone: "pending",
   infoAriaLabel: "Thông tin đơn",
   infoLines: () => [],
+  guestCountText: "",
   statusMetaText: "",
   showDelete: false,
   deleteDisabled: false,

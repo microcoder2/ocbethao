@@ -150,7 +150,7 @@
           @open-complete="openCompleteDialog(order)"
           @open-cancel="openCancelDialog(order)"
           @delete-order="deleteOrder(order)"
-          @save-items="(items, arrivalTime) => saveOrderItems(order, items, arrivalTime)"
+          @save-items="(items, arrivalTime, guestCount) => saveOrderItems(order, items, arrivalTime, guestCount)"
           @move-item-stage="(payload) => updateItemStage(order, payload)"
         />
 
@@ -289,7 +289,7 @@
             >
               <template #before-picker>
                 <div class="orders-create-guest">
-                  <div>
+                  <div class="orders-create-name">
                     <input
                       v-model.trim="createOrderDialog.guestName"
                       class="form-control orders-select"
@@ -306,12 +306,22 @@
                       >{{ name }}</button>
                     </div>
                   </div>
-                  <input
-                    v-model.trim="createOrderDialog.guestPhone"
-                    class="form-control orders-select"
-                    type="tel"
-                    placeholder="Số điện thoại (tuỳ chọn)"
-                  />
+                  <div class="orders-create-grid">
+                    <input
+                      v-model.trim="createOrderDialog.guestPhone"
+                      class="form-control orders-select"
+                      type="tel"
+                      placeholder="Số ĐT (tuỳ chọn)"
+                    />
+                    <input
+                      v-model.trim="createOrderDialog.guestCount"
+                      class="form-control orders-select"
+                      type="number"
+                      min="1"
+                      inputmode="numeric"
+                      placeholder="Số người"
+                    />
+                  </div>
                 </div>
               </template>
             </QuickOrderComposer>
@@ -541,7 +551,12 @@ const manualMenuOptions = computed(() =>
   (manualMenu.value?.items || []).filter((item) => item.isAvailable && item.menuItem)
 );
 const canSubmitCreateOrder = computed(
-  () => Boolean(manualMenu.value && createOrderDialog.lines.length && createOrderDialog.guestName.trim())
+  () => Boolean(
+    manualMenu.value &&
+    createOrderDialog.lines.length &&
+    createOrderDialog.guestName.trim() &&
+    parseGuestCount(createOrderDialog.guestCount) > 0
+  )
 );
 
 
@@ -607,6 +622,7 @@ const createOrderDialog = reactive<{
   visible: boolean;
   guestName: string;
   guestPhone: string;
+  guestCount: string;
   arrivalTime: string;
   arrivalMode: "scheduled" | "unknown" | "arrived";
   note: string;
@@ -616,6 +632,7 @@ const createOrderDialog = reactive<{
   visible: false,
   guestName: "",
   guestPhone: "",
+  guestCount: "",
   arrivalTime: "",
   arrivalMode: "unknown",
   note: "",
@@ -718,6 +735,7 @@ function closeCompleteDialog() {
 function resetCreateOrderDialog() {
   createOrderDialog.guestName = "";
   createOrderDialog.guestPhone = "";
+  createOrderDialog.guestCount = "";
   createOrderDialog.arrivalTime = "";
   createOrderDialog.arrivalMode = "unknown";
   createOrderDialog.note = "";
@@ -771,6 +789,11 @@ function removeCreateOrderLine(key: string | number) {
   createOrderDialog.lines = createOrderDialog.lines.filter((entry) => entry.key !== String(key));
 }
 
+function parseGuestCount(value: string) {
+  const next = Number.parseInt(String(value || "").trim(), 10);
+  return Number.isFinite(next) && next > 0 ? next : 0;
+}
+
 async function submitCreateOrder() {
   if (!manualMenu.value || !canSubmitCreateOrder.value) {
     return;
@@ -784,6 +807,7 @@ async function submitCreateOrder() {
       dailyMenuId: manualMenu.value.id,
       guestName: createOrderDialog.guestName.trim(),
       guestPhone: createOrderDialog.guestPhone.trim() || undefined,
+      guestCount: parseGuestCount(createOrderDialog.guestCount),
       arrivalAt: createOrderDialog.arrivalMode === "scheduled"
         ? buildArrivalAt(filter.date, createOrderDialog.arrivalTime)
         : createOrderDialog.arrivalMode === "arrived"
@@ -983,7 +1007,8 @@ async function loadOrders() {
 async function saveOrderItems(
   order: OrderRecord,
   items: Array<{ dailyMenuItemId?: number; menuItemId?: number; quantity: number; note?: string }>,
-  arrivalTime: string | null
+  arrivalTime: string | null,
+  guestCount?: number | null
 ) {
   if (!items.length) {
     errorMessage.value = "Nếu muốn bỏ hết món, hãy hủy đơn thay vì lưu đơn rỗng.";
@@ -1000,7 +1025,11 @@ async function saveOrderItems(
       : undefined;
 
   try {
-    await api.put(`/orders/${order.id}`, { items, ...(arrivalAt ? { arrivalAt } : {}) });
+    await api.put(`/orders/${order.id}`, {
+      items,
+      ...(arrivalAt ? { arrivalAt } : {}),
+      ...(guestCount != null ? { guestCount } : {}),
+    });
     await refreshOrderById(order.id);
   } catch (error) {
     alertApiError(error, "Không lưu được thay đổi món.");
@@ -1950,6 +1979,11 @@ onBeforeUnmount(() => {
   margin-top: 6px;
 }
 
+.orders-create-name {
+  display: grid;
+  gap: 8px;
+}
+
 .orders-create-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2020,10 +2054,6 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1199px) {
   .orders-advanced-body {
-    grid-template-columns: 1fr;
-  }
-
-  .orders-create-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -2121,7 +2151,7 @@ onBeforeUnmount(() => {
   }
 
   .orders-modal {
-    padding: 18px;
+    padding: 0;
   }
 }
 </style>

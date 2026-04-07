@@ -75,6 +75,7 @@ class UpdateOrderStatusBody {
 class UpdateOrderBody {
   items!: OrderItemInput[];
   arrivalAt?: string;
+  guestCount?: number;
 }
 
 class UpdateOrderItemStageBody {
@@ -1522,6 +1523,9 @@ export class OrdersController extends Controller {
       if (!isSameDateTime(current.arrivalAt, arrivalAt)) {
         nextChangedFields.add("arrivalAt");
       }
+      if (body.guestCount !== undefined && Number(body.guestCount) !== Number(current.guestCount || 0)) {
+        nextChangedFields.add("guestCount");
+      }
       changedFields = Array.from(nextChangedFields);
 
       const currentUsage = getStockUsageFromOrder(
@@ -1548,6 +1552,9 @@ export class OrdersController extends Controller {
         where: { id },
         data: {
           arrivalAt: arrivalAt ?? undefined,
+          ...(body.guestCount !== undefined
+            ? { guestCount: Math.max(0, Math.floor(Number(body.guestCount || 0))) }
+            : {}),
           subtotal: money(subtotal),
           totalAmount: money(totalAmount),
           items: {
@@ -1992,6 +1999,9 @@ export class OrdersController extends Controller {
         where: { id },
         data: {
           arrivalAt: arrivalAt ?? undefined,
+          ...(body.guestCount !== undefined
+            ? { guestCount: Math.max(0, Math.floor(Number(body.guestCount || 0))) }
+            : {}),
           subtotal: money(subtotal),
           totalAmount: money(totalAmount),
           items: {

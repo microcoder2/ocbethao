@@ -5,7 +5,7 @@ import { prisma } from "./utils/prisma";
 
 let io: SocketIOServer | null = null;
 
-export type OrderChangeField = "items" | "arrivalAt";
+export type OrderChangeField = "items" | "arrivalAt" | "guestCount";
 export type OrderChangeType =
   | "CUSTOMER_UPDATED"
   | "CUSTOMER_CANCELLED"

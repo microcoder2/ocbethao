@@ -24,7 +24,6 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/",
     component: MainLayout,
-    meta: { auth: true },
     children: [
       {
         path: "admin/dashboard",
@@ -105,10 +104,6 @@ const router = createRouter({
 });
 
 router.beforeEach((to, _from, next) => {
-  if (to.meta.auth && !isAuthenticated()) {
-    next("/login");
-    return;
-  }
   if (to.path.startsWith("/admin") && getRole() !== "ADMIN") {
     next(getHomeByRole());
     return;
@@ -117,7 +112,11 @@ router.beforeEach((to, _from, next) => {
     next(getHomeByRole());
     return;
   }
-  if (to.path.startsWith("/customer") && getRole() !== "CUSTOMER") {
+  if (to.path.startsWith("/customer/orders") && !isAuthenticated()) {
+    next("/login");
+    return;
+  }
+  if (to.path.startsWith("/customer/orders") && getRole() !== "CUSTOMER") {
     next(getHomeByRole());
     return;
   }

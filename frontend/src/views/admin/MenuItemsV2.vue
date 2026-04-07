@@ -10,7 +10,7 @@
             title="Giao diện máy tính"
             aria-label="Giao diện máy tính"
           >
-            <i class="bi bi-pc-display"></i>
+            <i class="bi bi-display"></i>
           </RouterLink>
           <button
             class="mi2-mode-btn mi2-mode-btn--icon"
@@ -20,6 +20,15 @@
             @click="reloadPage"
           >
             <i class="bi bi-arrow-clockwise"></i>
+          </button>
+          <button
+            class="mi2-mode-btn mi2-mode-btn--icon mi2-mode-btn--primary"
+            type="button"
+            title="Thêm món"
+            aria-label="Thêm món"
+            @click="openClassicAddModal"
+          >
+            <i class="bi bi-plus-lg"></i>
           </button>
         </div>
       </div>
@@ -63,6 +72,7 @@
         @toggle-collapse="toggleCard(group.key)"
         @open-add="openAddMethodModal(group)"
         @edit-price="openPriceEditModal"
+        @delete-item="deleteMenuItemSafe"
       />
     </section>
 
@@ -78,6 +88,26 @@
       @submit="createMethodItem"
       @update:method-id="(value) => (addMethodModal.methodId = value)"
       @update:price-text="(value) => (addMethodModal.priceText = value)"
+    />
+
+    <MenuItemFormModal
+      :open="menuModal.open"
+      :is-edit="menuModal.isEdit"
+      :form="menuModal.form"
+      :categories="categories"
+      :ingredients="ingredients"
+      :units="units.items.value"
+      :cooking-methods="cookingMethods.items.value"
+      :selected-ing-unit="selectedIngUnit"
+      :saving="menuModal.saving"
+      :uploading="menuModal.uploading"
+      :can-submit="canSubmitMenuModal"
+      :error-message="menuModal.errorMessage"
+      :blank-ingredient-svg="blankIngredientSvg"
+      :resolve-img="resolveImg"
+      @close="closeClassicAddModal"
+      @save="saveClassicAddModal"
+      @image-crop="onClassicImageCrop"
     />
 
     <MenuItemPriceEditModal
@@ -98,14 +128,17 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import MenuIngredientFilterCard from "../../components/common/MenuIngredientFilterCard.vue";
 import MenuItemCreateMethodModal from "../../components/admin/MenuItemCreateMethodModal.vue";
+import MenuItemFormModal from "../../components/admin/MenuItemFormModal.vue";
 import MenuItemPriceEditModal from "../../components/admin/MenuItemPriceEditModal.vue";
 import MenuItemGroupCard from "../../components/admin/MenuItemGroupCard.vue";
 import { api } from "../../api";
-import { DEFAULT_COOKING_METHODS } from "../../constants/menuItemFormOptions";
+import { API_BASE_URL } from "../../config";
+import blankIngredientSvg from "../../assets/blank_ingredient.svg?raw";
+import { DEFAULT_COOKING_METHODS, DEFAULT_MENU_ITEM_UNITS } from "../../constants/menuItemFormOptions";
 
 type Category = { id: number; name: string };
 type Ingredient = { id: number; name: string; unit?: string; slug?: string };
-type IngredientPreset = { ingredientId: number; consumeQuantity: number; ingredient?: Ingredient | null };
+type IngredientPreset = { ingredientId: number; consumeQuantity: number; note?: string | null; ingredient?: Ingredient | null };
 type MenuItem = {
   id: number;
   name: string;
@@ -148,11 +181,27 @@ type DisplayGroup = {
   categoryId: number | null;
 };
 
+type LocalOption = { id: string; name: string };
+
+function makeLocalList(storageKey: string, defaults: LocalOption[]) {
+  const stored = localStorage.getItem(storageKey);
+  const data: LocalOption[] = stored ? JSON.parse(stored) : defaults.map((item) => ({ ...item }));
+  const items = ref(data);
+
+  function persist() {
+    localStorage.setItem(storageKey, JSON.stringify(items.value));
+  }
+
+  return { items, persist };
+}
 
 const categories = ref<Category[]>([]);
+const ingredients = ref<Ingredient[]>([]);
 const items = ref<MenuItem[]>([]);
 const loading = ref(false);
 const addMethodSaving = ref(false);
+const cookingMethods = makeLocalList("oc_cooking_methods_v2", DEFAULT_COOKING_METHODS);
+const units = makeLocalList("oc_units_v2", DEFAULT_MENU_ITEM_UNITS);
 const search = ref("");
 const groupMode = ref<"ingredient" | "method">("ingredient");
 const selectedGroupKey = ref<string | null>(null);
@@ -160,6 +209,59 @@ const showAllIngredients = ref(true);
 const openBuckets = ref<Set<string>>(new Set());
 const openCards = ref<Set<string>>(new Set());
 const initializedGroupModes = ref<Set<"ingredient" | "method">>(new Set());
+const menuModal = reactive<{
+  open: boolean;
+  isEdit: boolean;
+  saving: boolean;
+  uploading: boolean;
+  errorMessage: string;
+  originalImageUrl: string;
+  form: {
+    id: number | null;
+    name: string;
+    slug: string;
+    description: string;
+    currentPrice: number;
+    categoryId: number;
+    unit: string;
+    spicyLevel: number;
+    preparationTimeMin: number;
+    status: string;
+    isAvailable: boolean;
+    isFeatured: boolean;
+    imageUrl: string;
+    ingredientId: number;
+    consumeQuantity: number;
+    consumeQuantityNote: string;
+    cookingMethod: string;
+  };
+}>({
+  open: false,
+  isEdit: false,
+  saving: false,
+  uploading: false,
+  errorMessage: "",
+  originalImageUrl: "",
+  form: {
+    id: null,
+    name: "",
+    slug: "",
+    description: "",
+    currentPrice: "",
+    categoryId: 0,
+    unit: "",
+    spicyLevel: 0,
+    preparationTimeMin: "",
+    status: "",
+    isAvailable: true,
+    isFeatured: false,
+    imageUrl: "",
+    ingredientId: 0,
+    consumeQuantity: "",
+    consumeQuantityNote: "",
+    cookingMethod: "",
+  },
+});
 const priceEditModal = reactive<{
   open: boolean;
   item: EnrichedItem | null;
@@ -308,7 +410,8 @@ const displayGroups = computed<DisplayGroup[]>(() => {
 
 const visibleGroups = computed(() => {
   if (groupMode.value !== "ingredient") return displayGroups.value;
-  if (showAllIngredients.value || selectedGroupKey.value == null) return displayGroups.value;
+  if (showAllIngredients.value) return displayGroups.value;
+  if (selectedGroupKey.value == null) return [];
   return displayGroups.value.filter((group) => group.key === selectedGroupKey.value);
 });
 
@@ -346,6 +449,15 @@ const addMethodPreviewName = computed(() => {
   return [group.label, method?.name].filter(Boolean).join(" ");
 });
 
+const selectedIngUnit = computed(() => {
+  const selected = ingredients.value.find((item) => item.id === menuModal.form.ingredientId);
+  return selected?.unit || "";
+});
+
+function resolveImg(url: string) {
+  return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
+}
+
 function parsePriceKInput(value: string) {
   const digits = String(value || "").replace(/[^\d]/g, "");
   return Number(digits || 0) * 1000;
@@ -378,13 +490,20 @@ function toggleBucket(bucketName: string) {
 function selectIngredientGroup(key: string) {
   selectedGroupKey.value = key;
   showAllIngredients.value = false;
+  openCards.value = new Set([key]);
 }
 
 function toggleShowAllIngredients() {
   const nextValue = !showAllIngredients.value;
   showAllIngredients.value = nextValue;
-  if (!nextValue) {
+  if (nextValue) {
+    selectedGroupKey.value = null;
+    openBuckets.value = new Set();
+    openCards.value = new Set(displayGroups.value.map((group) => group.key));
+  } else {
+    selectedGroupKey.value = null;
     openBuckets.value = new Set(ingredientBuckets.value.map((bucket) => bucket.name));
+    openCards.value = new Set();
   }
 }
 
@@ -417,6 +536,7 @@ function buildPayload(item: EnrichedItem, nextPrice: number) {
       ingredientId: preset.ingredientId,
       consumeQuantity: preset.consumeQuantity,
       sortOrder: index,
+      note: preset.note || "",
     })) || [],
   };
 }
@@ -435,6 +555,172 @@ async function savePriceEditModal() {
   } finally {
     priceEditModal.saving = false;
   }
+}
+
+function resetClassicForm() {
+  menuModal.errorMessage = "";
+  Object.assign(menuModal.form, {
+    id: null,
+    name: "",
+    slug: "",
+    description: "",
+    currentPrice: "",
+    categoryId: 0,
+    unit: "",
+    spicyLevel: 0,
+    preparationTimeMin: "",
+    status: "",
+    isAvailable: true,
+    isFeatured: false,
+    imageUrl: "",
+    ingredientId: 0,
+    consumeQuantity: "",
+    consumeQuantityNote: "",
+    cookingMethod: "",
+  });
+}
+
+function openClassicAddModal() {
+  menuModal.isEdit = false;
+  menuModal.originalImageUrl = "";
+  menuModal.errorMessage = "";
+  resetClassicForm();
+  menuModal.open = true;
+}
+
+async function closeClassicAddModal() {
+  const tempUrl =
+    !menuModal.uploading &&
+    menuModal.form.imageUrl &&
+    menuModal.form.imageUrl !== menuModal.originalImageUrl
+      ? menuModal.form.imageUrl
+      : "";
+
+  menuModal.open = false;
+  menuModal.uploading = false;
+  menuModal.errorMessage = "";
+
+  if (tempUrl) {
+    menuModal.form.imageUrl = "";
+    try {
+      await api.delete("/uploads/images", { data: { url: tempUrl } });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+async function onClassicImageCrop(blob: Blob | null) {
+  if (!blob) return;
+  menuModal.uploading = true;
+  try {
+    const fd = new FormData();
+    fd.append("file", new File([blob], "image.jpg", { type: "image/jpeg" }));
+    const { data } = await api.post("/uploads/images", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    menuModal.form.imageUrl = data.url;
+  } finally {
+    menuModal.uploading = false;
+  }
+}
+
+async function saveClassicAddModal() {
+  const validation = validateMenuModal();
+  if (validation) {
+    menuModal.errorMessage = validation;
+    return;
+  }
+  menuModal.saving = true;
+  menuModal.errorMessage = "";
+  try {
+    const payload = {
+      name: menuModal.form.name,
+      slug: menuModal.form.slug,
+      description: menuModal.form.description,
+      currentPrice: Number(menuModal.form.currentPrice) || 0,
+      categoryId: menuModal.form.categoryId || categories.value[0]?.id,
+      unit: menuModal.form.unit,
+      spicyLevel: menuModal.form.spicyLevel,
+      preparationTimeMin: Number(menuModal.form.preparationTimeMin) || 0,
+      status: menuModal.form.status || "ACTIVE",
+      isAvailable: menuModal.form.isAvailable,
+      isFeatured: menuModal.form.isFeatured,
+      imageUrl: menuModal.form.imageUrl,
+      ingredientPresets: menuModal.form.ingredientId > 0
+        ? [{
+            ingredientId: menuModal.form.ingredientId,
+            consumeQuantity: parseConsumeQuantityNote(menuModal.form.consumeQuantityNote),
+            sortOrder: 0,
+            note: menuModal.form.consumeQuantityNote.trim() || "",
+          }]
+        : [],
+    };
+
+    await api.post("/menu-items", payload);
+    menuModal.originalImageUrl = menuModal.form.imageUrl;
+    closeClassicAddModal();
+    await loadData();
+  } catch (error: any) {
+    menuModal.errorMessage = getApiErrorMessage(error, "Không thể lưu món");
+  } finally {
+    menuModal.saving = false;
+  }
+}
+
+const canSubmitMenuModal = computed(() => !validateMenuModal());
+
+function validateMenuModal() {
+  if (!menuModal.form.name.trim()) return "Thiếu tên món";
+  if (!menuModal.form.slug.trim()) return "Thiếu slug";
+  if (!menuModal.form.categoryId) return "Thiếu nhóm món";
+  if (!Number(menuModal.form.currentPrice)) return "Thiếu giá";
+  if (!menuModal.form.unit.trim()) return "Thiếu đơn vị bán";
+  if (!menuModal.form.ingredientId) return "Thiếu nguyên liệu chính";
+  if (!menuModal.form.cookingMethod.trim()) return "Thiếu cách chế biến";
+  if (!menuModal.form.status.trim()) return "Thiếu trạng thái";
+  return "";
+}
+
+function getApiErrorMessage(error: any, fallback: string) {
+  const raw = String(error?.response?.data?.message || error?.message || fallback);
+  if (raw.includes("MenuItem_slug_key") || raw.toLowerCase().includes("slug")) {
+    return "Slug đã tồn tại";
+  }
+  if (raw.includes("P2002")) {
+    return "Dữ liệu bị trùng";
+  }
+  return raw.replace(/\n+/g, " ").trim() || fallback;
+}
+
+function parseConsumeQuantityNote(value: string) {
+  const text = String(value || "").trim();
+  if (!text) return 1;
+  const match = text.replace(",", ".").match(/(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) || 1 : 1;
+}
+
+async function deleteMenuItemSafe(item: { id: number; name: string }) {
+  const ok = window.confirm(`Xoa mon "${item.name}"?`);
+  if (!ok) return;
+
+  try {
+    await api.delete(`/menu-items/${item.id}`);
+    items.value = items.value.filter((current) => current.id !== item.id);
+  } catch (error: any) {
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      `Khong the xoa mon "${item.name}"`;
+    window.alert(message);
+  }
+}
+
+async function deleteMenuItem(item: { id: number; name: string }) {
+  const ok = window.confirm(`Xóa món "${item.name}"?`);
+  if (!ok) return;
+  await api.delete(`/menu-items/${item.id}`);
+  await loadData();
 }
 
 function openAddMethodModal(group: DisplayGroup) {
@@ -496,11 +782,13 @@ async function createMethodItem() {
 async function loadData() {
   loading.value = true;
   try {
-    const [categoriesRes, itemsRes] = await Promise.all([
+    const [categoriesRes, ingredientsRes, itemsRes] = await Promise.all([
       api.get("/categories"),
+      api.get("/ingredients"),
       api.get("/menu-items"),
     ]);
     categories.value = categoriesRes.data;
+    ingredients.value = ingredientsRes.data;
     items.value = itemsRes.data;
   } finally {
     loading.value = false;
@@ -571,6 +859,19 @@ onMounted(loadData);
   height: 40px;
   padding: 0;
   border-radius: 50%;
+}
+
+.mi2-mode-btn--primary {
+  border-color: rgba(var(--ember-rgb), 0.28);
+  background: rgba(var(--ember-rgb), 0.08);
+  color: var(--ember-strong);
+}
+
+.mi2-mode-btn--primary:hover,
+.mi2-mode-btn--primary:focus-visible {
+  border-color: rgba(var(--ember-rgb), 0.55);
+  background: rgba(var(--ember-rgb), 0.16);
+  color: var(--ember-strong);
 }
 
 .mi2-mode-btn--toggle {
@@ -682,6 +983,7 @@ onMounted(loadData);
     gap: 12px;
   }
 }
+
 </style>
 
 

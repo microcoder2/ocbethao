@@ -380,7 +380,14 @@ async function createIngredient() {
   padding: 8px 0 32px;
 }
 .stock-header { margin-bottom: 24px; display: flex; flex-direction: column; gap: 14px; }
-.stock-title { font-size: 1.35rem; font-weight: 800; color: var(--text); margin: 0; }
+.stock-title {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0;
+}
 
 .stock-search-wrap { position: relative; max-width: 360px; }
 .stock-search-icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 0.9rem; pointer-events: none; }
@@ -538,4 +545,31 @@ async function createIngredient() {
 
 .del-confirm-enter-active, .del-confirm-leave-active { transition: opacity 0.15s; }
 .del-confirm-enter-from, .del-confirm-leave-to { opacity: 0; }
+
+@media (max-width: 639px) {
+  .stock-shell {
+    max-width: none;
+    margin: 0 -24px;
+    padding: 0 0 32px;
+  }
+
+  .stock-header {
+    padding: 0 12px;
+  }
+
+  .stock-search-wrap {
+    width: 100%;
+    max-width: none;
+  }
+
+  .stock-card,
+  .stock-del-overlay {
+    border-radius: 0;
+  }
+
+  .stock-grid {
+    padding: 0 12px;
+    gap: 4px;
+  }
+}
 </style>

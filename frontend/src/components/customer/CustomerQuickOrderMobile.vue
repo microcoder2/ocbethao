@@ -75,6 +75,8 @@ import { AxiosError } from "axios";
 import { api } from "../../api";
 import { socket } from "../../socket";
 import QuickOrderComposer from "../common/QuickOrderComposer.vue";
+import { clearCustomerCart, loadCustomerCart, saveCustomerCart } from "../../utils/customerCart";
+import { getUser } from "../../utils/auth";
 
 type FeedbackState = {
   type: "success" | "error";
@@ -128,8 +130,7 @@ const submitting = ref(false);
 const note = ref("");
 const arrivalTime = ref("");
 const arrivalMode = ref<"scheduled" | "unknown" | "arrived">("unknown");
-const cart = ref<CartLine[]>([]);
-const draftKeySeed = ref(0);
+const cart = ref<CartLine[]>(loadCustomerCart());
 const stockRemainingMap = reactive<Record<number, number>>({});
 
 const menuOptions = computed(() =>
@@ -162,23 +163,20 @@ const metaChips = computed(() => [
 ]);
 
 watch(
-  () => cart.value.length,
-  (length) => {
-    if (!length) {
+  cart,
+  (value) => {
+    saveCustomerCart(value);
+    if (!value.length) {
       note.value = "";
       arrivalTime.value = "";
       arrivalMode.value = "unknown";
     }
-  }
+  },
+  { deep: true, immediate: true }
 );
 
 function normalizeLineNote(value?: string | null) {
   return String(value || "").trim();
-}
-
-function buildCartKey(seed: number) {
-  draftKeySeed.value += 1;
-  return `quick-${seed}-${draftKeySeed.value}`;
 }
 
 function getMenuItemId(item: DailyMenuItemData) {
@@ -260,7 +258,7 @@ function addItemDirect(item: DailyMenuItemData) {
   }
 
   cart.value.push({
-    key: buildCartKey(getMenuItemId(item)),
+    key: getMenuOptionKey(item),
     dailyMenuItemId: item.dailyMenuItemId ?? undefined,
     menuItemId: getMenuItemId(item),
     name: item.menuItem.name,
@@ -300,6 +298,15 @@ function buildArrivalAt(serviceDate?: string, time?: string) {
 
 async function submitOrder() {
   if (!menu.value?.id || !cart.value.length) return;
+  const authUser = getUser();
+  if (!authUser || String(authUser.role || "").toUpperCase() !== "CUSTOMER") {
+    feedback.value = {
+      type: "error",
+      text: "Vui lòng đăng nhập để gửi đơn. Giỏ hàng của bạn vẫn được giữ lại.",
+    };
+    window.location.hash = "#/login";
+    return;
+  }
 
   submitting.value = true;
   feedback.value = null;
@@ -325,6 +332,7 @@ async function submitOrder() {
     });
 
     cart.value = [];
+    clearCustomerCart();
     feedback.value = {
       type: "success",
       text: "Đơn của bạn đã được gửi tới bếp. Bạn có thể theo dõi trạng thái trong mục Đơn của tôi.",

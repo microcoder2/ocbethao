@@ -5,7 +5,7 @@
     <div class="dm-panel">
       <div class="dm-bar">
         <div class="dm-bar-header">
-          <span class="dm-panel-title">Kho hôm nay</span>
+          <span class="dm-panel-title dm-panel-title--mi2">Kho hôm nay</span>
           <label class="dm-toggle-group" title="Bật/tắt tất cả nguyên liệu" @click="panelRef?.toggleAll()">
             <span class="dm-toggle-label">Tất cả</span>
             <span class="dm-toggle" :class="{ on: panelRef?.allActive }"><span class="dm-toggle-knob"></span></span>
@@ -875,6 +875,12 @@ onMounted(async () => {
 }
 .dm-panel-title-group { display: flex; align-items: baseline; gap: 8px; }
 .dm-panel-title { font-size: 0.9rem; font-weight: 700; color: var(--text); text-transform: uppercase; letter-spacing: 0.06em; }
+.dm-panel-title--mi2 {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
 .dm-muted { font-size: 0.78rem; color: var(--muted); }
 .dm-special-price-toggle {
   display: inline-flex;
@@ -1004,6 +1010,7 @@ onMounted(async () => {
 @media (max-width: 639px) {
   .dm-shell { margin: -24px; padding: 0 0 48px; gap: 4px; }
   .dm-panel  { padding: 12px; border-radius: 0; box-shadow: none; }
+  .dm-shell > .dm-panel:first-of-type { border-radius: 0 !important; }
   .dm-btn-label { display: none; }
   .dm-btn-short { display: inline; }
   .dm-toggle-label { display: none; }

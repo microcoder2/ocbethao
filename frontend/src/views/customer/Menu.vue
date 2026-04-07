@@ -258,7 +258,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { AxiosError } from "axios";
 import { api } from "../../api";
 import { socket } from "../../socket";
@@ -266,6 +266,7 @@ import OrderDraftPanel from "../../components/common/OrderDraftPanel.vue";
 import { API_BASE_URL } from "../../config";
 import blankIngredientUrl from "../../assets/blank_ingredient.svg";
 import { getUser } from "../../utils/auth";
+import { clearCustomerCart, loadCustomerCart, saveCustomerCart } from "../../utils/customerCart";
 import { formatMoney } from "../../utils/format";
 
 type FilterKey = "all" | "featured" | `category:${string}`;
@@ -329,7 +330,7 @@ type CartLine = {
 
 const currentUser = getUser();
 const menu = ref<DailyMenuData | null>(null);
-const cart = ref<CartLine[]>([]);
+const cart = ref<CartLine[]>(loadCustomerCart());
 const note = ref("");
 const arrivalTime = ref("");
 const arrivalMode = ref<"scheduled" | "unknown" | "arrived">("unknown");
@@ -462,6 +463,14 @@ const cartDraftLines = computed(() =>
     quantity: line.quantity,
     note: line.note || "",
   }))
+);
+
+watch(
+  cart,
+  (value) => {
+    saveCustomerCart(value);
+  },
+  { deep: true, immediate: true }
 );
 
 const heroStats = computed(() => {
@@ -622,6 +631,15 @@ function buildArrivalAt(serviceDate?: string, time?: string) {
 
 async function submitOrder() {
   if (!menu.value?.id || cart.value.length === 0) return;
+  const authUser = getUser();
+  if (!authUser || String(authUser.role || "").toUpperCase() !== "CUSTOMER") {
+    feedback.value = {
+      type: "error",
+      text: "Vui lòng đăng nhập để gửi đơn. Giỏ hàng của bạn vẫn được giữ lại.",
+    };
+    window.location.hash = "#/login";
+    return;
+  }
 
   submitting.value = true;
   feedback.value = null;
@@ -647,6 +665,7 @@ async function submitOrder() {
     });
 
     cart.value = [];
+    clearCustomerCart();
     note.value = "";
     arrivalTime.value = "";
     arrivalMode.value = "unknown";
