@@ -279,7 +279,6 @@ import { toggleNoteChip } from "../../utils/noteChips";
 type OrderItem = {
   id: number;
   menuItemId?: number | null;
-  dailyMenuItemId?: number | null;
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
@@ -317,9 +316,8 @@ type OrderRecord = {
   items?: OrderItem[];
 };
 
-type DailyMenuOption = {
+type CatalogOption = {
   id: number;
-  dailyMenuItemId?: number | null;
   menuItemId?: number | null;
   sellingPrice: number;
   isAvailable: boolean;
@@ -334,7 +332,7 @@ type PickerGroup = {
   label: string;
   poolId: number | null;
   remaining: number | null;
-  items: DailyMenuOption[];
+  items: CatalogOption[];
 };
 
 type PickerCategory = {
@@ -346,7 +344,6 @@ type EditableItem = {
   id?: number | null;
   key: string;
   menuItemId?: number | null;
-  dailyMenuItemId?: number | null;
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
@@ -361,7 +358,7 @@ type EditableItem = {
   note?: string | null;
 };
 
-type SavePayload = { dailyMenuItemId?: number; menuItemId?: number; quantity: number; note?: string };
+type SavePayload = { menuItemId?: number; quantity: number; note?: string };
 type ItemStageName = "WAITING" | "COOKING" | "READY" | "CANCELLED";
 type ActiveItemStageName = Exclude<ItemStageName, "CANCELLED">;
 type MoveItemStagePayload = {
@@ -396,7 +393,7 @@ type StageControlView = StageControl & {
 // Props / Emits
 const props = defineProps<{
   order: OrderRecord;
-  menuOptions: DailyMenuOption[];
+  menuOptions: CatalogOption[];
   stockRemainingMap: Record<number, number>;
   busy: boolean;
   isSaving: boolean;
@@ -477,7 +474,7 @@ watch(
   () => props.order.items?.map((i) =>
     [
       i.id ?? "",
-      i.dailyMenuItemId ?? i.menuItemId,
+      i.menuItemId,
       i.quantity,
       i.waitingQuantity ?? "",
       i.cookingQuantity ?? "",
@@ -610,9 +607,8 @@ function cloneItems(items: OrderItem[] = []): EditableItem[] {
     key:
       typeof item.id === "number" && item.id > 0
         ? `item-${item.id}`
-        : `item-${item.dailyMenuItemId ?? item.menuItemId ?? "item"}-${i}`,
+        : `item-${item.menuItemId ?? "item"}-${i}`,
     menuItemId: item.menuItemId ?? null,
-    dailyMenuItemId: item.dailyMenuItemId ?? null,
     itemNameSnapshot: item.itemNameSnapshot,
     unitPrice: Number(item.unitPrice || 0),
     quantity: Number(item.quantity || 0),
@@ -713,11 +709,11 @@ const editableItems = computed(() => draft.value ?? cloneItems(props.order.items
 
 const draftChanged = computed(() => {
   const orig = [
-    cloneItems(props.order.items).map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|"),
+    cloneItems(props.order.items).map((i) => `${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|"),
     formatGuestCountDraft(props.order.guestCount),
   ].join("||");
   const curr = [
-    (draft.value ?? cloneItems(props.order.items)).map((i) => `${i.dailyMenuItemId}:${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|"),
+    (draft.value ?? cloneItems(props.order.items)).map((i) => `${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|"),
     String(guestCountDraft.value ?? "").trim(),
   ].join("||");
   return orig !== curr;
@@ -1238,15 +1234,13 @@ function closeAddPicker() {
   selectedGroupKey.value = null;
 }
 
-function addMenuItem(opt: DailyMenuOption) {
+function addMenuItem(opt: CatalogOption) {
   if (!canSelectItem(opt)) return;
-  const optionDailyMenuItemId = opt.dailyMenuItemId ?? null;
   const optionMenuItemId = Number(opt.menuItemId ?? opt.menuItem.id);
 
   ensureDraft();
   const existing = draft.value!.findIndex(
     (i) =>
-      i.dailyMenuItemId === optionDailyMenuItemId &&
       i.menuItemId === optionMenuItemId &&
       normalizeItemNote(i.note) === "" &&
       canAdjustDraftItem(i)
@@ -1269,12 +1263,11 @@ function addMenuItem(opt: DailyMenuOption) {
     flashItem(cur.key);
     openItemNoteEditor(cur.key);
   } else {
-    const newKey = buildDraftItemKey(optionDailyMenuItemId ?? optionMenuItemId);
+    const newKey = buildDraftItemKey(optionMenuItemId);
     draft.value!.push({
       id: null,
       key: newKey,
       menuItemId: optionMenuItemId,
-      dailyMenuItemId: optionDailyMenuItemId,
       itemNameSnapshot: opt.menuItem.name,
       unitPrice: Number(opt.sellingPrice || 0),
       quantity: 1,
@@ -1340,7 +1333,7 @@ function handleSelectGroup(key: string) {
   selectedGroupKey.value = selectedGroupKey.value === key ? null : key;
 }
 
-function getItemRemaining(item: DailyMenuOption) {
+function getItemRemaining(item: CatalogOption) {
   const poolId = item.stockLinks?.[0]?.stockPool?.id;
   if (poolId == null) {
     return null;
@@ -1354,12 +1347,12 @@ function getItemRemaining(item: DailyMenuOption) {
   return item.stockLinks?.[0]?.stockPool?.remainingQuantity ?? null;
 }
 
-function canSelectItem(item: DailyMenuOption) {
+function canSelectItem(item: CatalogOption) {
   const remaining = getItemRemaining(item);
   return Boolean(item.isAvailable) && remaining !== 0;
 }
 
-function methodLabel(item: DailyMenuOption, ingredientLabel: string) {
+function methodLabel(item: CatalogOption, ingredientLabel: string) {
   const name = item.menuItem?.name ?? "";
   const stripped = name.replace(new RegExp(`^${ingredientLabel}\\s*`, "i"), "").trim();
   return stripped || name;
@@ -1370,7 +1363,6 @@ function emitSave() {
   emit(
     "saveItems",
     editableItems.value.map((i) => ({
-      dailyMenuItemId: i.dailyMenuItemId ?? undefined,
       menuItemId: i.menuItemId ?? undefined,
       quantity: i.quantity,
       note: i.note || undefined,

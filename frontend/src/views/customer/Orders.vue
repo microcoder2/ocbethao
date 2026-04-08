@@ -143,7 +143,6 @@ import CustomerOrderCard from "../../components/customer/CustomerOrderCard.vue";
 type OrderItem = {
   id: number;
   menuItemId?: number | null;
-  dailyMenuItemId?: number | null;
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
@@ -160,7 +159,6 @@ type OrderRecord = {
   totalAmount: number;
   arrivalAt?: string | null;
   createdAt: string;
-  dailyMenuId?: number | null;
   items?: OrderItem[];
   itemProgress?: { total: number; ready: number };
 };
@@ -173,7 +171,6 @@ type MenuOption = {
 };
 
 type SavePayload = {
-  dailyMenuItemId?: number;
   menuItemId?: number;
   quantity: number;
   note?: string;
@@ -434,7 +431,7 @@ async function loadOrders() {
   try {
     const [ordersRes, menuRes] = await Promise.allSettled([
       api.get("/orders/my"),
-      api.get("/daily-menus/public/today"),
+      api.get("/menu-items/public"),
     ]);
 
     if (ordersRes.status === "fulfilled") {

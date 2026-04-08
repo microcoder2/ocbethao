@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE `User` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `fullName` VARCHAR(191) NOT NULL,
@@ -83,6 +83,39 @@ CREATE TABLE `Category` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `Ingredient` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(191) NOT NULL,
+    `slug` VARCHAR(191) NOT NULL,
+    `description` LONGTEXT NULL,
+    `unit` VARCHAR(191) NOT NULL DEFAULT 'phan',
+    `imageUrl` LONGTEXT NULL,
+    `isActive` BOOLEAN NOT NULL DEFAULT true,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `Ingredient_slug_key`(`slug`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `IngredientStock` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `ingredientId` INTEGER NOT NULL,
+    `label` VARCHAR(191) NULL,
+    `quantity` DECIMAL(10, 2) NOT NULL,
+    `soldQuantity` DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    `isAvailable` BOOLEAN NOT NULL DEFAULT true,
+    `note` LONGTEXT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `IngredientStock_ingredientId_key`(`ingredientId`),
+    INDEX `IngredientStock_ingredientId_isAvailable_idx`(`ingredientId`, `isAvailable`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `MenuItem` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
@@ -92,7 +125,7 @@ CREATE TABLE `MenuItem` (
     `spicyLevel` INTEGER NULL,
     `imageUrl` LONGTEXT NULL,
     `currentPrice` DECIMAL(10, 2) NOT NULL,
-    `status` ENUM('ACTIVE', 'SOLD_OUT', 'HIDDEN') NOT NULL DEFAULT 'ACTIVE',
+    `status` ENUM('ACTIVE', 'HIDDEN', 'ARCHIVED') NOT NULL DEFAULT 'ACTIVE',
     `isFeatured` BOOLEAN NOT NULL DEFAULT false,
     `isAvailable` BOOLEAN NOT NULL DEFAULT true,
     `preparationTimeMin` INTEGER NULL,
@@ -122,38 +155,18 @@ CREATE TABLE `MenuItemPrice` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `DailyMenu` (
+CREATE TABLE `MenuItemIngredientPreset` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `code` VARCHAR(191) NOT NULL,
-    `title` VARCHAR(191) NOT NULL,
-    `serviceDate` DATE NOT NULL,
-    `status` ENUM('DRAFT', 'PUBLISHED', 'ARCHIVED') NOT NULL DEFAULT 'DRAFT',
-    `note` LONGTEXT NULL,
-    `bannerText` LONGTEXT NULL,
-    `createdById` INTEGER NULL,
-    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updatedAt` DATETIME(3) NOT NULL,
-
-    UNIQUE INDEX `DailyMenu_code_key`(`code`),
-    INDEX `DailyMenu_serviceDate_status_idx`(`serviceDate`, `status`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `DailyMenuItem` (
-    `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `dailyMenuId` INTEGER NOT NULL,
     `menuItemId` INTEGER NOT NULL,
-    `quantity` INTEGER NULL,
-    `soldQuantity` INTEGER NOT NULL DEFAULT 0,
-    `overridePrice` DECIMAL(10, 2) NULL,
-    `isAvailable` BOOLEAN NOT NULL DEFAULT true,
-    `highlightLabel` VARCHAR(191) NULL,
+    `ingredientId` INTEGER NOT NULL,
+    `consumeQuantity` DECIMAL(10, 2) NOT NULL DEFAULT 1,
+    `sortOrder` INTEGER NOT NULL DEFAULT 0,
+    `note` LONGTEXT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updatedAt` DATETIME(3) NOT NULL,
 
-    INDEX `DailyMenuItem_menuItemId_idx`(`menuItemId`),
-    UNIQUE INDEX `DailyMenuItem_dailyMenuId_menuItemId_key`(`dailyMenuId`, `menuItemId`),
+    INDEX `MenuItemIngredientPreset_menuItemId_sortOrder_idx`(`menuItemId`, `sortOrder`),
+    INDEX `MenuItemIngredientPreset_ingredientId_idx`(`ingredientId`),
+    UNIQUE INDEX `MenuItemIngredientPreset_menuItemId_ingredientId_key`(`menuItemId`, `ingredientId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -162,9 +175,9 @@ CREATE TABLE `Order` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `orderNumber` VARCHAR(191) NOT NULL,
     `source` ENUM('CUSTOMER_APP', 'STAFF_POS', 'ADMIN_POS') NOT NULL,
-    `status` ENUM('CONFIRMED', 'COMPLETED', 'CANCELLED') NOT NULL DEFAULT 'CONFIRMED',
-    `paymentStatus` ENUM('UNPAID', 'PARTIAL', 'PAID', 'REFUNDED') NOT NULL DEFAULT 'UNPAID',
-    `paymentMethod` ENUM('CASH', 'CARD', 'TRANSFER', 'E_WALLET', 'PAY_LATER') NULL,
+    `status` ENUM('PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED') NOT NULL DEFAULT 'CONFIRMED',
+    `paymentStatus` ENUM('UNPAID', 'PAID', 'REFUNDED') NOT NULL DEFAULT 'UNPAID',
+    `paymentMethod` ENUM('CASH', 'CARD', 'TRANSFER', 'E_WALLET') NULL,
     `tableLabel` VARCHAR(191) NULL,
     `guestCount` INTEGER NULL,
     `guestName` VARCHAR(191) NULL,
@@ -179,7 +192,6 @@ CREATE TABLE `Order` (
     `createdById` INTEGER NULL,
     `assignedStaffId` INTEGER NULL,
     `customerId` INTEGER NULL,
-    `dailyMenuId` INTEGER NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
     `confirmedAt` DATETIME(3) NULL,
@@ -197,7 +209,6 @@ CREATE TABLE `OrderItem` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `orderId` INTEGER NOT NULL,
     `menuItemId` INTEGER NULL,
-    `dailyMenuItemId` INTEGER NULL,
     `itemNameSnapshot` VARCHAR(191) NOT NULL,
     `unitPrice` DECIMAL(10, 2) NOT NULL,
     `quantity` INTEGER NOT NULL,
@@ -211,8 +222,40 @@ CREATE TABLE `OrderItem` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `OrderItem_menuItemId_idx`(`menuItemId`),
-    INDEX `OrderItem_dailyMenuItemId_idx`(`dailyMenuItemId`),
     INDEX `OrderItem_status_idx`(`status`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `InventoryMovement` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `ingredientId` INTEGER NOT NULL,
+    `orderId` INTEGER NULL,
+    `orderItemId` INTEGER NULL,
+    `movementType` ENUM('MENU_POOL_INCREASE', 'MENU_POOL_DECREASE', 'ORDER_RESERVE', 'ORDER_RELEASE', 'ORDER_RESTORE', 'MANUAL_ADJUST', 'CORRECTION') NOT NULL,
+    `quantityDelta` DECIMAL(10, 2) NOT NULL,
+    `note` LONGTEXT NULL,
+    `createdById` INTEGER NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `InventoryMovement_ingredientId_createdAt_idx`(`ingredientId`, `createdAt`),
+    INDEX `InventoryMovement_orderItemId_createdAt_idx`(`orderItemId`, `createdAt`),
+    INDEX `InventoryMovement_movementType_createdAt_idx`(`movementType`, `createdAt`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `OrderItemConsumption` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `orderItemId` INTEGER NOT NULL,
+    `ingredientId` INTEGER NOT NULL,
+    `consumeQuantity` DECIMAL(10, 2) NOT NULL,
+    `totalQuantity` DECIMAL(10, 2) NOT NULL,
+    `inventoryMovementId` INTEGER NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `OrderItemConsumption_orderItemId_idx`(`orderItemId`),
+    INDEX `OrderItemConsumption_inventoryMovementId_idx`(`inventoryMovementId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -250,49 +293,14 @@ CREATE TABLE `AuditLog` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- CreateTable
-CREATE TABLE `InventoryMovement` (
-    `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `ingredientId` INTEGER NOT NULL,
-    `dailyMenuId` INTEGER NULL,
-    `dailyStockPoolId` INTEGER NULL,
-    `orderId` INTEGER NULL,
-    `orderItemId` INTEGER NULL,
-    `movementType` ENUM('MENU_POOL_INCREASE', 'MENU_POOL_DECREASE', 'ORDER_RESERVE', 'ORDER_RELEASE', 'ORDER_RESTORE', 'MANUAL_ADJUST', 'CORRECTION') NOT NULL,
-    `quantityDelta` DECIMAL(10, 2) NOT NULL,
-    `note` LONGTEXT NULL,
-    `createdById` INTEGER NULL,
-    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-
-    INDEX `InventoryMovement_ingredientId_createdAt_idx`(`ingredientId`, `createdAt`),
-    INDEX `InventoryMovement_dailyStockPoolId_createdAt_idx`(`dailyStockPoolId`, `createdAt`),
-    INDEX `InventoryMovement_orderItemId_createdAt_idx`(`orderItemId`, `createdAt`),
-    INDEX `InventoryMovement_movementType_createdAt_idx`(`movementType`, `createdAt`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `OrderItemConsumption` (
-    `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `orderItemId` INTEGER NOT NULL,
-    `ingredientId` INTEGER NOT NULL,
-    `dailyStockPoolId` INTEGER NULL,
-    `consumeQuantity` DECIMAL(10, 2) NOT NULL,
-    `totalQuantity` DECIMAL(10, 2) NOT NULL,
-    `inventoryMovementId` INTEGER NULL,
-    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-
-    INDEX `OrderItemConsumption_orderItemId_idx`(`orderItemId`),
-    INDEX `OrderItemConsumption_dailyStockPoolId_idx`(`dailyStockPoolId`),
-    INDEX `OrderItemConsumption_inventoryMovementId_idx`(`inventoryMovementId`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
 -- AddForeignKey
 ALTER TABLE `UserAuthIdentity` ADD CONSTRAINT `UserAuthIdentity_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `AuthChallenge` ADD CONSTRAINT `AuthChallenge_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `IngredientStock` ADD CONSTRAINT `IngredientStock_ingredientId_fkey` FOREIGN KEY (`ingredientId`) REFERENCES `Ingredient`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `MenuItem` ADD CONSTRAINT `MenuItem_categoryId_fkey` FOREIGN KEY (`categoryId`) REFERENCES `Category`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -304,13 +312,10 @@ ALTER TABLE `MenuItem` ADD CONSTRAINT `MenuItem_createdById_fkey` FOREIGN KEY (`
 ALTER TABLE `MenuItemPrice` ADD CONSTRAINT `MenuItemPrice_menuItemId_fkey` FOREIGN KEY (`menuItemId`) REFERENCES `MenuItem`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `DailyMenu` ADD CONSTRAINT `DailyMenu_createdById_fkey` FOREIGN KEY (`createdById`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `MenuItemIngredientPreset` ADD CONSTRAINT `MenuItemIngredientPreset_menuItemId_fkey` FOREIGN KEY (`menuItemId`) REFERENCES `MenuItem`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `DailyMenuItem` ADD CONSTRAINT `DailyMenuItem_dailyMenuId_fkey` FOREIGN KEY (`dailyMenuId`) REFERENCES `DailyMenu`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `DailyMenuItem` ADD CONSTRAINT `DailyMenuItem_menuItemId_fkey` FOREIGN KEY (`menuItemId`) REFERENCES `MenuItem`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `MenuItemIngredientPreset` ADD CONSTRAINT `MenuItemIngredientPreset_ingredientId_fkey` FOREIGN KEY (`ingredientId`) REFERENCES `Ingredient`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Order` ADD CONSTRAINT `Order_createdById_fkey` FOREIGN KEY (`createdById`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
@@ -322,34 +327,13 @@ ALTER TABLE `Order` ADD CONSTRAINT `Order_assignedStaffId_fkey` FOREIGN KEY (`as
 ALTER TABLE `Order` ADD CONSTRAINT `Order_customerId_fkey` FOREIGN KEY (`customerId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `Order` ADD CONSTRAINT `Order_dailyMenuId_fkey` FOREIGN KEY (`dailyMenuId`) REFERENCES `DailyMenu`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE `OrderItem` ADD CONSTRAINT `OrderItem_orderId_fkey` FOREIGN KEY (`orderId`) REFERENCES `Order`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `OrderItem` ADD CONSTRAINT `OrderItem_menuItemId_fkey` FOREIGN KEY (`menuItemId`) REFERENCES `MenuItem`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `OrderItem` ADD CONSTRAINT `OrderItem_dailyMenuItemId_fkey` FOREIGN KEY (`dailyMenuItemId`) REFERENCES `DailyMenuItem`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `UserSession` ADD CONSTRAINT `UserSession_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `UserSession` ADD CONSTRAINT `UserSession_authIdentityId_fkey` FOREIGN KEY (`authIdentityId`) REFERENCES `UserAuthIdentity`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `AuditLog` ADD CONSTRAINT `AuditLog_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_ingredientId_fkey` FOREIGN KEY (`ingredientId`) REFERENCES `Ingredient`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_dailyMenuId_fkey` FOREIGN KEY (`dailyMenuId`) REFERENCES `DailyMenu`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_dailyStockPoolId_fkey` FOREIGN KEY (`dailyStockPoolId`) REFERENCES `DailyStockPool`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `InventoryMovement` ADD CONSTRAINT `InventoryMovement_orderId_fkey` FOREIGN KEY (`orderId`) REFERENCES `Order`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
@@ -367,8 +351,14 @@ ALTER TABLE `OrderItemConsumption` ADD CONSTRAINT `OrderItemConsumption_orderIte
 ALTER TABLE `OrderItemConsumption` ADD CONSTRAINT `OrderItemConsumption_ingredientId_fkey` FOREIGN KEY (`ingredientId`) REFERENCES `Ingredient`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `OrderItemConsumption` ADD CONSTRAINT `OrderItemConsumption_dailyStockPoolId_fkey` FOREIGN KEY (`dailyStockPoolId`) REFERENCES `DailyStockPool`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `OrderItemConsumption` ADD CONSTRAINT `OrderItemConsumption_inventoryMovementId_fkey` FOREIGN KEY (`inventoryMovementId`) REFERENCES `InventoryMovement`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `OrderItemConsumption` ADD CONSTRAINT `OrderItemConsumption_inventoryMovementId_fkey` FOREIGN KEY (`inventoryMovementId`) REFERENCES `InventoryMovement`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `UserSession` ADD CONSTRAINT `UserSession_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `UserSession` ADD CONSTRAINT `UserSession_authIdentityId_fkey` FOREIGN KEY (`authIdentityId`) REFERENCES `UserAuthIdentity`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `AuditLog` ADD CONSTRAINT `AuditLog_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 

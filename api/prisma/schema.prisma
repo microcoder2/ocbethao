@@ -28,12 +28,6 @@ enum MenuItemStatus {
   ARCHIVED
 }
 
-enum DailyMenuStatus {
-  DRAFT
-  PUBLISHED
-  ARCHIVED
-}
-
 enum OrderSource {
   CUSTOMER_APP
   STAFF_POS
@@ -94,10 +88,9 @@ model User {
   updatedAt             DateTime     @updatedAt
 
   createdMenuItems MenuItem[] @relation("MenuItemCreator")
-  createdMenus     DailyMenu[] @relation("DailyMenuCreator")
-  createdOrders    Order[]     @relation("OrderCreator")
-  assignedOrders   Order[]     @relation("OrderAssignee")
-  customerOrders   Order[]     @relation("OrderCustomer")
+  createdOrders    Order[]    @relation("OrderCreator")
+  assignedOrders   Order[]    @relation("OrderAssignee")
+  customerOrders   Order[]    @relation("OrderCustomer")
   createdInventoryMovements InventoryMovement[] @relation("InventoryMovementCreator")
   authIdentities   UserAuthIdentity[]
   authChallenges   AuthChallenge[]
@@ -175,10 +168,26 @@ model Ingredient {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  ingredientPresets MenuItemIngredientPreset[]
-  dailyStockPools   DailyStockPool[]
+  ingredientPresets    MenuItemIngredientPreset[]
+  stocks               IngredientStock[]
   inventoryMovements InventoryMovement[]
   orderItemConsumptions OrderItemConsumption[]
+}
+
+model IngredientStock {
+  id           Int      @id @default(autoincrement())
+  ingredientId Int      @unique
+  label        String?
+  quantity     Decimal  @db.Decimal(10, 2)
+  soldQuantity Decimal  @default(0) @db.Decimal(10, 2)
+  isAvailable  Boolean  @default(true)
+  note         String?  @db.LongText
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@index([ingredientId, isAvailable])
 }
 
 model MenuItem {
@@ -203,7 +212,6 @@ model MenuItem {
   createdBy         User?                    @relation("MenuItemCreator", fields: [createdById], references: [id], onDelete: SetNull)
   priceHistories    MenuItemPrice[]
   ingredientPresets MenuItemIngredientPreset[]
-  dailyMenuItems    DailyMenuItem[]
   orderItems        OrderItem[]
 
   @@index([categoryId, status])
@@ -241,81 +249,6 @@ model MenuItemIngredientPreset {
   @@index([ingredientId])
 }
 
-model DailyMenu {
-  id          Int             @id @default(autoincrement())
-  code        String          @unique
-  title       String
-  serviceDate DateTime        @db.Date
-  status      DailyMenuStatus @default(DRAFT)
-  note        String?         @db.LongText
-  bannerText  String?         @db.LongText
-  createdById Int?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-
-  createdBy  User?            @relation("DailyMenuCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  stockPools DailyStockPool[]
-  items      DailyMenuItem[]
-  orders     Order[]
-  inventoryMovements InventoryMovement[]
-
-  @@index([serviceDate, status])
-}
-
-model DailyStockPool {
-  id           Int      @id @default(autoincrement())
-  dailyMenuId  Int
-  ingredientId Int
-  label        String?
-  quantity     Decimal  @db.Decimal(10, 2)
-  soldQuantity Decimal  @default(0) @db.Decimal(10, 2)
-  isAvailable  Boolean  @default(true)
-  note         String?  @db.LongText
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  dailyMenu   DailyMenu            @relation(fields: [dailyMenuId], references: [id], onDelete: Cascade)
-  ingredient  Ingredient           @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
-  itemLinks   DailyMenuItemStock[]
-  inventoryMovements InventoryMovement[]
-  orderItemConsumptions OrderItemConsumption[]
-
-  @@index([dailyMenuId, ingredientId])
-}
-
-model DailyMenuItem {
-  id             Int       @id @default(autoincrement())
-  dailyMenuId    Int
-  menuItemId     Int
-  overridePrice  Decimal?  @db.Decimal(10, 2)
-  isAvailable    Boolean   @default(true)
-  highlightLabel String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  dailyMenu  DailyMenu            @relation(fields: [dailyMenuId], references: [id], onDelete: Cascade)
-  menuItem   MenuItem             @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
-  stockLinks DailyMenuItemStock[]
-  orderItems OrderItem[]
-
-  @@unique([dailyMenuId, menuItemId])
-  @@index([menuItemId])
-}
-
-model DailyMenuItemStock {
-  id               Int      @id @default(autoincrement())
-  dailyMenuItemId  Int
-  dailyStockPoolId Int
-  consumeQuantity  Decimal  @default(1) @db.Decimal(10, 2)
-  createdAt        DateTime @default(now())
-
-  dailyMenuItem DailyMenuItem @relation(fields: [dailyMenuItemId], references: [id], onDelete: Cascade)
-  dailyStockPool DailyStockPool @relation(fields: [dailyStockPoolId], references: [id], onDelete: Cascade)
-
-  @@unique([dailyMenuItemId, dailyStockPoolId])
-  @@index([dailyStockPoolId])
-}
-
 model Order {
   id              Int           @id @default(autoincrement())
   orderNumber     String        @unique
@@ -337,17 +270,15 @@ model Order {
   createdById     Int?
   assignedStaffId Int?
   customerId      Int?
-  dailyMenuId     Int?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   confirmedAt     DateTime?
   completedAt     DateTime?
 
-  createdBy    User?      @relation("OrderCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  assignedStaff User?     @relation("OrderAssignee", fields: [assignedStaffId], references: [id], onDelete: SetNull)
-  customer     User?      @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: SetNull)
-  dailyMenu    DailyMenu? @relation(fields: [dailyMenuId], references: [id], onDelete: SetNull)
-  items        OrderItem[]
+  createdBy          User?               @relation("OrderCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  assignedStaff      User?               @relation("OrderAssignee", fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  customer           User?               @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  items              OrderItem[]
   inventoryMovements InventoryMovement[]
 
   @@index([status, createdAt])
@@ -359,7 +290,6 @@ model OrderItem {
   id              Int      @id @default(autoincrement())
   orderId         Int
   menuItemId      Int?
-  dailyMenuItemId Int?
   itemNameSnapshot String
   unitPrice       Decimal  @db.Decimal(10, 2)
   quantity        Int
@@ -374,20 +304,16 @@ model OrderItem {
 
   order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItem      MenuItem?      @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
-  dailyMenuItem DailyMenuItem? @relation(fields: [dailyMenuItemId], references: [id], onDelete: SetNull)
   inventoryMovements InventoryMovement[]
   consumptions OrderItemConsumption[]
 
   @@index([menuItemId])
-  @@index([dailyMenuItemId])
   @@index([status])
 }
 
 model InventoryMovement {
   id               Int                   @id @default(autoincrement())
   ingredientId     Int
-  dailyMenuId      Int?
-  dailyStockPoolId Int?
   orderId          Int?
   orderItemId      Int?
   movementType     InventoryMovementType
@@ -396,16 +322,13 @@ model InventoryMovement {
   createdById      Int?
   createdAt        DateTime              @default(now())
 
-  ingredient       Ingredient            @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
-  dailyMenu        DailyMenu?            @relation(fields: [dailyMenuId], references: [id], onDelete: SetNull)
-  dailyStockPool   DailyStockPool?       @relation(fields: [dailyStockPoolId], references: [id], onDelete: SetNull)
-  order            Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  orderItem        OrderItem?            @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
-  createdBy        User?                 @relation("InventoryMovementCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  consumptions     OrderItemConsumption[]
+  ingredient   Ingredient            @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  order        Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderItem    OrderItem?            @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  createdBy    User?                 @relation("InventoryMovementCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  consumptions OrderItemConsumption[]
 
   @@index([ingredientId, createdAt])
-  @@index([dailyStockPoolId, createdAt])
   @@index([orderItemId, createdAt])
   @@index([movementType, createdAt])
 }
@@ -414,19 +337,16 @@ model OrderItemConsumption {
   id                  Int                @id @default(autoincrement())
   orderItemId         Int
   ingredientId        Int
-  dailyStockPoolId    Int?
   consumeQuantity     Decimal            @db.Decimal(10, 2)
   totalQuantity       Decimal            @db.Decimal(10, 2)
   inventoryMovementId Int?
   createdAt           DateTime           @default(now())
 
-  orderItem           OrderItem          @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  ingredient          Ingredient         @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
-  dailyStockPool      DailyStockPool?    @relation(fields: [dailyStockPoolId], references: [id], onDelete: SetNull)
-  inventoryMovement   InventoryMovement? @relation(fields: [inventoryMovementId], references: [id], onDelete: SetNull)
+  orderItem         OrderItem          @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  ingredient        Ingredient         @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  inventoryMovement InventoryMovement? @relation(fields: [inventoryMovementId], references: [id], onDelete: SetNull)
 
   @@index([orderItemId])
-  @@index([dailyStockPoolId])
   @@index([inventoryMovementId])
 }
 

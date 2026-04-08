@@ -41,11 +41,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: "Ngân hàng món cũ" },
       },
       {
-        path: "admin/daily-menus",
-        component: () => import("../views/admin/DailyMenus.vue"),
-        meta: { title: "Menu ngày" },
-      },
-      {
         path: "admin/orders",
         component: () => import("../views/admin/Orders.vue"),
         meta: { title: "Đơn hàng" },
@@ -54,6 +49,11 @@ const routes: RouteRecordRaw[] = [
         path: "admin/stock",
         component: () => import("../views/admin/Stock.vue"),
         meta: { title: "Nhập kho hải sản" },
+      },
+      {
+        path: "admin/inventory-history",
+        component: () => import("../views/admin/InventoryHistory.vue"),
+        meta: { title: "Lịch sử tồn kho" },
       },
       {
         path: "admin/users",

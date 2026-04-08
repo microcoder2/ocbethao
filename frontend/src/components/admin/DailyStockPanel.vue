@@ -107,15 +107,6 @@ type StockPool  = {
   label?: string | null;
   note?: string | null;
 };
-type DailyMenu  = { id: number; stockPools: StockPool[] };
-type StockBaseline = {
-  ingredientId: number;
-  label?: string | null;
-  quantity: number;
-  isAvailable: boolean;
-  note?: string | null;
-  sourceServiceDate?: string | null;
-};
 type Draft      = {
   active: boolean;
   quantity: string;
@@ -237,37 +228,19 @@ async function loadData() {
   try {
     const [ingRes, menuRes, baselineRes] = await Promise.all([
       api.get("/ingredients?activeOnly=true"),
-      api.get("/daily-menus", {
-        params: { date: targetDate.value },
-      }),
-      api.get("/daily-menus/stock-baseline", {
-        params: { date: targetDate.value },
-      }),
+      api.get("/ingredient-stocks"),
+      Promise.resolve({ data: [] }),
     ]);
     if (requestId !== loadSeq) return;
     ingredients.value = ingRes.data as Ingredient[];
-    const menus = menuRes.data as DailyMenu[];
-    const baseline = baselineRes.data as StockBaseline[];
-    const currentMenu = menus.length > 0 ? menus[0] : null;
-    const baselineMap = new Map(baseline.map((pool) => [pool.ingredientId, pool]));
-    const shouldRecoverUnavailablePools = Boolean(currentMenu?.stockPools.length) &&
-      currentMenu!.stockPools.every((pool) => !pool.isAvailable) &&
-      currentMenu!.stockPools.some((pool) =>
-        Math.max(
-          Number(
-            pool.remainingQuantity ??
-              Number(pool.quantity || 0) - Number(pool.soldQuantity || 0)
-          ),
-          0
-        ) > 0
-      );
+    const stocks = menuRes.data as StockPool[];
+    const stockMap = new Map(
+      stocks.map((pool) => [Number(pool.ingredientId ?? 0), pool])
+    );
 
     const init: Record<number, Draft> = {};
     for (const ing of ingredients.value) {
-      const pool = currentMenu?.stockPools.find((entry) =>
-        Number(entry.ingredientId ?? 0) === ing.id
-      );
-      const fallback = !pool ? baselineMap.get(ing.id) : null;
+      const pool = stockMap.get(ing.id);
       const remainingQuantity = pool
         ? Math.max(
             Number(
@@ -276,17 +249,17 @@ async function loadData() {
             ),
             0
           )
-        : Math.max(Number(fallback?.quantity || 0), 0);
+        : 0;
 
       init[ing.id] = {
         active: pool
-          ? Boolean(pool.isAvailable || (shouldRecoverUnavailablePools && remainingQuantity > 0))
-          : Boolean(fallback?.isAvailable && remainingQuantity > 0),
+          ? Boolean(pool.isAvailable || remainingQuantity > 0)
+          : false,
         quantity: String(remainingQuantity),
         poolId: pool?.id ?? null,
         soldQuantity: Number(pool?.soldQuantity || 0),
-        label: String(pool?.label || fallback?.label || ing.name),
-        note: String(pool?.note || fallback?.note || ing.unit || ""),
+        label: String(pool?.label || ing.name),
+        note: String(pool?.note || ing.unit || ""),
         saving: false,
       };
     }

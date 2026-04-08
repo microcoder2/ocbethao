@@ -345,7 +345,6 @@ import { formatMoney } from "../../utils/format";
 type OrderItem = {
   id: number;
   menuItemId?: number | null;
-  dailyMenuItemId?: number | null;
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
@@ -377,7 +376,6 @@ type OrderRecord = {
   guestPhone?: string | null;
   createdAt: string;
   arrivalAt?: string | null;
-  dailyMenuId?: number | null;
   itemProgress?: {
     total: number;
     waiting: number;
@@ -431,9 +429,8 @@ type UpdateOrderItemStageResponse = {
   };
 };
 
-type DailyMenuOption = {
+type CatalogOption = {
   id: number;
-  dailyMenuItemId?: number | null;
   menuItemId?: number | null;
   sellingPrice: number;
   isAvailable: boolean;
@@ -452,14 +449,8 @@ type DailyMenuOption = {
   };
 };
 
-type DailyMenuRecord = {
-  id: number;
-  items: DailyMenuOption[];
-};
-
 type ManualOrderLine = {
   key: string;
-  dailyMenuItemId?: number;
   menuItemId: number;
   name: string;
   price: number;
@@ -508,7 +499,7 @@ function getOrderDateValue(value?: string | null) {
 }
 
 const orders = ref<OrderRecord[]>([]);
-const dailyMenus = ref<DailyMenuRecord[]>([]);
+const menuCatalog = ref<CatalogOption[]>([]);
 const advancedFiltersOpen = ref(false);
 const isLoading = ref(false);
 const updatingOrderId = ref<number | null>(null);
@@ -547,9 +538,9 @@ const filter = reactive({
   search: "",
 });
 
-const manualMenu = computed(() => dailyMenus.value[0] || null);
+const manualMenu = computed(() => menuCatalog.value.length > 0);
 const manualMenuOptions = computed(() =>
-  (manualMenu.value?.items || []).filter((item) => item.isAvailable && item.menuItem)
+  menuCatalog.value.filter((item) => item.isAvailable && item.menuItem)
 );
 const canSubmitCreateOrder = computed(
   () => Boolean(
@@ -571,22 +562,17 @@ function buildCreateOrderDraftKey(seed: number) {
   return `manual-${seed}-${createOrderDraftKeySeed.value}`;
 }
 
-function getOptionMenuItemId(option: DailyMenuOption) {
+function getOptionMenuItemId(option: CatalogOption) {
   return Number(option.menuItemId ?? option.menuItem?.id ?? 0);
 }
 
-function getOptionOfferKey(option: DailyMenuOption) {
-  const dailyMenuItemId = Number(option.dailyMenuItemId ?? 0);
-  if (dailyMenuItemId > 0) {
-    return `offer:${dailyMenuItemId}`;
-  }
+function getCatalogItemKey(option: CatalogOption) {
   return `menu:${getOptionMenuItemId(option)}`;
 }
 
-function addItemDirect(option: DailyMenuOption) {
+function addItemDirect(option: CatalogOption) {
   const existing = createOrderDialog.lines.find(
     (line) =>
-      line.dailyMenuItemId === (option.dailyMenuItemId ?? undefined) &&
       line.menuItemId === getOptionMenuItemId(option) &&
       normalizeDraftLineNote(line.note) === ""
   );
@@ -594,8 +580,7 @@ function addItemDirect(option: DailyMenuOption) {
     existing.quantity += 1;
   } else {
     createOrderDialog.lines.push({
-      key: `${getOptionOfferKey(option)}:${buildCreateOrderDraftKey(getOptionMenuItemId(option))}`,
-      dailyMenuItemId: option.dailyMenuItemId ?? undefined,
+      key: `${getCatalogItemKey(option)}:${buildCreateOrderDraftKey(getOptionMenuItemId(option))}`,
       menuItemId: getOptionMenuItemId(option),
       name: option.menuItem.name,
       price: Number(option.sellingPrice || 0),
@@ -814,7 +799,6 @@ async function submitCreateOrder() {
 
   try {
     await api.post("/orders", {
-      dailyMenuId: manualMenu.value.id,
       guestName: createOrderDialog.guestName.trim(),
       guestPhone: createOrderDialog.guestPhone.trim() || undefined,
       guestCount: getCreateOrderGuestCount(),
@@ -825,7 +809,6 @@ async function submitCreateOrder() {
           : undefined,
       note: createOrderDialog.note.trim() || undefined,
       items: createOrderDialog.lines.map((line) => ({
-        dailyMenuItemId: line.dailyMenuItemId,
         menuItemId: line.menuItemId,
         quantity: line.quantity,
         note: line.note?.trim() || undefined,
@@ -898,23 +881,20 @@ async function confirmCancelOrder() {
 }
 
 function getMenuForOrder(order: OrderRecord) {
-  return dailyMenus.value.find((menu) => menu.id === order.dailyMenuId) || dailyMenus.value[0] || null;
+  return order;
 }
 
 function getAddableOptions(order: OrderRecord) {
-  const menu = getMenuForOrder(order);
-  return (menu?.items || []).filter((item) => item.isAvailable && item.menuItem);
+  return manualMenuOptions.value;
 }
 
 
-function syncStockFromMenus(menus: DailyMenuRecord[]) {
-  for (const menu of menus) {
-    for (const item of menu.items || []) {
-      for (const link of item.stockLinks || []) {
-        const pool = link.stockPool;
-        if (pool?.id != null && pool.remainingQuantity != null) {
-          stockRemainingMap[pool.id] = pool.remainingQuantity;
-        }
+function syncStockFromMenus(menus: CatalogOption[]) {
+  for (const item of menus) {
+    for (const link of item.stockLinks || []) {
+      const pool = link.stockPool;
+      if (pool?.id != null && pool.remainingQuantity != null) {
+        stockRemainingMap[pool.id] = pool.remainingQuantity;
       }
     }
   }
@@ -993,17 +973,13 @@ async function loadOrders() {
       status: filter.status || undefined,
     };
 
-    const [ordersResponse, dailyMenusResponse] = await Promise.all([
+    const [ordersResponse, catalogResponse] = await Promise.all([
       api.get("/orders", { params }),
-      api.get("/daily-menus", {
-        params: {
-          date: filter.date || undefined,
-        },
-      }),
+      api.get("/menu-items/catalog"),
     ]);
 
-    dailyMenus.value = dailyMenusResponse.data || [];
-    syncStockFromMenus(dailyMenus.value);
+    menuCatalog.value = catalogResponse.data || [];
+    syncStockFromMenus(menuCatalog.value);
 
     const nextOrders = ordersResponse.data as OrderRecord[];
     orders.value = [...nextOrders].sort(sortOrdersByQueue);
@@ -1016,7 +992,7 @@ async function loadOrders() {
 
 async function saveOrderItems(
   order: OrderRecord,
-  items: Array<{ dailyMenuItemId?: number; menuItemId?: number; quantity: number; note?: string }>,
+  items: Array<{ menuItemId?: number; quantity: number; note?: string }>,
   arrivalTime: string | null,
   guestCount?: number | null
 ) {

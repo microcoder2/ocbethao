@@ -1,6 +1,5 @@
 import {
   CustomerType,
-  DailyMenuStatus,
   MenuItemStatus,
   OrderItemStatus,
   OrderStatus,
@@ -110,64 +109,6 @@ function getDerivedOrderItemStatus(
   return OrderItemStatus.WAITING;
 }
 
-function computeOfferAvailableQuantity(item: AnyRecord): number | null {
-  const links = Array.isArray(item.stockLinks) ? item.stockLinks : [];
-  if (links.length === 0) {
-    return null;
-  }
-
-  let capacity = Number.POSITIVE_INFINITY;
-  for (const link of links) {
-    const pool = link.dailyStockPool;
-    if (!pool || pool.isAvailable === false) {
-      return 0;
-    }
-
-    const quantity = normalizePositiveNumber(toNumber(pool.quantity));
-    const soldQuantity = normalizePositiveNumber(toNumber(pool.soldQuantity));
-    const consumeQuantity = normalizePositiveNumber(toNumber(link.consumeQuantity));
-    if (consumeQuantity <= 0) {
-      continue;
-    }
-
-    const remaining = Math.max(quantity - soldQuantity, 0);
-    capacity = Math.min(capacity, Math.floor(remaining / consumeQuantity));
-  }
-
-  return Number.isFinite(capacity) ? Math.max(capacity, 0) : null;
-}
-
-function resolveDailyMenuItemIds(item: AnyRecord) {
-  const menuItemId =
-    typeof item.menuItemId === "number"
-      ? item.menuItemId
-      : typeof item.menuItem?.id === "number"
-        ? item.menuItem.id
-        : null;
-
-  const dailyMenuItemId =
-    typeof item.dailyMenuItemId === "number"
-      ? item.dailyMenuItemId
-      : typeof item.id === "number" &&
-          typeof menuItemId === "number" &&
-          item.id > 0 &&
-          item.id !== menuItemId
-        ? item.id
-        : null;
-
-  return {
-    id: menuItemId ?? item.id ?? null,
-    key:
-      typeof dailyMenuItemId === "number"
-        ? `offer:${dailyMenuItemId}`
-        : typeof menuItemId === "number"
-          ? `menu:${menuItemId}`
-          : `item:${String(item.id ?? "unknown")}`,
-    menuItemId,
-    dailyMenuItemId,
-  };
-}
-
 export function serializeUser(user: AnyRecord) {
   const authIdentities = Array.isArray(user.authIdentities)
     ? user.authIdentities
@@ -235,6 +176,61 @@ export function serializeIngredient(ingredient: AnyRecord) {
   };
 }
 
+export function serializeIngredientStock(stock: AnyRecord) {
+  const quantity = normalizePositiveNumber(toNumber(stock.quantity));
+  const soldQuantity = normalizePositiveNumber(toNumber(stock.soldQuantity));
+  return {
+    id: stock.id,
+    ingredientId: stock.ingredientId,
+    label: stock.label ?? stock.ingredient?.name ?? null,
+    quantity,
+    soldQuantity,
+    remainingQuantity: Math.max(quantity - soldQuantity, 0),
+    isAvailable: Boolean(stock.isAvailable),
+    note: stock.note ?? null,
+    ingredient: stock.ingredient ? serializeIngredient(stock.ingredient) : null,
+    createdAt: stock.createdAt,
+    updatedAt: stock.updatedAt,
+  };
+}
+
+export function serializeInventoryMovement(movement: AnyRecord) {
+  return {
+    id: movement.id,
+    ingredientId: movement.ingredientId,
+    orderId: movement.orderId ?? null,
+    orderItemId: movement.orderItemId ?? null,
+    movementType: movement.movementType,
+    quantityDelta: toNumber(movement.quantityDelta),
+    note: movement.note ?? null,
+    createdById: movement.createdById ?? null,
+    createdAt: movement.createdAt,
+    ingredient: movement.ingredient ? serializeIngredient(movement.ingredient) : null,
+    order: movement.order
+      ? {
+          id: movement.order.id,
+          orderNumber: movement.order.orderNumber,
+        }
+      : null,
+    orderItem: movement.orderItem
+      ? {
+          id: movement.orderItem.id,
+          menuItemId: movement.orderItem.menuItemId ?? null,
+          itemNameSnapshot: movement.orderItem.itemNameSnapshot,
+          quantity: normalizePositiveNumber(movement.orderItem.quantity),
+          note: movement.orderItem.note ?? null,
+        }
+      : null,
+    createdBy: movement.createdBy
+      ? {
+          id: movement.createdBy.id,
+          fullName: movement.createdBy.fullName,
+          role: movement.createdBy.role,
+        }
+      : null,
+  };
+}
+
 export function serializeMenuItem(item: AnyRecord) {
   return {
     id: item.id,
@@ -276,162 +272,6 @@ export function serializeMenuItem(item: AnyRecord) {
   };
 }
 
-export function serializeDailyStockPool(pool: AnyRecord) {
-  const quantity = normalizePositiveNumber(toNumber(pool.quantity));
-  const soldQuantity = normalizePositiveNumber(toNumber(pool.soldQuantity));
-  return {
-    id: pool.id,
-    label: pool.label ?? pool.ingredient?.name ?? null,
-    quantity,
-    soldQuantity,
-    remainingQuantity: Math.max(quantity - soldQuantity, 0),
-    isAvailable: Boolean(pool.isAvailable),
-    note: pool.note ?? null,
-    createdAt: pool.createdAt,
-    updatedAt: pool.updatedAt,
-    ingredient: pool.ingredient ? serializeIngredient(pool.ingredient) : null,
-  };
-}
-
-export function serializeDailyMenuItem(item: AnyRecord) {
-  const availableQuantity = computeOfferAvailableQuantity(item);
-  const ids = resolveDailyMenuItemIds(item);
-  return {
-    id: ids.id,
-    key: ids.key,
-    dailyMenuItemId: ids.dailyMenuItemId,
-    menuItemId: ids.menuItemId,
-    quantity: null,
-    soldQuantity: null,
-    availableQuantity,
-    overridePrice: toNumber(item.overridePrice),
-    sellingPrice: toNumber(item.overridePrice ?? item.menuItem?.currentPrice),
-    isAvailable: Boolean(item.isAvailable) && availableQuantity !== 0,
-    highlightLabel: item.highlightLabel ?? null,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-    menuItem: item.menuItem ? serializeMenuItem(item.menuItem) : null,
-    stockLinks: Array.isArray(item.stockLinks)
-      ? item.stockLinks.map((link: AnyRecord) => ({
-          id: link.id,
-          dailyStockPoolId: link.dailyStockPoolId,
-          consumeQuantity: toNumber(link.consumeQuantity),
-          stockPool: link.dailyStockPool ? serializeDailyStockPool(link.dailyStockPool) : null,
-        }))
-      : [],
-  };
-}
-
-export function serializeDailyMenu(menu: AnyRecord) {
-  return {
-    id: menu.id,
-    code: menu.code,
-    title: menu.title,
-    serviceDate: menu.serviceDate,
-    status: menu.status as DailyMenuStatus,
-    note: menu.note ?? null,
-    bannerText: menu.bannerText ?? null,
-    createdById: menu.createdById ?? null,
-    createdAt: menu.createdAt,
-    updatedAt: menu.updatedAt,
-    stockPools: Array.isArray(menu.stockPools)
-      ? menu.stockPools.map(serializeDailyStockPool)
-      : [],
-    items: Array.isArray(menu.items)
-      ? menu.items.map(serializeDailyMenuItem)
-      : [],
-  };
-}
-
-function serializeDailyStockPoolSummary(pool: AnyRecord) {
-  const quantity = normalizePositiveNumber(toNumber(pool.quantity));
-  const soldQuantity = normalizePositiveNumber(toNumber(pool.soldQuantity));
-  return {
-    id: pool.id,
-    ingredientId: pool.ingredientId ?? null,
-    label: pool.label ?? null,
-    quantity,
-    soldQuantity,
-    remainingQuantity: Math.max(quantity - soldQuantity, 0),
-    isAvailable: Boolean(pool.isAvailable),
-    note: pool.note ?? null,
-  };
-}
-
-function serializeDailyStockPoolLink(pool: AnyRecord) {
-  const quantity = normalizePositiveNumber(toNumber(pool.quantity));
-  const soldQuantity = normalizePositiveNumber(toNumber(pool.soldQuantity));
-  return {
-    id: pool.id,
-    label: pool.label ?? null,
-    remainingQuantity: Math.max(quantity - soldQuantity, 0),
-  };
-}
-
-function serializeDailyMenuItemSummary(item: AnyRecord) {
-  const availableQuantity = computeOfferAvailableQuantity(item);
-  const ids = resolveDailyMenuItemIds(item);
-  return {
-    id: ids.id,
-    key: ids.key,
-    dailyMenuItemId: ids.dailyMenuItemId,
-    menuItemId: ids.menuItemId,
-    availableQuantity,
-    overridePrice: toNumber(item.overridePrice),
-    sellingPrice: toNumber(item.overridePrice ?? item.menuItem?.currentPrice),
-    isAvailable: Boolean(item.isAvailable) && availableQuantity !== 0,
-    highlightLabel: item.highlightLabel ?? null,
-    menuItem: item.menuItem
-      ? {
-          id: item.menuItem.id,
-          name: item.menuItem.name,
-          category: item.menuItem.category
-            ? { name: item.menuItem.category.name }
-            : null,
-        }
-      : null,
-    stockLinks: Array.isArray(item.stockLinks)
-      ? item.stockLinks.map((link: AnyRecord) => ({
-          id: link.id,
-          dailyStockPoolId: link.dailyStockPoolId,
-          consumeQuantity: toNumber(link.consumeQuantity),
-          stockPool: link.dailyStockPool
-            ? serializeDailyStockPoolLink(link.dailyStockPool)
-            : null,
-        }))
-      : [],
-  };
-}
-
-export function serializeDailyMenuWorkspace(menu: AnyRecord) {
-  return {
-    id: menu.id,
-    title: menu.title,
-    serviceDate: menu.serviceDate,
-    status: menu.status as DailyMenuStatus,
-    note: menu.note ?? null,
-    bannerText: menu.bannerText ?? null,
-    stockPools: Array.isArray(menu.stockPools)
-      ? menu.stockPools.map(serializeDailyStockPoolSummary)
-      : [],
-    items: Array.isArray(menu.items)
-      ? menu.items.map(serializeDailyMenuItemSummary)
-      : [],
-  };
-}
-
-export function serializeDailyMenuSummary(menu: AnyRecord) {
-  return {
-    id: menu.id,
-    title: menu.title,
-    serviceDate: menu.serviceDate,
-    status: menu.status as DailyMenuStatus,
-    note: menu.note ?? null,
-    bannerText: menu.bannerText ?? null,
-    stockPoolCount: Number(menu._count?.stockPools || 0),
-    itemCount: Number(menu._count?.items || 0),
-  };
-}
 
 function serializeOrderItems(items: AnyRecord[]) {
   return items.map((item: AnyRecord) => {
@@ -442,7 +282,6 @@ function serializeOrderItems(items: AnyRecord[]) {
     return {
       id: item.id,
       menuItemId: item.menuItemId ?? null,
-      dailyMenuItemId: item.dailyMenuItemId ?? null,
       itemNameSnapshot: item.itemNameSnapshot,
       unitPrice: toNumber(item.unitPrice),
       quantity,
@@ -469,7 +308,6 @@ function serializeOrderListItems(items: AnyRecord[]) {
     return {
       id: item.id,
       menuItemId: item.menuItemId ?? null,
-      dailyMenuItemId: item.dailyMenuItemId ?? null,
       itemNameSnapshot: item.itemNameSnapshot,
       unitPrice: toNumber(item.unitPrice),
       quantity,
@@ -528,7 +366,6 @@ export function serializeOrderList(order: AnyRecord) {
     serviceFee: toNumber(order.serviceFee),
     discountAmount: toNumber(order.discountAmount),
     totalAmount: toNumber(order.totalAmount),
-    dailyMenuId: order.dailyMenuId ?? null,
     createdAt: order.createdAt,
     customer: order.customer
       ? {
@@ -566,7 +403,6 @@ export function serializeOrder(order: AnyRecord) {
     createdById: order.createdById ?? null,
     assignedStaffId: order.assignedStaffId ?? null,
     customerId: order.customerId ?? null,
-    dailyMenuId: order.dailyMenuId ?? null,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
     confirmedAt: order.confirmedAt ?? null,

@@ -5,7 +5,7 @@ import {
   deleteAllLocalAuthIdentities,
   upsertAuthIdentityForUser,
 } from "../src/services/accountIdentityService";
-import { demoTodayMenu, seedCategories, seedIngredients } from "./seed-data/catalog";
+import { seedCategories, seedIngredients } from "./seed-data/catalog";
 import rawSeedMenuItems from "./seed-data/menu-items.json";
 import {
   type SeedUserKey,
@@ -70,10 +70,7 @@ async function cleanDatabase() {
   await prisma.inventoryMovement.deleteMany({});
   await prisma.orderItem.deleteMany({});
   await prisma.order.deleteMany({});
-  await prisma.dailyMenuItemStock.deleteMany({});
-  await prisma.dailyMenuItem.deleteMany({});
-  await prisma.dailyStockPool.deleteMany({});
-  await prisma.dailyMenu.deleteMany({});
+  await prisma.ingredientStock.deleteMany({});
   await prisma.menuItemIngredientPreset.deleteMany({});
   await prisma.menuItemPrice.deleteMany({});
   await prisma.menuItem.deleteMany({});
@@ -264,35 +261,20 @@ async function seedMenuBank(
 }
 
 async function seedTodayMenu(
-  adminId: number,
+  _adminId: number,
   ingredientsBySlug: Map<string, SeedIngredientRecord>
 ) {
-  const today = startOfDay();
-
-  const dailyMenu = await prisma.dailyMenu.create({
-    data: {
-      code: `MENU-${dateKey(today)}`,
-      title: demoTodayMenu.title,
-      serviceDate: today,
-      status: demoTodayMenu.status,
-      note: demoTodayMenu.note,
-      bannerText: demoTodayMenu.bannerText,
-      createdById: adminId,
-    },
-  });
-
   for (const ingredientSeed of seedIngredients) {
     const ingredient = ingredientsBySlug.get(ingredientSeed.slug);
     if (!ingredient || ingredientSeed.demoStockQuantity <= 0) continue;
 
-    await prisma.dailyStockPool.create({
+    await prisma.ingredientStock.create({
       data: {
-        dailyMenuId: dailyMenu.id,
         ingredientId: ingredient.id,
         label: ingredient.name,
         quantity: money(ingredientSeed.demoStockQuantity),
         soldQuantity: money(0),
-        note: `Pool seed cho ${ingredient.name}`,
+        note: `Stock seed cho ${ingredient.name}`,
       },
     });
   }

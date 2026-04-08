@@ -296,9 +296,8 @@ type MenuItemData = {
   category?: MenuCategory | null;
 };
 
-type DailyMenuItemData = {
+type CatalogItemData = {
   id: number;
-  dailyMenuItemId?: number | null;
   menuItemId?: number | null;
   quantity?: number | null;
   soldQuantity?: number;
@@ -309,18 +308,17 @@ type DailyMenuItemData = {
   menuItem?: MenuItemData | null;
 };
 
-type DailyMenuData = {
+type CatalogData = {
   id: number;
   title: string;
   serviceDate: string;
   note?: string | null;
   bannerText?: string | null;
-  items: DailyMenuItemData[];
+  items: CatalogItemData[];
 };
 
 type CartLine = {
   key: string;
-  dailyMenuItemId?: number;
   menuItemId: number;
   name: string;
   price: number;
@@ -329,7 +327,7 @@ type CartLine = {
 };
 
 const currentUser = getUser();
-const menu = ref<DailyMenuData | null>(null);
+const menu = ref<CatalogData | null>(null);
 const cart = ref<CartLine[]>(loadCustomerCart());
 const note = ref("");
 const arrivalTime = ref("");
@@ -554,7 +552,7 @@ async function loadMenu() {
   loadError.value = "";
 
   try {
-    const { data } = await api.get<DailyMenuData>("/daily-menus/public/today");
+    const { data } = await api.get<CatalogData>("/menu-items/public");
     menu.value = data;
   } catch (error) {
     menu.value = null;
@@ -568,7 +566,7 @@ async function loadMenu() {
   }
 }
 
-function addToCart(item: DailyMenuItemData) {
+function addToCart(item: CatalogItemData) {
   if (!canOrderItem(item)) return;
 
   feedback.value = null;
@@ -581,7 +579,6 @@ function addToCart(item: DailyMenuItemData) {
 
   cart.value.push({
     key,
-    dailyMenuItemId: item.dailyMenuItemId ?? undefined,
     menuItemId: getMenuItemId(item),
     name: item.menuItem?.name || "Món đang cập nhật",
     price: Number(item.sellingPrice || 0),
@@ -653,11 +650,9 @@ async function submitOrder() {
           : undefined;
 
     await api.post("/orders", {
-      dailyMenuId: menu.value.id,
       arrivalAt,
       note: note.value,
       items: cart.value.map((line) => ({
-        dailyMenuItemId: line.dailyMenuItemId,
         menuItemId: line.menuItemId,
         quantity: line.quantity,
         note: line.note?.trim() || undefined,
@@ -689,43 +684,39 @@ function resetFilters() {
   activeFilter.value = "all";
 }
 
-function getMenuItemId(item: DailyMenuItemData) {
+function getMenuItemId(item: CatalogItemData) {
   return Number(item.menuItemId ?? item.menuItem?.id ?? 0);
 }
 
-function getMenuOptionKey(item: DailyMenuItemData) {
-  const dailyMenuItemId = Number(item.dailyMenuItemId ?? 0);
-  if (dailyMenuItemId > 0) {
-    return `offer:${dailyMenuItemId}`;
-  }
+function getMenuOptionKey(item: CatalogItemData) {
   return `menu:${getMenuItemId(item)}`;
 }
 
-function getCartQuantity(item: DailyMenuItemData) {
+function getCartQuantity(item: CatalogItemData) {
   return cart.value.find((line) => line.key === getMenuOptionKey(item))?.quantity || 0;
 }
 
-function canOrderItem(item: DailyMenuItemData) {
+function canOrderItem(item: CatalogItemData) {
   return Boolean(item.isAvailable) && item.availableQuantity !== 0;
 }
 
-function getCategoryLabel(item: DailyMenuItemData) {
+function getCategoryLabel(item: CatalogItemData) {
   return item.menuItem?.category?.name || "Thực đơn trong ngày";
 }
 
-function getHighlightLabel(item: DailyMenuItemData) {
+function getHighlightLabel(item: CatalogItemData) {
   if (item.highlightLabel) return item.highlightLabel;
   if (item.menuItem?.isFeatured) return "Món đặc sắc";
   return "Phục vụ hôm nay";
 }
 
-function getPreparationLabel(item: DailyMenuItemData) {
+function getPreparationLabel(item: CatalogItemData) {
   const prepTime = Number(item.menuItem?.preparationTimeMin || 0);
   if (!prepTime) return "Ra món nhanh";
   return `${prepTime} phút chuẩn bị`;
 }
 
-function getSpicyLabel(item: DailyMenuItemData) {
+function getSpicyLabel(item: CatalogItemData) {
   const spicyLevel = Number(item.menuItem?.spicyLevel ?? 0);
   if (spicyLevel <= 0) return "Không cay";
   if (spicyLevel === 1) return "Cay nhẹ";
@@ -733,7 +724,7 @@ function getSpicyLabel(item: DailyMenuItemData) {
   return "Cay đậm vị";
 }
 
-function getAvailabilityLabel(item: DailyMenuItemData) {
+function getAvailabilityLabel(item: CatalogItemData) {
   if (!item.isAvailable || item.availableQuantity === 0) {
     return "Tạm hết món";
   }
@@ -749,11 +740,11 @@ function getAvailabilityLabel(item: DailyMenuItemData) {
   return `Sẵn sàng ${item.availableQuantity} ${item.menuItem?.unit || "phần"}`;
 }
 
-function getUnitLabel(item: DailyMenuItemData) {
+function getUnitLabel(item: CatalogItemData) {
   return item.menuItem?.unit ? `Đơn vị ${item.menuItem.unit}` : "Theo suất";
 }
 
-function isFeaturedItem(item: DailyMenuItemData) {
+function isFeaturedItem(item: CatalogItemData) {
   return Boolean(item.menuItem?.isFeatured || item.highlightLabel);
 }
 
@@ -790,7 +781,7 @@ function resolveImageUrl(imageUrl?: string | null) {
   return new URL(imageUrl, API_BASE_URL).toString();
 }
 
-function getCardMediaStyle(item: DailyMenuItemData, index: number) {
+function getCardMediaStyle(item: CatalogItemData, index: number) {
   const palette = paletteOverlays[index % paletteOverlays.length];
   const imageUrl = resolveImageUrl(item.menuItem?.imageUrl);
 
@@ -822,7 +813,7 @@ function scrollToCart() {
 
 async function silentRefreshMenu() {
   try {
-    const { data } = await api.get<DailyMenuData>("/daily-menus/public/today");
+    const { data } = await api.get<CatalogData>("/menu-items/public");
     menu.value = data;
   } catch {
     // ignore — keep current menu on error

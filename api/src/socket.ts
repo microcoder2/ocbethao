@@ -142,13 +142,13 @@ export function broadcastOrderChanged(
 }
 
 /**
- * Fetch fresh pool data after a stock change and broadcast to all clients.
+ * Fetch fresh stock data after a stock change and broadcast to all clients.
  */
-export async function broadcastStockUpdate(poolIds: number[]): Promise<void> {
-  if (!poolIds.length || !io) return;
+export async function broadcastStockUpdate(ingredientIds: number[]): Promise<void> {
+  if (!ingredientIds.length || !io) return;
 
-  const pools = await prisma.dailyStockPool.findMany({
-    where: { id: { in: poolIds } },
+  const pools = await prisma.ingredientStock.findMany({
+    where: { ingredientId: { in: ingredientIds } },
     include: { ingredient: true },
   });
 

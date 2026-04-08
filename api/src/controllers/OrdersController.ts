@@ -24,12 +24,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { serializeOrder, serializeOrderList } from "../utils/mappers";
-import {
-  computeAvailableQuantityFromLinks,
-  dailyMenuResourceInclude,
-  getEffectiveOfferForMenuItem,
-  loadCatalogMenuItems,
-} from "../services/dailyMenuOfferService";
+import { loadCurrentIngredientStocks } from "../services/catalogService";
 import {
   broadcastStockUpdate,
   broadcastNewOrder,
@@ -39,7 +34,6 @@ import {
 } from "../socket";
 
 class OrderItemInput {
-  dailyMenuItemId?: number;
   menuItemId?: number;
   quantity!: number;
   note?: string;
@@ -47,7 +41,6 @@ class OrderItemInput {
 }
 
 class CreateOrderBody {
-  dailyMenuId?: number;
   customerId?: number;
   assignedStaffId?: number;
   tableLabel?: string;
@@ -125,15 +118,13 @@ type ItemStageQuantities = {
 };
 
 type StockUsageEntry = {
-  dailyStockPoolId: number;
-  ingredientId?: number | null;
+  ingredientId: number;
   consumeQuantity: number;
   quantity: number;
 };
 
 type ResolvedOrderLine = {
   menuItemId: number | null;
-  dailyMenuItemId: number | null;
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
@@ -147,6 +138,15 @@ type ResolvedOrderLine = {
   stockUsage: StockUsageEntry[];
 };
 
+type IngredientStockLookup = {
+  id: number;
+  ingredientId: number;
+  quantity: number | Prisma.Decimal;
+  soldQuantity: number | Prisma.Decimal;
+  isAvailable: boolean;
+  label?: string | null;
+};
+
 type StockTrackedOrderItem = {
   id?: number;
   quantity: number;
@@ -157,21 +157,38 @@ type StockTrackedOrderItem = {
   cookingQuantity?: number | null;
   readyQuantity?: number | null;
   cancelledQuantity?: number | null;
-  dailyMenuItemId?: number | null;
   menuItemId?: number | null;
   note?: string | null;
-  dailyMenuItem?: {
-    stockLinks?: Array<{
-      dailyStockPoolId: number;
-      consumeQuantity: Prisma.Decimal | number;
-      dailyStockPool?: {
-        ingredientId: number;
-        quantity?: Prisma.Decimal | number;
-        soldQuantity?: Prisma.Decimal | number;
-        isAvailable?: boolean | null;
-      } | null;
+  menuItem?: {
+    ingredientPresets?: Array<{
+      ingredientId: number;
+      consumeQuantity: Prisma.Decimal | number | null;
     }>;
   } | null;
+  consumptions?: Array<{
+    ingredientId: number;
+    consumeQuantity: Prisma.Decimal | number | null;
+  }>;
+};
+
+const orderItemStockInclude = {
+  menuItem: {
+    include: {
+      ingredientPresets: {
+        select: {
+          ingredientId: true,
+          consumeQuantity: true,
+        },
+        orderBy: [{ sortOrder: "asc" as const }, { id: "asc" as const }],
+      },
+    },
+  },
+  consumptions: {
+    select: {
+      ingredientId: true,
+      consumeQuantity: true,
+    },
+  },
 };
 
 function money(value: number): Prisma.Decimal {
@@ -214,11 +231,10 @@ function normalizeOrderItemNote(note?: string | null) {
 }
 
 function getOrderItemKey(
-  dailyMenuItemId: number | null | undefined,
   menuItemId: number | null | undefined,
   note?: string | null
 ) {
-  return `${dailyMenuItemId ?? "none"}:${menuItemId ?? "none"}:${normalizeOrderItemNote(note)}`;
+  return `${menuItemId ?? "none"}:${normalizeOrderItemNote(note)}`;
 }
 
 function getAdminOrderChangeType(status: OrderStatus): OrderChangeType | null {
@@ -418,7 +434,6 @@ function buildPersistedOrderLine(item: StockTrackedOrderItem): ResolvedOrderLine
 
   return {
     menuItemId: item.menuItemId ?? null,
-    dailyMenuItemId: item.dailyMenuItemId ?? null,
     itemNameSnapshot: String(item.itemNameSnapshot || ""),
     unitPrice,
     quantity,
@@ -443,7 +458,6 @@ function buildUpdatedWaitingOrderLine(
 
   return {
     menuItemId: item.menuItemId ?? null,
-    dailyMenuItemId: item.dailyMenuItemId ?? null,
     itemNameSnapshot: String(item.itemNameSnapshot || ""),
     unitPrice,
     quantity,
@@ -461,12 +475,11 @@ function buildUpdatedWaitingOrderLine(
 async function buildFinalOrderLinesFromDiff(
   tx: Prisma.TransactionClient,
   currentItems: StockTrackedOrderItem[],
-  incomingItems: OrderItemInput[],
-  dailyMenuId?: number | null
+  incomingItems: OrderItemInput[]
 ) {
   const currentBuckets = new Map<string, StockTrackedOrderItem[]>();
   for (const item of currentItems) {
-    const key = getOrderItemKey(item.dailyMenuItemId, item.menuItemId, item.note);
+    const key = getOrderItemKey(item.menuItemId, item.note);
     const bucket = currentBuckets.get(key);
     if (bucket) {
       bucket.push(item);
@@ -483,7 +496,6 @@ async function buildFinalOrderLinesFromDiff(
 
   for (const rawItem of incomingItems) {
     const key = getOrderItemKey(
-      typeof rawItem.dailyMenuItemId === "number" ? rawItem.dailyMenuItemId : null,
       typeof rawItem.menuItemId === "number" ? rawItem.menuItemId : null,
       rawItem.note
     );
@@ -513,7 +525,7 @@ async function buildFinalOrderLinesFromDiff(
   }
 
   const newLines = newInputs.length
-    ? await resolveOrderLines(tx, newInputs, dailyMenuId)
+    ? await resolveOrderLines(tx, newInputs)
     : [];
   let newLineIndex = 0;
 
@@ -611,7 +623,6 @@ function normalizePositiveInt(value: number): number {
 
 function buildOrderItemsSignature(
   items: Array<{
-    dailyMenuItemId?: number | null;
     menuItemId?: number | null;
     quantity: number;
     note?: string | null;
@@ -619,16 +630,11 @@ function buildOrderItemsSignature(
 ) {
   return [...(items || [])]
     .map((item) => ({
-      dailyMenuItemId:
-        typeof item.dailyMenuItemId === "number" ? item.dailyMenuItemId : null,
       menuItemId: typeof item.menuItemId === "number" ? item.menuItemId : null,
       quantity: normalizePositiveInt(item.quantity),
       note: normalizeOrderItemNote(item.note),
     }))
     .sort((a, b) => {
-      if (a.dailyMenuItemId !== b.dailyMenuItemId) {
-        return (a.dailyMenuItemId ?? 0) - (b.dailyMenuItemId ?? 0);
-      }
       if (a.menuItemId !== b.menuItemId) {
         return (a.menuItemId ?? 0) - (b.menuItemId ?? 0);
       }
@@ -639,7 +645,7 @@ function buildOrderItemsSignature(
     })
     .map(
       (item) =>
-        `${item.dailyMenuItemId ?? "none"}:${item.menuItemId ?? "none"}:${item.quantity}:${item.note}`
+        `${item.menuItemId ?? "none"}:${item.quantity}:${item.note}`
     )
     .join("|");
 }
@@ -653,18 +659,50 @@ function aggregateStockUsage(lines: ResolvedOrderLine[]) {
   for (const line of lines) {
     for (const stock of line.stockUsage) {
       usage.set(
-        stock.dailyStockPoolId,
-        (usage.get(stock.dailyStockPoolId) || 0) + stock.quantity
+        stock.ingredientId,
+        (usage.get(stock.ingredientId) || 0) + stock.quantity
       );
     }
   }
   return usage;
 }
 
+function computeAvailableQuantityFromIngredientStocks(
+  presets: Array<{
+    ingredientId: number;
+    consumeQuantity: number | Prisma.Decimal;
+  }>,
+  stockMap: Map<number, IngredientStockLookup>
+) {
+  if (!presets.length) {
+    return null;
+  }
+
+  let capacity = Number.POSITIVE_INFINITY;
+  for (const preset of presets) {
+    const stock = stockMap.get(preset.ingredientId);
+    if (!stock || stock.isAvailable === false) {
+      return 0;
+    }
+
+    const consumeQuantity = Math.max(Number(preset.consumeQuantity || 0), 0);
+    if (consumeQuantity <= 0) {
+      continue;
+    }
+
+    const remainingQuantity = Math.max(
+      Number(stock.quantity || 0) - Number(stock.soldQuantity || 0),
+      0
+    );
+    capacity = Math.min(capacity, Math.floor(remainingQuantity / consumeQuantity));
+  }
+
+  return Number.isFinite(capacity) ? Math.max(capacity, 0) : null;
+}
+
 function formatUnavailableMenuItemMessage(params: {
   itemName: string;
   menuItemId: number | null;
-  dailyMenuItemId: number | null;
   requestedQuantity: number;
   availableQuantity: number;
 }) {
@@ -672,7 +710,6 @@ function formatUnavailableMenuItemMessage(params: {
     "Món trong menu ngày không còn khả dụng.",
     `- Món: ${params.itemName}`,
     `- menuItemId: ${params.menuItemId ?? "null"}`,
-    `- dailyMenuItemId: ${params.dailyMenuItemId ?? "null"}`,
     `- Còn tối đa: ${params.availableQuantity}`,
     `- Số lượng đặt: ${params.requestedQuantity}`,
   ].join("\n");
@@ -708,16 +745,35 @@ function buildStockUsageEntriesForItem(
     return [] as StockUsageEntry[];
   }
 
-  const stockLinks = item.dailyMenuItem?.stockLinks || [];
-  return stockLinks.map((link) => {
-    const consumeQuantity = Number(link.consumeQuantity || 0);
-    return {
-      dailyStockPoolId: link.dailyStockPoolId,
-      ingredientId: link.dailyStockPool?.ingredientId ?? null,
-      consumeQuantity,
-      quantity: consumeQuantity * activeQuantity,
-    } satisfies StockUsageEntry;
-  }).filter((entry) => entry.quantity > 0);
+  const consumptions = Array.isArray(item.consumptions) ? item.consumptions : [];
+  if (consumptions.length) {
+    return consumptions
+      .map((consumption) => {
+        const consumeQuantity = Number(consumption.consumeQuantity || 0);
+        return {
+          ingredientId: consumption.ingredientId,
+          consumeQuantity,
+          quantity: consumeQuantity * activeQuantity,
+        } satisfies StockUsageEntry;
+      })
+      .filter((entry) => entry.ingredientId > 0 && entry.quantity > 0);
+  }
+
+  const ingredientPresets = item.menuItem?.ingredientPresets || [];
+  if (ingredientPresets.length) {
+    return ingredientPresets
+      .map((preset) => {
+        const consumeQuantity = Number(preset.consumeQuantity || 0);
+        return {
+          ingredientId: preset.ingredientId,
+          consumeQuantity,
+          quantity: consumeQuantity * activeQuantity,
+        } satisfies StockUsageEntry;
+      })
+      .filter((entry) => entry.ingredientId > 0 && entry.quantity > 0);
+  }
+
+  return [] as StockUsageEntry[];
 }
 
 async function ensureStockAvailability(
@@ -725,18 +781,18 @@ async function ensureStockAvailability(
   usage: Map<number, number>,
   lines?: ResolvedOrderLine[]
 ) {
-  const stockPoolIds = Array.from(usage.keys());
-  if (stockPoolIds.length === 0) {
+  const ingredientIds = Array.from(usage.keys());
+  if (ingredientIds.length === 0) {
     return;
   }
 
-  const stockPools = await tx.dailyStockPool.findMany({
-    where: { id: { in: stockPoolIds } },
+  const stockPools = await tx.ingredientStock.findMany({
+    where: { ingredientId: { in: ingredientIds } },
   });
-  const stockPoolMap = new Map(stockPools.map((pool) => [pool.id, pool]));
+  const stockPoolMap = new Map(stockPools.map((pool) => [pool.ingredientId, pool]));
 
-  for (const [dailyStockPoolId, requiredQuantity] of usage.entries()) {
-    const pool = stockPoolMap.get(dailyStockPoolId);
+  for (const [ingredientId, requiredQuantity] of usage.entries()) {
+    const pool = stockPoolMap.get(ingredientId);
     if (!pool || pool.isAvailable === false) {
       throw new Error("Nguồn hàng của món đã tạm dừng phục vụ");
     }
@@ -745,18 +801,18 @@ async function ensureStockAvailability(
     if (remainingQuantity < requiredQuantity) {
       const affectedLines =
         lines?.filter((line) =>
-          line.stockUsage.some((stock) => stock.dailyStockPoolId === dailyStockPoolId)
+          line.stockUsage.some((stock) => stock.ingredientId === ingredientId)
         ) ?? [];
 
       const lineSummary = affectedLines.length
         ? affectedLines
             .map((line) => {
               const stockUsage = line.stockUsage.find(
-                (stock) => stock.dailyStockPoolId === dailyStockPoolId
+                (stock) => stock.ingredientId === ingredientId
               );
               const lineRequiredQuantity = Number(stockUsage?.quantity || 0);
               const lineConsumeQuantity = Number(stockUsage?.consumeQuantity || 0);
-              return `- Món: ${line.itemNameSnapshot} | menuItemId: ${line.menuItemId ?? "null"} | dailyMenuItemId: ${line.dailyMenuItemId ?? "null"} | số lượng đặt: ${line.quantity} | cần từ kho: ${lineRequiredQuantity} (định mức ${lineConsumeQuantity}/món)`;
+              return `- Món: ${line.itemNameSnapshot} | menuItemId: ${line.menuItemId ?? "null"} | số lượng đặt: ${line.quantity} | cần từ kho: ${lineRequiredQuantity} (định mức ${lineConsumeQuantity}/món)`;
             })
             .join("\n")
         : "- Không xác định được món liên quan từ danh sách đơn.";
@@ -764,7 +820,7 @@ async function ensureStockAvailability(
       throw new Error(
         [
           "Tồn kho không đủ cho món trong đơn.",
-          `- Kho #${dailyStockPoolId}: còn ${remainingQuantity}, cần ${requiredQuantity}.`,
+          `- Kho ingredientId ${ingredientId}: còn ${remainingQuantity}, cần ${requiredQuantity}.`,
           lineSummary,
         ].join("\n")
       );
@@ -778,7 +834,6 @@ async function applyStockUsage(
   direction: 1 | -1,
   audit?: {
     movementType: InventoryMovementType;
-    dailyMenuId?: number | null;
     orderId?: number | null;
     orderItemId?: number | null;
     createdById?: number | null;
@@ -786,23 +841,23 @@ async function applyStockUsage(
   }
 ) {
   const movementIdsByPool = new Map<number, number>();
-  const stockPoolIds = Array.from(usage.keys());
-  if (stockPoolIds.length === 0) {
+  const ingredientIds = Array.from(usage.keys());
+  if (ingredientIds.length === 0) {
     return movementIdsByPool;
   }
 
-  const pools = await tx.dailyStockPool.findMany({
-    where: { id: { in: stockPoolIds } },
+  const pools = await tx.ingredientStock.findMany({
+    where: { ingredientId: { in: ingredientIds } },
     select: {
       id: true,
       ingredientId: true,
       soldQuantity: true,
     },
   });
-  const poolMap = new Map(pools.map((pool) => [pool.id, pool]));
+  const poolMap = new Map(pools.map((pool) => [pool.ingredientId, pool]));
 
-  for (const [dailyStockPoolId, quantity] of usage.entries()) {
-    const pool = poolMap.get(dailyStockPoolId);
+  for (const [ingredientId, quantity] of usage.entries()) {
+    const pool = poolMap.get(ingredientId);
     if (!pool) {
       throw new Error("Khong tim thay nguon hang cua mon");
     }
@@ -811,8 +866,8 @@ async function applyStockUsage(
       Number(pool.soldQuantity) + quantity * direction
     );
 
-    await tx.dailyStockPool.update({
-      where: { id: dailyStockPoolId },
+    await tx.ingredientStock.update({
+      where: { ingredientId },
       data: {
         soldQuantity: money(nextSoldQuantity),
       },
@@ -821,18 +876,16 @@ async function applyStockUsage(
     if (audit && quantity > 0) {
       const movement = await tx.inventoryMovement.create({
         data: {
-        ingredientId: pool.ingredientId,
-        dailyMenuId: audit.dailyMenuId ?? null,
-        dailyStockPoolId,
-        orderId: audit.orderId ?? null,
-        orderItemId: audit.orderItemId ?? null,
-        movementType: audit.movementType,
-        quantityDelta: money(direction === 1 ? -quantity : quantity),
-        note: audit.note ?? null,
-        createdById: audit.createdById ?? null,
+          ingredientId: pool.ingredientId,
+          orderId: audit.orderId ?? null,
+          orderItemId: audit.orderItemId ?? null,
+          movementType: audit.movementType,
+          quantityDelta: money(direction === 1 ? -quantity : quantity),
+          note: audit.note ?? null,
+          createdById: audit.createdById ?? null,
         },
       });
-      movementIdsByPool.set(dailyStockPoolId, movement.id);
+      movementIdsByPool.set(ingredientId, movement.id);
     }
   }
 
@@ -871,10 +924,9 @@ async function syncOrderItemConsumptions(
       .map((stock) => ({
         orderItemId: entry.orderItemId,
         ingredientId: Number(stock.ingredientId),
-        dailyStockPoolId: stock.dailyStockPoolId,
         inventoryMovementId:
-          typeof stock.dailyStockPoolId === "number"
-            ? movementIdsByPool?.get(stock.dailyStockPoolId) ?? null
+          typeof stock.ingredientId === "number"
+            ? movementIdsByPool?.get(stock.ingredientId) ?? null
             : null,
         consumeQuantity: money(stock.consumeQuantity),
         totalQuantity: money(stock.quantity),
@@ -892,30 +944,16 @@ async function syncOrderItemConsumptions(
 
 async function resolveOrderLines(
   tx: Prisma.TransactionClient,
-  items: OrderItemInput[],
-  dailyMenuId?: number | null
+  items: OrderItemInput[]
 ): Promise<ResolvedOrderLine[]> {
   const normalizedItems = (items || []).map((item) => ({
     ...item,
-    dailyMenuItemId:
-      typeof item.dailyMenuItemId === "number" && item.dailyMenuItemId > 0
-        ? item.dailyMenuItemId
-        : undefined,
     menuItemId:
       typeof item.menuItemId === "number" && item.menuItemId > 0
         ? item.menuItemId
-        : typeof item.dailyMenuItemId === "number" && item.dailyMenuItemId < 0
-          ? Math.abs(item.dailyMenuItemId)
-          : undefined,
+        : undefined,
   }));
 
-  const dailyMenuItemIds = Array.from(
-    new Set(
-      normalizedItems
-        .map((item) => item.dailyMenuItemId)
-        .filter((value): value is number => typeof value === "number")
-    )
-  );
   const menuItemIds = Array.from(
     new Set(
       normalizedItems
@@ -924,164 +962,54 @@ async function resolveOrderLines(
     )
   );
 
-  const [dailyMenuItems, menuItems, dailyMenu] = await Promise.all([
-    dailyMenuItemIds.length
-      ? tx.dailyMenuItem.findMany({
-          where: { id: { in: dailyMenuItemIds } },
+  const [menuItems, ingredientStocks] = await Promise.all([
+    menuItemIds.length
+      ? tx.menuItem.findMany({
+          where: { id: { in: menuItemIds } },
           include: {
-            menuItem: true,
-            stockLinks: {
-              include: {
-                dailyStockPool: {
-                  select: {
-                    ingredientId: true,
-                    quantity: true,
-                    soldQuantity: true,
-                    isAvailable: true,
-                  },
-                },
-              },
+            ingredientPresets: {
+              include: { ingredient: true },
+              orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
             },
           },
         })
       : Promise.resolve([]),
-    menuItemIds.length
-      ? tx.menuItem.findMany({
-          where: { id: { in: menuItemIds } },
-        })
-      : Promise.resolve([]),
-    dailyMenuId
-      ? tx.dailyMenu.findUnique({
-          where: { id: dailyMenuId },
-          include: dailyMenuResourceInclude,
-        })
-      : Promise.resolve(null),
+    loadCurrentIngredientStocks(tx),
   ]);
 
-  const dailyMenuItemMap = new Map(dailyMenuItems.map((item) => [item.id, item]));
   const menuItemMap = new Map(menuItems.map((item) => [item.id, item]));
-  const effectiveOfferMap = new Map<number, ReturnType<typeof getEffectiveOfferForMenuItem>>();
-
-  if (dailyMenu && menuItemIds.length) {
-    const catalogItems = await loadCatalogMenuItems(tx, menuItemIds);
-    for (const menuItemId of menuItemIds) {
-      effectiveOfferMap.set(
-        menuItemId,
-        getEffectiveOfferForMenuItem(dailyMenu, catalogItems, menuItemId)
-      );
-    }
-  }
+  const ingredientStockMap = new Map(
+    ingredientStocks.map((stock) => [stock.ingredientId, stock])
+  );
 
   return normalizedItems.map((item) => {
     const quantity = normalizePositiveInt(item.quantity);
 
-    if (item.dailyMenuItemId) {
-      const dailyMenuItem = dailyMenuItemMap.get(item.dailyMenuItemId);
-      if (!dailyMenuItem || !dailyMenuItem.isAvailable) {
-        const availableQuantity = dailyMenuItem
-          ? computeAvailableQuantityFromLinks(dailyMenuItem.stockLinks || [])
-          : 0;
+    if (item.menuItemId) {
+      const menuItem = menuItemMap.get(item.menuItemId);
+      if (!menuItem || !menuItem.isAvailable || menuItem.status !== "ACTIVE") {
+        throw new Error("Mon mau khong con kha dung");
+      }
+
+      const availableQuantity = computeAvailableQuantityFromIngredientStocks(
+        menuItem.ingredientPresets || [],
+        ingredientStockMap
+      );
+      if (availableQuantity !== null && availableQuantity < quantity) {
         throw new Error(
           formatUnavailableMenuItemMessage({
-            itemName: dailyMenuItem?.menuItem?.name || `#${item.dailyMenuItemId}`,
-            menuItemId: dailyMenuItem?.menuItemId ?? item.menuItemId ?? null,
-            dailyMenuItemId: item.dailyMenuItemId,
+            itemName: menuItem.name,
+            menuItemId: menuItem.id,
             requestedQuantity: quantity,
             availableQuantity,
           })
         );
       }
 
-      if (!dailyMenuItem.menuItem) {
-        throw new Error("Mon mau cua menu ngay khong ton tai");
-      }
-
-      const stockLinks = dailyMenuItem.stockLinks || [];
-      if (stockLinks.length === 0) {
-        throw new Error("Mon trong menu ngay chua duoc gan nguon hang");
-      }
-
-      const unitPrice = Number(
-        dailyMenuItem.overridePrice ?? dailyMenuItem.menuItem.currentPrice
-      );
-      const stageData = buildStageData(quantity, item.status ?? OrderItemStatus.WAITING);
-      return {
-        menuItemId: dailyMenuItem.menuItemId,
-        dailyMenuItemId: dailyMenuItem.id,
-        itemNameSnapshot: dailyMenuItem.menuItem.name,
-        unitPrice,
-        quantity,
-        waitingQuantity: stageData.waitingQuantity,
-        cookingQuantity: stageData.cookingQuantity,
-        readyQuantity: stageData.readyQuantity,
-        cancelledQuantity: stageData.cancelledQuantity,
-        status: stageData.status,
-        lineTotal: unitPrice * quantity,
-        note: normalizeOrderItemNote(item.note) || undefined,
-        stockUsage: stockLinks.map((link) => ({
-          dailyStockPoolId: link.dailyStockPoolId,
-          ingredientId: link.dailyStockPool?.ingredientId ?? null,
-          consumeQuantity: Number(link.consumeQuantity),
-          quantity: Number(link.consumeQuantity) * quantity,
-        })),
-      };
-    }
-
-    if (item.menuItemId) {
-      if (dailyMenu) {
-        const effectiveOffer = effectiveOfferMap.get(item.menuItemId);
-        if (!effectiveOffer || !effectiveOffer.isAvailable) {
-          const availableQuantity = effectiveOffer
-            ? computeAvailableQuantityFromLinks(effectiveOffer.stockLinks || [])
-            : 0;
-          throw new Error(
-            formatUnavailableMenuItemMessage({
-              itemName: effectiveOffer?.menuItem?.name || `#${item.menuItemId}`,
-              menuItemId: item.menuItemId,
-              dailyMenuItemId: effectiveOffer?.dailyMenuItemId ?? null,
-              requestedQuantity: quantity,
-              availableQuantity,
-            })
-          );
-        }
-
-        if (!effectiveOffer.stockLinks?.length) {
-          throw new Error("Mon trong menu ngay chua duoc gan nguon hang");
-        }
-
-        const stageData = buildStageData(quantity, item.status ?? OrderItemStatus.WAITING);
-        return {
-          menuItemId: effectiveOffer.menuItemId,
-          dailyMenuItemId: effectiveOffer.dailyMenuItemId,
-          itemNameSnapshot: effectiveOffer.menuItem.name,
-          unitPrice: Number(effectiveOffer.sellingPrice),
-          quantity,
-          waitingQuantity: stageData.waitingQuantity,
-          cookingQuantity: stageData.cookingQuantity,
-          readyQuantity: stageData.readyQuantity,
-          cancelledQuantity: stageData.cancelledQuantity,
-          status: stageData.status,
-          lineTotal: Number(effectiveOffer.sellingPrice) * quantity,
-          note: normalizeOrderItemNote(item.note) || undefined,
-          stockUsage: effectiveOffer.stockLinks.map((link) => ({
-            dailyStockPoolId: link.dailyStockPoolId,
-            ingredientId: link.dailyStockPool?.ingredientId ?? null,
-            consumeQuantity: Number(link.consumeQuantity),
-            quantity: Number(link.consumeQuantity) * quantity,
-          })),
-        };
-      }
-
-      const menuItem = menuItemMap.get(item.menuItemId);
-      if (!menuItem || !menuItem.isAvailable) {
-        throw new Error("Mon mau khong con kha dung");
-      }
-
       const unitPrice = Number(menuItem.currentPrice);
       const stageData = buildStageData(quantity, item.status ?? OrderItemStatus.WAITING);
       return {
         menuItemId: menuItem.id,
-        dailyMenuItemId: null,
         itemNameSnapshot: menuItem.name,
         unitPrice,
         quantity,
@@ -1092,18 +1020,23 @@ async function resolveOrderLines(
         status: stageData.status,
         lineTotal: unitPrice * quantity,
         note: normalizeOrderItemNote(item.note) || undefined,
-        stockUsage: [],
+        stockUsage: (menuItem.ingredientPresets || []).map((preset) => {
+          return {
+            ingredientId: preset.ingredientId,
+            consumeQuantity: Number(preset.consumeQuantity || 0),
+            quantity: Number(preset.consumeQuantity || 0) * quantity,
+          };
+        }).filter((entry) => entry.quantity > 0),
       };
     }
 
-    throw new Error("Each order item must include dailyMenuItemId or menuItemId");
+    throw new Error("Each order item must include menuItemId");
   });
 }
 
 function pairOrderItemsWithResolvedLines(
   orderItems: Array<{
     id: number;
-    dailyMenuItemId: number | null;
     menuItemId: number | null;
     note?: string | null;
   }>,
@@ -1113,14 +1046,13 @@ function pairOrderItemsWithResolvedLines(
     string,
     Array<{
       id: number;
-      dailyMenuItemId: number | null;
       menuItemId: number | null;
       note?: string | null;
     }>
   >();
 
   for (const item of orderItems) {
-    const key = getOrderItemKey(item.dailyMenuItemId, item.menuItemId, item.note);
+    const key = getOrderItemKey(item.menuItemId, item.note);
     const current = buckets.get(key);
     if (current) {
       current.push(item);
@@ -1130,7 +1062,7 @@ function pairOrderItemsWithResolvedLines(
   }
 
   return lines.flatMap((line) => {
-    const key = getOrderItemKey(line.dailyMenuItemId, line.menuItemId, line.note);
+    const key = getOrderItemKey(line.menuItemId, line.note);
     const target = buckets.get(key)?.shift();
     if (!target) {
       return [];
@@ -1157,11 +1089,10 @@ function buildOrderListSelect() {
     arrivalAt: true,
     subtotal: true,
     serviceFee: true,
-    discountAmount: true,
-    totalAmount: true,
-    createdAt: true,
-    dailyMenuId: true,
-    customer: {
+      discountAmount: true,
+      totalAmount: true,
+      createdAt: true,
+      customer: {
       select: {
         fullName: true,
         phone: true,
@@ -1169,11 +1100,10 @@ function buildOrderListSelect() {
     },
     items: {
       orderBy: { id: "asc" as const },
-      select: {
-        id: true,
-        menuItemId: true,
-        dailyMenuItemId: true,
-        itemNameSnapshot: true,
+        select: {
+          id: true,
+          menuItemId: true,
+          itemNameSnapshot: true,
         unitPrice: true,
         quantity: true,
         waitingQuantity: true,
@@ -1220,21 +1150,7 @@ async function getOrderForStockSync(id: number) {
     where: { id },
     include: {
       items: {
-        include: {
-          dailyMenuItem: {
-            include: {
-              stockLinks: {
-                include: {
-                  dailyStockPool: {
-                    select: {
-                      ingredientId: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
+        include: orderItemStockInclude,
       },
     },
   });
@@ -1252,8 +1168,8 @@ function getStockUsageFromOrderItems(
     const stockLinks = buildStockUsageEntriesForItem(item);
     for (const link of stockLinks) {
       usage.set(
-        link.dailyStockPoolId,
-        (usage.get(link.dailyStockPoolId) || 0) + link.quantity
+        link.ingredientId,
+        (usage.get(link.ingredientId) || 0) + link.quantity
       );
     }
   }
@@ -1361,7 +1277,7 @@ export class OrdersController extends Controller {
         where: { id },
         include: {
           items: {
-            include: { dailyMenuItem: { include: { stockLinks: true } } },
+            include: orderItemStockInclude,
           },
         },
       });
@@ -1371,7 +1287,6 @@ export class OrdersController extends Controller {
       );
       await applyStockUsage(tx, stockUsage, -1, {
         movementType: InventoryMovementType.ORDER_RELEASE,
-        dailyMenuId: current.dailyMenuId,
         orderId: current.id,
         createdById: authUser.id,
       });
@@ -1438,21 +1353,7 @@ export class OrdersController extends Controller {
         where: { id: orderId },
         include: {
           items: {
-            include: {
-              dailyMenuItem: {
-                include: {
-                  stockLinks: {
-                    include: {
-                      dailyStockPool: {
-                        select: {
-                          ingredientId: true,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
+            include: orderItemStockInclude,
           },
         },
       });
@@ -1478,7 +1379,6 @@ export class OrdersController extends Controller {
       const itemUsage = getStockUsageFromOrderItems([targetItem]);
       await applyStockUsage(tx, itemUsage, -1, {
         movementType: InventoryMovementType.ORDER_RELEASE,
-        dailyMenuId: current.dailyMenuId,
         orderId: current.id,
         orderItemId: targetItem.id,
         createdById: authUser.id,
@@ -1565,24 +1465,7 @@ export class OrdersController extends Controller {
         where: { id: orderId },
         include: {
           items: {
-            include: {
-              dailyMenuItem: {
-                include: {
-                  stockLinks: {
-                    include: {
-                      dailyStockPool: {
-                        select: {
-                          quantity: true,
-                          soldQuantity: true,
-                          isAvailable: true,
-                          ingredientId: true,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
+            include: orderItemStockInclude,
           },
         },
       });
@@ -1612,7 +1495,8 @@ export class OrdersController extends Controller {
       const usageDelta = getStockUsageFromOrderItems([
         {
           quantity: Math.abs(quantityDelta),
-          dailyMenuItem: targetItem.dailyMenuItem,
+          menuItem: targetItem.menuItem,
+          consumptions: targetItem.consumptions,
         },
       ]);
 
@@ -1661,7 +1545,6 @@ export class OrdersController extends Controller {
                 quantityDelta > 0
                   ? InventoryMovementType.ORDER_RESERVE
                   : InventoryMovementType.ORDER_RELEASE,
-              dailyMenuId: current.dailyMenuId,
               orderId: current.id,
               orderItemId: targetItem.id,
               createdById: authUser.id,
@@ -1716,24 +1599,7 @@ export class OrdersController extends Controller {
         where: { id },
         include: {
           items: {
-            include: {
-              dailyMenuItem: {
-                include: {
-                  stockLinks: {
-                    include: {
-                      dailyStockPool: {
-                        select: {
-                          quantity: true,
-                          soldQuantity: true,
-                          isAvailable: true,
-                          ingredientId: true,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
+            include: orderItemStockInclude,
           },
         },
       });
@@ -1766,7 +1632,6 @@ export class OrdersController extends Controller {
       );
       await applyStockUsage(tx, currentUsage, -1, {
         movementType: InventoryMovementType.ORDER_RELEASE,
-        dailyMenuId: current.dailyMenuId,
         orderId: current.id,
         createdById: authUser.id,
       });
@@ -1774,8 +1639,7 @@ export class OrdersController extends Controller {
       const lines = await buildFinalOrderLinesFromDiff(
         tx,
         current.items as StockTrackedOrderItem[],
-        body.items,
-        current.dailyMenuId
+        body.items
       );
       const nextUsage = aggregateStockUsage(lines);
       await ensureStockAvailability(tx, nextUsage, lines);
@@ -1798,7 +1662,6 @@ export class OrdersController extends Controller {
           items: {
             create: lines.map((line) => ({
               menuItemId: line.menuItemId,
-              dailyMenuItemId: line.dailyMenuItemId,
               itemNameSnapshot: line.itemNameSnapshot,
               unitPrice: money(line.unitPrice),
               quantity: line.quantity,
@@ -1816,7 +1679,6 @@ export class OrdersController extends Controller {
           items: {
             select: {
               id: true,
-              dailyMenuItemId: true,
               menuItemId: true,
               note: true,
             },
@@ -1826,7 +1688,6 @@ export class OrdersController extends Controller {
 
       const reserveMovementIds = await applyStockUsage(tx, nextUsage, 1, {
         movementType: InventoryMovementType.ORDER_RESERVE,
-        dailyMenuId: current.dailyMenuId,
         orderId: current.id,
         createdById: authUser.id,
       });
@@ -1894,7 +1755,7 @@ export class OrdersController extends Controller {
         : null;
 
     const { orderId, poolIds: createdPoolIds } = await prisma.$transaction(async (tx) => {
-      const lines = await resolveOrderLines(tx, body.items || [], body.dailyMenuId);
+      const lines = await resolveOrderLines(tx, body.items || []);
       const stockUsage = aggregateStockUsage(lines);
       await ensureStockAvailability(tx, stockUsage);
 
@@ -1928,11 +1789,9 @@ export class OrdersController extends Controller {
           createdById: authUser.id,
           assignedStaffId: body.assignedStaffId,
           customerId: authUser.role === "CUSTOMER" ? authUser.id : body.customerId,
-          dailyMenuId: body.dailyMenuId,
           items: {
             create: lines.map((line) => ({
               menuItemId: line.menuItemId,
-              dailyMenuItemId: line.dailyMenuItemId,
               itemNameSnapshot: line.itemNameSnapshot,
               unitPrice: money(line.unitPrice),
               quantity: line.quantity,
@@ -1950,7 +1809,6 @@ export class OrdersController extends Controller {
           items: {
             select: {
               id: true,
-              dailyMenuItemId: true,
               menuItemId: true,
               note: true,
             },
@@ -1960,7 +1818,6 @@ export class OrdersController extends Controller {
 
       const reserveMovementIds = await applyStockUsage(tx, stockUsage, 1, {
         movementType: InventoryMovementType.ORDER_RESERVE,
-        dailyMenuId: body.dailyMenuId ?? null,
         orderId: order.id,
         createdById: authUser.id,
       });
@@ -1999,21 +1856,7 @@ export class OrdersController extends Controller {
         where: { id },
         include: {
           items: {
-            include: {
-              dailyMenuItem: {
-                include: {
-                  stockLinks: {
-                    include: {
-                      dailyStockPool: {
-                        select: {
-                          ingredientId: true,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
+            include: orderItemStockInclude,
           },
         },
       });
@@ -2039,7 +1882,6 @@ export class OrdersController extends Controller {
       if (movingToCancelled) {
         await applyStockUsage(tx, stockUsage, -1, {
           movementType: InventoryMovementType.ORDER_RELEASE,
-          dailyMenuId: current.dailyMenuId,
           orderId: current.id,
         });
         statusPoolIds = Array.from(stockUsage.keys());
@@ -2131,7 +1973,6 @@ export class OrdersController extends Controller {
 
         const restoreMovementIds = await applyStockUsage(tx, restoreUsage, 1, {
           movementType: InventoryMovementType.ORDER_RESTORE,
-          dailyMenuId: current.dailyMenuId,
           orderId: current.id,
         });
         statusPoolIds = Array.from(restoreUsage.keys());
@@ -2186,24 +2027,7 @@ export class OrdersController extends Controller {
         where: { id },
         include: {
           items: {
-            include: {
-              dailyMenuItem: {
-                include: {
-                  stockLinks: {
-                    include: {
-                      dailyStockPool: {
-                        select: {
-                          quantity: true,
-                          soldQuantity: true,
-                          isAvailable: true,
-                          ingredientId: true,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
+            include: orderItemStockInclude,
           },
         },
       });
@@ -2217,15 +2041,13 @@ export class OrdersController extends Controller {
       >);
       await applyStockUsage(tx, currentUsage, -1, {
         movementType: InventoryMovementType.ORDER_RELEASE,
-        dailyMenuId: current.dailyMenuId,
         orderId: current.id,
       });
 
       const lines = await buildFinalOrderLinesFromDiff(
         tx,
         current.items as StockTrackedOrderItem[],
-        body.items || [],
-        current.dailyMenuId
+        body.items || []
       );
       const nextUsage = aggregateStockUsage(lines);
       await ensureStockAvailability(tx, nextUsage, lines);
@@ -2257,7 +2079,6 @@ export class OrdersController extends Controller {
                 cancelledQuantity: line.cancelledQuantity,
                 status: line.status,
                 menuItemId: line.menuItemId,
-                dailyMenuItemId: line.dailyMenuItemId,
                 itemNameSnapshot: line.itemNameSnapshot,
                 unitPrice: money(line.unitPrice),
                 quantity: line.quantity,
@@ -2271,7 +2092,6 @@ export class OrdersController extends Controller {
           items: {
             select: {
               id: true,
-              dailyMenuItemId: true,
               menuItemId: true,
               note: true,
             },
@@ -2281,7 +2101,6 @@ export class OrdersController extends Controller {
 
       const reserveMovementIds = await applyStockUsage(tx, nextUsage, 1, {
         movementType: InventoryMovementType.ORDER_RESERVE,
-        dailyMenuId: current.dailyMenuId,
         orderId: current.id,
       });
       await syncOrderItemConsumptions(
@@ -2315,21 +2134,7 @@ export class OrdersController extends Controller {
         where: { id: orderId },
         include: {
           items: {
-            include: {
-              dailyMenuItem: {
-                include: {
-                  stockLinks: {
-                    include: {
-                      dailyStockPool: {
-                        select: {
-                          ingredientId: true,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
+            include: orderItemStockInclude,
           },
         },
       });
@@ -2344,19 +2149,7 @@ export class OrdersController extends Controller {
           orderId,
         },
         include: {
-          dailyMenuItem: {
-            include: {
-              stockLinks: {
-                include: {
-                  dailyStockPool: {
-                    select: {
-                      ingredientId: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
+          ...orderItemStockInclude,
         },
       });
       itemName = targetItem.itemNameSnapshot;
@@ -2397,7 +2190,6 @@ export class OrdersController extends Controller {
         await ensureStockAvailability(tx, itemUsage);
         const restoreMovementIds = await applyStockUsage(tx, itemUsage, 1, {
           movementType: InventoryMovementType.ORDER_RESTORE,
-          dailyMenuId: order.dailyMenuId,
           orderId: order.id,
           orderItemId: targetItem.id,
         });

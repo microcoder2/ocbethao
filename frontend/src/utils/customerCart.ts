@@ -1,6 +1,5 @@
 export type CustomerCartLine = {
   key: string;
-  dailyMenuItemId?: number;
   menuItemId: number;
   name: string;
   price: number;
@@ -26,7 +25,6 @@ export function loadCustomerCart(): CustomerCartLine[] {
   return raw
     .map((line) => ({
       key: String(line.key || ""),
-      dailyMenuItemId: line.dailyMenuItemId ? Number(line.dailyMenuItemId) : undefined,
       menuItemId: Number(line.menuItemId || 0),
       name: String(line.name || ""),
       price: Number(line.price || 0),

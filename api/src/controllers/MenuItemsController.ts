@@ -16,6 +16,10 @@ import type { Request as ExRequest } from "express";
 import { MenuItemStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { serializeMenuItem } from "../utils/mappers";
+import {
+  buildPublicCatalogPayload,
+  loadCatalogMenuItemsWithCurrentStock,
+} from "../services/catalogService";
 
 class MenuItemIngredientPresetBody {
   ingredientId!: number;
@@ -83,6 +87,20 @@ const menuItemInclude = {
 @Route("menu-items")
 @Tags("Menu Items")
 export class MenuItemsController extends Controller {
+  @Get("catalog")
+  @Security("bearerAuth", ["ADMIN", "STAFF"])
+  public async getCatalogOptions(@Query() search?: string) {
+    return loadCatalogMenuItemsWithCurrentStock(prisma, { search });
+  }
+
+  @Get("public")
+  public async getPublicCatalog() {
+    const items = await loadCatalogMenuItemsWithCurrentStock(prisma, {
+      publicOnly: true,
+    });
+    return buildPublicCatalogPayload(items);
+  }
+
   @Get("/")
   @Security("bearerAuth", ["ADMIN", "STAFF"])
   public async getMenuItems(
@@ -234,7 +252,7 @@ export class MenuItemsController extends Controller {
         name: true,
         _count: {
           select: {
-            dailyMenuItems: true,
+            orderItems: true,
           },
         },
       },
@@ -245,10 +263,10 @@ export class MenuItemsController extends Controller {
       throw new Error("Mon khong ton tai");
     }
 
-    if (current._count.dailyMenuItems > 0) {
+    if (current._count.orderItems > 0) {
       this.setStatus(409);
       throw new Error(
-        `Khong the xoa mon "${current.name}" vi da duoc dung trong ${current._count.dailyMenuItems} menu ngay`
+        `Khong the xoa mon "${current.name}" vi da duoc dung trong ${current._count.orderItems} don hang`
       );
     }
 

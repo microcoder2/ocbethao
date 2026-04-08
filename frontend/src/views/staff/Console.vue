@@ -126,7 +126,7 @@ const cartTotal = computed(() =>
 
 async function loadData() {
   const [menuRes, orderRes] = await Promise.all([
-    api.get("/daily-menus/public/today"),
+    api.get("/menu-items/public"),
     api.get("/orders"),
   ]);
   menu.value = menuRes.data;
@@ -134,7 +134,7 @@ async function loadData() {
 }
 
 function addToCart(item: any) {
-  const key = Number(item.dailyMenuItemId) > 0 ? `offer:${item.dailyMenuItemId}` : `menu:${item.menuItem?.id}`;
+  const key = `menu:${item.menuItem?.id}`;
   const existing = cart.value.find((line) => line.key === key);
   if (existing) {
     existing.quantity += 1;
@@ -142,7 +142,6 @@ function addToCart(item: any) {
   }
   cart.value.push({
     key,
-    dailyMenuItemId: item.dailyMenuItemId ?? undefined,
     menuItemId: item.menuItem?.id,
     name: item.menuItem?.name,
     price: item.sellingPrice,
@@ -176,7 +175,6 @@ async function submitOrder() {
   submitting.value = true;
   try {
     await api.post("/orders", {
-      dailyMenuId: menu.value?.id,
       tableLabel: form.tableLabel,
       guestName: form.guestName,
       guestPhone: form.guestPhone,
@@ -184,7 +182,6 @@ async function submitOrder() {
       arrivalAt: form.arrivalAt || undefined,
       note: form.note,
       items: cart.value.map((line) => ({
-        dailyMenuItemId: line.dailyMenuItemId,
         menuItemId: line.menuItemId,
         quantity: line.quantity,
       })),

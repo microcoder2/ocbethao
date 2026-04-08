@@ -151,7 +151,6 @@ import { toggleNoteChip } from "../../utils/noteChips";
 type OrderItem = {
   id: number;
   menuItemId?: number | null;
-  dailyMenuItemId?: number | null;
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
@@ -176,7 +175,6 @@ type OrderRecord = {
 
 type MenuOption = {
   id: number;
-  dailyMenuItemId?: number | null;
   menuItemId?: number | null;
   sellingPrice: number;
   isAvailable: boolean;
@@ -187,7 +185,6 @@ type EditableItem = {
   id?: number | null;
   key: string;
   menuItemId?: number | null;
-  dailyMenuItemId?: number | null;
   itemNameSnapshot: string;
   unitPrice: number;
   quantity: number;
@@ -196,7 +193,7 @@ type EditableItem = {
   note?: string | null;
 };
 
-type SavePayload = { dailyMenuItemId?: number; menuItemId?: number; quantity: number; note?: string };
+type SavePayload = { menuItemId?: number; quantity: number; note?: string };
 
 const props = defineProps<{
   order: OrderRecord;
@@ -226,7 +223,7 @@ const openItemNoteKeys = ref<Set<string>>(new Set());
 watch(
   () =>
     `${props.order.status}|${(props.order.items || [])
-      .map((item) => `${item.dailyMenuItemId ?? item.menuItemId}:${item.quantity}:${item.note ?? ""}`)
+      .map((item) => `${item.menuItemId}:${item.quantity}:${item.note ?? ""}`)
       .join("|")}`,
   () => {
     draft.value = null;
@@ -267,9 +264,8 @@ function formatTime(value?: string | null) {
 function cloneItems(items: OrderItem[] = []): EditableItem[] {
   return items.map((item, index) => ({
     id: item.id,
-    key: `${item.dailyMenuItemId ?? item.menuItemId ?? "item"}-${index}`,
+    key: `${item.menuItemId ?? "item"}-${index}`,
     menuItemId: item.menuItemId ?? null,
-    dailyMenuItemId: item.dailyMenuItemId ?? null,
     itemNameSnapshot: item.itemNameSnapshot,
     unitPrice: Number(item.unitPrice || 0),
     quantity: Number(item.quantity || 0),
@@ -369,13 +365,11 @@ function addItem() {
   if (!selectedId) return;
   const option = props.menuOptions.find((item) => item.id === selectedId);
   if (!option) return;
-  const optionDailyMenuItemId = option.dailyMenuItemId ?? null;
   const optionMenuItemId = Number(option.menuItemId ?? option.menuItem.id);
 
   ensureDraft();
   const existingIndex = draft.value!.findIndex(
     (item) =>
-      item.dailyMenuItemId === optionDailyMenuItemId &&
       item.menuItemId === optionMenuItemId
   );
   if (existingIndex >= 0) {
@@ -388,12 +382,11 @@ function addItem() {
     flashItem(current.key);
     openItemNoteEditor(current.key);
   } else {
-    const key = `new-${optionDailyMenuItemId ?? optionMenuItemId}`;
+    const key = `new-${optionMenuItemId}`;
     draft.value!.push({
       id: null,
       key,
       menuItemId: optionMenuItemId,
-      dailyMenuItemId: optionDailyMenuItemId,
       itemNameSnapshot: option.menuItem.name,
       unitPrice: Number(option.sellingPrice || 0),
       quantity: 1,
@@ -411,7 +404,6 @@ function emitSave() {
   emit(
     "saveItems",
     editableItems.value.map((item) => ({
-      dailyMenuItemId: item.dailyMenuItemId ?? undefined,
       menuItemId: item.menuItemId ?? undefined,
       quantity: item.quantity,
       note: item.note || undefined,
@@ -477,10 +469,10 @@ const progressLegend = computed(() => {
 const draftChanged = computed(() => {
   if (!draft.value) return false;
   const original = cloneItems(props.order.items)
-    .map((item) => `${item.dailyMenuItemId}:${item.menuItemId}:${item.quantity}:${item.note ?? ""}`)
+    .map((item) => `${item.menuItemId}:${item.quantity}:${item.note ?? ""}`)
     .join("|");
   const current = draft.value
-    .map((item) => `${item.dailyMenuItemId}:${item.menuItemId}:${item.quantity}:${item.note ?? ""}`)
+    .map((item) => `${item.menuItemId}:${item.quantity}:${item.note ?? ""}`)
     .join("|");
   return original !== current;
 });

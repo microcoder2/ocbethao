@@ -83,9 +83,8 @@ type FeedbackState = {
   text: string;
 };
 
-type DailyMenuItemData = {
+type CatalogItemData = {
   id: number;
-  dailyMenuItemId?: number | null;
   menuItemId?: number | null;
   sellingPrice: number;
   isAvailable: boolean;
@@ -104,17 +103,16 @@ type DailyMenuItemData = {
   }>;
 };
 
-type DailyMenuData = {
+type CatalogData = {
   id: number;
   title: string;
   serviceDate: string;
   bannerText?: string | null;
-  items: DailyMenuItemData[];
+  items: CatalogItemData[];
 };
 
 type CartLine = {
   key: string;
-  dailyMenuItemId?: number;
   menuItemId: number;
   name: string;
   price: number;
@@ -122,7 +120,7 @@ type CartLine = {
   note?: string;
 };
 
-const menu = ref<DailyMenuData | null>(null);
+const menu = ref<CatalogData | null>(null);
 const loading = ref(true);
 const loadError = ref("");
 const feedback = ref<FeedbackState | null>(null);
@@ -179,15 +177,11 @@ function normalizeLineNote(value?: string | null) {
   return String(value || "").trim();
 }
 
-function getMenuItemId(item: DailyMenuItemData) {
+function getMenuItemId(item: CatalogItemData) {
   return Number(item.menuItemId ?? item.menuItem?.id ?? 0);
 }
 
-function getMenuOptionKey(item: DailyMenuItemData) {
-  const dailyMenuItemId = Number(item.dailyMenuItemId ?? 0);
-  if (dailyMenuItemId > 0) {
-    return `offer:${dailyMenuItemId}`;
-  }
+function getMenuOptionKey(item: CatalogItemData) {
   return `menu:${getMenuItemId(item)}`;
 }
 
@@ -202,7 +196,7 @@ function formatServiceDate(value?: string) {
   }).format(date);
 }
 
-function syncStockFromMenu(menuData: DailyMenuData | null) {
+function syncStockFromMenu(menuData: CatalogData | null) {
   for (const key of Object.keys(stockRemainingMap)) {
     delete stockRemainingMap[Number(key)];
   }
@@ -222,7 +216,7 @@ async function loadMenu() {
   loadError.value = "";
 
   try {
-    const { data } = await api.get<DailyMenuData>("/daily-menus/public/today");
+    const { data } = await api.get<CatalogData>("/menu-items/public");
     menu.value = data;
     syncStockFromMenu(data);
   } catch (error) {
@@ -243,7 +237,7 @@ function handleStockUpdate(pools: Array<{ id: number; remainingQuantity: number 
   }
 }
 
-function addItemDirect(item: DailyMenuItemData) {
+function addItemDirect(item: CatalogItemData) {
   if (!item.menuItem) return;
 
   const existing = cart.value.find(
@@ -259,7 +253,6 @@ function addItemDirect(item: DailyMenuItemData) {
 
   cart.value.push({
     key: getMenuOptionKey(item),
-    dailyMenuItemId: item.dailyMenuItemId ?? undefined,
     menuItemId: getMenuItemId(item),
     name: item.menuItem.name,
     price: Number(item.sellingPrice || 0),
@@ -320,11 +313,9 @@ async function submitOrder() {
           : undefined;
 
     await api.post("/orders", {
-      dailyMenuId: menu.value.id,
       arrivalAt,
       note: normalizeLineNote(note.value) || undefined,
       items: cart.value.map((line) => ({
-        dailyMenuItemId: line.dailyMenuItemId,
         menuItemId: line.menuItemId,
         quantity: line.quantity,
         note: normalizeLineNote(line.note) || undefined,
