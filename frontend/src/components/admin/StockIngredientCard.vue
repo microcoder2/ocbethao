@@ -16,19 +16,22 @@
       <input ref="fileRef" type="file" accept="image/*" class="stock-file-hidden" @change="onFileChange" />
 
       <div class="stock-card-top">
-        <div class="stock-card-info">
-          <span class="stock-card-name">{{ ing.name }}</span>
-          <span class="stock-card-unit">{{ ing.unit }}</span>
-          <div v-if="draft.active" class="stock-card-stats">
-            <span class="stock-card-stat">Còn {{ remainingQuantity }}</span>
-            <span v-if="soldQuantity > 0" class="stock-card-stat stock-card-stat--muted">
-              Đã dùng {{ soldQuantity }}
-            </span>
-          </div>
+        <div class="stock-card-name-row">
+          <span class="stock-card-name">#{{ ing.id }}</span>
+          <span class="stock-card-name stock-card-name--main">{{ ing.name }}</span>
         </div>
-        <button class="stock-toggle" :class="{ on: draft.active }" @click="emit('toggle')">
-          <span class="stock-toggle-knob"></span>
-        </button>
+        <div class="stock-card-meta-row">
+          <span class="stock-card-unit">{{ ing.unit }}</span>
+          <button class="stock-toggle" :class="{ on: draft.active }" @click="emit('toggle')">
+            <span class="stock-toggle-knob"></span>
+          </button>
+        </div>
+        <div v-if="draft.active" class="stock-card-stats">
+          <span class="stock-card-stat">Còn {{ remainingQuantity }}</span>
+          <span v-if="soldQuantity > 0" class="stock-card-stat stock-card-stat--muted">
+            Đã dùng {{ soldQuantity }}
+          </span>
+        </div>
       </div>
 
       <div v-if="draft.active" class="stock-card-body">
@@ -170,15 +173,40 @@ function confirmDelete() {
 .stock-card-img-wrap:hover .stock-card-img-overlay { opacity: 1; }
 .stock-file-hidden { display: none; }
 
-.stock-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.stock-card-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.stock-card-name { font-weight: 700; font-size: 0.97rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stock-card-top { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.stock-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.stock-card-name {
+  font-weight: 700;
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.stock-card-name--main {
+  font-size: 0.97rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stock-card-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
 .stock-card-unit { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
 .stock-card-stats {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 4px;
+  align-items: center;
+  min-width: 0;
 }
 .stock-card-stat {
   font-size: 0.72rem;
@@ -221,6 +249,67 @@ function confirmDelete() {
   display: inline-flex; align-items: center; justify-content: center;
 }
 .stock-save-btn:disabled { opacity: 0.6; cursor: default; }
+
+.stock-card-wrap.is-table .stock-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+.stock-card-wrap.is-table .stock-card-img-wrap {
+  width: 66px;
+  height: 66px;
+  aspect-ratio: auto;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.stock-card-wrap.is-table .stock-card-top {
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+}
+.stock-card-wrap.is-table .stock-card-name-row {
+  flex-wrap: wrap;
+}
+.stock-card-wrap.is-table .stock-card-meta-row {
+  gap: 8px;
+}
+.stock-card-wrap.is-table .stock-card-name--main {
+  font-size: 0.95rem;
+}
+.stock-card-wrap.is-table .stock-card-unit {
+  display: inline-flex;
+  width: fit-content;
+}
+.stock-card-wrap.is-table .stock-card-stats {
+  margin-top: 2px;
+  justify-content: flex-start;
+}
+.stock-card-wrap.is-table .stock-card-body {
+  padding: 0;
+  flex-shrink: 0;
+}
+.stock-card-wrap.is-table .stock-toggle {
+  width: 48px;
+}
+
+@media (max-width: 639px) {
+  .stock-card-wrap.is-table .stock-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .stock-card-wrap.is-table .stock-card-meta-row {
+    justify-content: space-between;
+  }
+  .stock-card-wrap.is-table .stock-card-img-wrap {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+  .stock-card-wrap.is-table .stock-card-body {
+    justify-content: flex-start;
+  }
+}
 
 /* ── confirm overlay ── */
 .stock-del-overlay {

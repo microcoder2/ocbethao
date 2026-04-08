@@ -1,6 +1,15 @@
 <template>
   <div class="order-card-item-statuses">
-    <div v-if="chips.length || actions.length" class="order-item-stage-actions">
+    <div
+      v-if="chips.length || actions.length"
+      :class="[
+        'order-item-stage-actions',
+        {
+          'is-three-cols': !chips.length && actions.length === 3,
+          'has-chips': chips.length > 0,
+        },
+      ]"
+    >
       <template v-if="renderActionsFirst">
         <button
           v-for="action in actions"
@@ -186,6 +195,17 @@ defineEmits<{
   width: 100%;
 }
 
+.order-item-stage-actions.is-three-cols {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.order-item-stage-actions.is-three-cols .order-item-stage-action {
+  width: 100%;
+  min-width: 0;
+}
+
 .order-item-stage-chip,
 .order-item-stage-action {
   display: inline-flex;
@@ -199,6 +219,20 @@ defineEmits<{
   font-weight: 700;
   border: 1px solid transparent;
   white-space: nowrap;
+}
+
+.order-item-stage-action {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+  border-radius: 16px;
+  min-height: 36px;
+  padding: 0 12px;
+  background: rgba(var(--muted-rgb), 0.06);
+  color: rgba(var(--text-rgb), 0.7);
+  border-color: rgba(var(--muted-rgb), 0.14);
+  box-shadow: inset 0 2px 4px rgba(var(--text-rgb), 0.08);
+  transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.18s, box-shadow 0.18s;
 }
 
 .order-item-stage-chip {
@@ -231,17 +265,6 @@ defineEmits<{
   background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.55), transparent);
   animation: glass-shine 1.2s linear infinite;
   pointer-events: none;
-}
-
-.order-item-stage-action {
-  position: relative;
-  min-width: 0;
-  cursor: pointer;
-  background: rgba(var(--muted-rgb), 0.06);
-  color: rgba(var(--text-rgb), 0.7);
-  border-color: rgba(var(--muted-rgb), 0.14);
-  box-shadow: inset 0 2px 4px rgba(var(--text-rgb), 0.08);
-  transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.18s, box-shadow 0.18s;
 }
 
 .order-item-stage-action:hover,
@@ -301,35 +324,35 @@ defineEmits<{
 
 .order-item-stage-action.is-waiting,
 .order-item-stage-chip.is-waiting {
-  background: rgba(203, 165, 81, 0.12);
+  background: rgba(203, 165, 81, 0.18);
   border-color: rgba(203, 165, 81, 0.2);
   color: #8b6517;
 }
 
 .order-item-stage-action.is-cooking,
 .order-item-stage-chip.is-cooking {
-  background: rgba(201, 126, 71, 0.13);
+  background: rgba(201, 126, 71, 0.5);
   border-color: rgba(201, 126, 71, 0.2);
   color: #8a451f;
 }
 
 .order-item-stage-action.is-ready,
 .order-item-stage-chip.is-ready {
-  background: rgba(66, 133, 104, 0.14);
+  background: rgba(66, 133, 104, 0.5);
   border-color: rgba(66, 133, 104, 0.2);
   color: var(--green);
 }
 
 .order-item-stage-action.is-cancelled,
 .order-item-stage-chip.is-cancelled {
-  background: rgba(148, 88, 88, 0.14);
+  background: rgba(148, 88, 88, 0.5);
   border-color: rgba(148, 88, 88, 0.2);
   color: #8f2f15;
 }
 
 .order-item-stage-action.is-muted,
 .order-item-stage-chip.is-muted {
-  background: rgba(var(--text-rgb), 0.06);
+  background: rgba(var(--text-rgb), 0.5);
   border-color: rgba(var(--text-rgb), 0.12);
   color: var(--muted);
 }

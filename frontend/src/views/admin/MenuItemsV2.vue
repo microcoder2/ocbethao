@@ -69,10 +69,13 @@
         :key="group.key"
         :group="group"
         :open="openCards.has(group.key)"
+        :delete-confirm-id="deleteConfirmId"
         @toggle-collapse="toggleCard(group.key)"
         @open-add="openAddMethodModal(group)"
         @edit-price="openPriceEditModal"
-        @delete-item="deleteMenuItemSafe"
+        @delete-item="openDeleteConfirm"
+        @confirm-delete="confirmDeleteMenuItem"
+        @cancel-delete="closeDeleteConfirm"
       />
     </section>
 
@@ -120,6 +123,7 @@
       @submit="savePriceEditModal"
       @update:price-text="(value) => (priceEditModal.priceText = value)"
     />
+
   </div>
 </template>
 
@@ -273,6 +277,15 @@ const priceEditModal = reactive<{
   priceText: "0",
   saving: false,
 });
+
+const deleteConfirmModal = reactive<{
+  open: boolean;
+  item: EnrichedItem | null;
+}>({
+  open: false,
+  item: null,
+});
+const deleteConfirmId = computed(() => (deleteConfirmModal.open ? deleteConfirmModal.item?.id ?? null : null));
 
 const addMethodModal = reactive<{
   open: boolean;
@@ -478,6 +491,16 @@ function closePriceEditModal() {
   priceEditModal.item = null;
   priceEditModal.priceText = "0";
   priceEditModal.saving = false;
+}
+
+function openDeleteConfirm(item: EnrichedItem) {
+  deleteConfirmModal.open = true;
+  deleteConfirmModal.item = item;
+}
+
+function closeDeleteConfirm() {
+  deleteConfirmModal.open = false;
+  deleteConfirmModal.item = null;
 }
 
 function toggleBucket(bucketName: string) {
@@ -700,18 +723,20 @@ function parseConsumeQuantityNote(value: string) {
   return match ? Number(match[1]) || 1 : 1;
 }
 
-async function deleteMenuItemSafe(item: { id: number; name: string }) {
-  const ok = window.confirm(`Xoa mon "${item.name}"?`);
-  if (!ok) return;
+async function confirmDeleteMenuItem() {
+  const item = deleteConfirmModal.item;
+  if (!item) return;
 
   try {
     await api.delete(`/menu-items/${item.id}`);
     items.value = items.value.filter((current) => current.id !== item.id);
+    deleteConfirmModal.open = false;
+    deleteConfirmModal.item = null;
   } catch (error: any) {
     const message =
       error?.response?.data?.message ||
       error?.message ||
-      `Khong the xoa mon "${item.name}"`;
+      `Không thể xóa món "${item.name}"`;
     window.alert(message);
   }
 }
@@ -976,6 +1001,110 @@ onMounted(loadData);
   flex-direction: column;
   gap: 0;
   padding: 0 6px;
+}
+
+.mi-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(18, 16, 13, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.mi-modal {
+  background: #fff;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+.mi-modal--sm {
+  max-width: 420px;
+}
+
+.mi-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.mi-modal-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+
+.mi-modal-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mi-delete-text {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.mi-delete-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.mi-delete-icon-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--muted);
+}
+
+.mi-delete-icon-btn--ghost:hover,
+.mi-delete-icon-btn--ghost:focus-visible {
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.mi-delete-icon-btn--danger {
+  background: rgba(var(--danger-rgb), 0.1);
+  color: var(--danger);
+  border-color: rgba(var(--danger-rgb), 0.24);
+}
+
+.mi-delete-icon-btn--danger:hover,
+.mi-delete-icon-btn--danger:focus-visible {
+  background: rgba(var(--danger-rgb), 0.18);
 }
 
 @media (min-width: 768px) {

@@ -12,7 +12,6 @@
           autocomplete="off"
         />
       </div>
-      <span class="dsp-count">{{ activeCount }}/{{ ingredients.length }} bật</span>
     </div>
 
     <div v-if="errorMessage" class="dsp-error">{{ errorMessage }}</div>
@@ -71,6 +70,7 @@
       <StockIngredientCard
         v-for="ing in sortedIngredients"
         :key="ing.id"
+        class="dsp-ingredient-item"
         :ing="ing"
         :draft="drafts[ing.id]"
         :uploading-img="uploadingImgFor === ing.id"
@@ -187,6 +187,7 @@ const uploadingImgFor = ref<number | null>(null);
 const showImg    = ref(true);
 const newNameRef = ref<HTMLInputElement | null>(null);
 const newImgRef  = ref<HTMLInputElement | null>(null);
+const rowImgRefs = ref<Record<number, HTMLInputElement | null>>({});
 const newForm = reactive({
   open: false, name: "", unit: "phần",
   imageUrl: "", imagePreview: "", imageUploading: false,
@@ -318,6 +319,16 @@ onBeforeUnmount(() => {
 });
 
 function toggleImg() { showImg.value = !showImg.value; }
+function setRowImgRef(ingId: number, el: HTMLInputElement | null) {
+  if (el) {
+    rowImgRefs.value[ingId] = el;
+  } else {
+    delete rowImgRefs.value[ingId];
+  }
+}
+function openImagePicker(ingId: number) {
+  rowImgRefs.value[ingId]?.click();
+}
 defineExpose({ showImg, allActive, toggleAll, toggleImg, reload: loadData });
 
 // ── ingredient list ────────────────────────────────────────────────────────
@@ -392,6 +403,13 @@ function handleIngImg(ing: Ingredient, file: File) {
       uploadingImgFor.value = null;
     }
   });
+}
+
+function handleRowImg(ing: Ingredient, event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  (event.target as HTMLInputElement).value = "";
+  handleIngImg(ing, file);
 }
 
 function handleNewImg(event: Event) {
@@ -523,13 +541,6 @@ async function createIngredient() {
   transition: border-color 0.15s;
 }
 .dsp-search:focus { border-color: var(--ember); }
-
-.dsp-count {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--muted);
-  white-space: nowrap;
-}
 
 /* ── error / loading ── */
 .dsp-error {
@@ -695,3 +706,4 @@ async function createIngredient() {
   color: var(--ember-strong);
 }
 </style>
+

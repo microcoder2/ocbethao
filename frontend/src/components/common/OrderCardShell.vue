@@ -243,24 +243,20 @@ onBeforeUnmount(() => {
 .order-collapse-btn i { font-size: 0.82rem; }
 
 .order-status-line {
-  display: grid;
+  display: flex;
   align-items: center;
-  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   width: 100%;
   min-width: 0;
+  flex-wrap: nowrap;
 }
 
-.order-status-line.has-meta {
-  grid-template-columns: minmax(0, 1fr) repeat(3, auto);
-}
-
-.order-status-line.has-delete {
-  grid-template-columns: minmax(0, 1fr) repeat(3, auto);
-}
-
-.order-status-line.has-meta.has-delete {
-  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
+.order-arrival-chip {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .order-delete-inline {
@@ -290,6 +286,7 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
   color: var(--muted);
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .order-arrival-chip {
@@ -331,8 +328,8 @@ onBeforeUnmount(() => {
   font-size: 0.76rem;
   font-weight: 800;
   white-space: nowrap;
-  flex-shrink: 0;
-  justify-self: end;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .order-pill.is-pending   { background: rgba(203, 165, 81, 0.18); color: #8b6517; }

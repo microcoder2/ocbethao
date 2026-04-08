@@ -39,7 +39,21 @@
           <button class="mi2c-icon-btn" type="button" title="Sửa giá" @click="$emit('editPrice', item)">
             <i class="bi bi-pencil"></i>
           </button>
-          <button class="mi2c-icon-btn mi2c-icon-btn--danger" type="button" title="Xóa món" @click="$emit('deleteItem', item)">
+          <template v-if="deleteConfirmId === item.id">
+            <button class="mi2c-icon-btn mi2c-icon-btn--yes" type="button" title="Xác nhận xóa" @click="$emit('confirmDelete', item)">
+              <i class="bi bi-check-lg"></i>
+            </button>
+            <button class="mi2c-icon-btn mi2c-icon-btn--no" type="button" title="Hủy" @click="$emit('cancelDelete')">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </template>
+          <button
+            v-else
+            class="mi2c-icon-btn mi2c-icon-btn--danger"
+            type="button"
+            title="Xóa món"
+            @click="$emit('deleteItem', item)"
+          >
             <i class="bi bi-trash3"></i>
           </button>
         </div>
@@ -64,6 +78,7 @@ defineProps<{
     groupKind: "ingredient" | "method";
   };
   open: boolean;
+  deleteConfirmId?: number | null;
 }>();
 
 defineEmits<{
@@ -71,6 +86,8 @@ defineEmits<{
   openAdd: [];
   editPrice: [item: CardItem];
   deleteItem: [item: CardItem];
+  confirmDelete: [item: CardItem];
+  cancelDelete: [];
 }>();
 
 function formatMoneyK(value: number | null | undefined) {
@@ -215,5 +232,17 @@ function formatMoneyK(value: number | null | undefined) {
 
 .mi2c-icon-btn--danger {
   color: #9c3b31;
+}
+
+.mi2c-icon-btn--yes {
+  background: rgba(var(--success-rgb), 0.1);
+  color: #166534;
+  border-color: rgba(var(--success-rgb), 0.3);
+}
+
+.mi2c-icon-btn--no {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--muted);
+  border-color: var(--line);
 }
 </style>

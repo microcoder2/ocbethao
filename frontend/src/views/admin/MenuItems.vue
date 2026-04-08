@@ -162,6 +162,52 @@
     @save="saveItem"
     @image-crop="onModalImageCrop"
   />
+  <div
+    v-if="viewModal.open && viewModal.item"
+    class="mi-backdrop"
+    role="dialog"
+    aria-modal="true"
+    @click.self="viewModal.open = false"
+  >
+    <div class="mi-modal mi-modal--sm">
+      <div class="mi-modal-header">
+        <div>Xem món</div>
+        <button class="mi-modal-close" type="button" aria-label="Đóng" @click="viewModal.open = false">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      <div class="mi-modal-body">
+        <div class="mi-img-wrap" style="height: 170px; cursor: default;">
+          <img
+            v-if="viewModal.item.imageUrl && !viewImgFailed"
+            :src="resolveImg(viewModal.item.imageUrl)"
+            class="mi-view-img"
+            @error="viewImgFailed = true"
+          />
+          <div v-else class="mi-view-img--blank" v-html="blankIngredientSvg"></div>
+        </div>
+        <dl class="mi-view-dl">
+          <dt>Tên món</dt>
+          <dd>{{ viewModal.item.name }}</dd>
+          <dt>Slug</dt>
+          <dd>{{ viewModal.item.slug }}</dd>
+          <dt>Nhóm</dt>
+          <dd>{{ viewModal.item.category?.name || "—" }}</dd>
+          <dt>Giá hiện tại</dt>
+          <dd>{{ formatMoney(viewModal.item.currentPrice) }}</dd>
+          <dt>Đơn vị</dt>
+          <dd>{{ viewModal.item.unit || "—" }}</dd>
+          <dt>Trạng thái</dt>
+          <dd>{{ viewModal.item.status }}</dd>
+          <dt>Nguyên liệu</dt>
+          <dd>{{ viewModal.item.ingredientPresets?.[0]?.ingredient?.name || "—" }}</dd>
+        </dl>
+        <div v-if="viewModal.item.description" class="mi-muted">
+          {{ viewModal.item.description }}
+        </div>
+      </div>
+    </div>
+  </div>
   <!-- â”€â”€ QuickListManager â”€â”€ -->
   <QuickListManager
     v-if="managing"

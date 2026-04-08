@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <OrderCardShell
     v-model:collapsed="collapsed"
     :tone="statusTone"
@@ -64,38 +64,24 @@
     </OrderCardItemsSection>
 
     <!-- Edit panel -->
-    <div v-if="canEdit" class="order-editor-panel">
-      <div v-if="menuOptions.length" class="order-add-row">
-        <div class="order-add-field">
+    <div v-if="canEdit" class="order-editor-accordion">
+      <div class="order-editor-accordion__head">
+        <div class="order-editor-accordion__copy">
           <span class="order-field-label">Cập nhật đơn</span>
-          <div class="order-add-control">
-            <button
-              type="button"
-              :class="['btn order-add-btn order-time-toggle', arrivalEditOpen ? 'btn-secondary' : 'btn-outline-secondary']"
-              :title="arrivalEditOpen ? 'Đóng chỉnh giờ' : 'Chỉnh giờ hẹn'"
-              @click="arrivalEditOpen = !arrivalEditOpen"
-            ><i class="bi bi-clock"></i></button>
-            <select v-model="addSelection" class="form-select order-select" :disabled="busy">
-              <option value="">Chọn món để thêm</option>
-              <template v-for="group in groupedOptions" :key="group.label">
-                <optgroup :label="groupLabelText(group)">
-                  <option v-for="opt in group.items" :key="opt.id" :value="String(opt.id)">
-                    {{ opt.menuItem.name }} · {{ formatMoney(opt.sellingPrice) }}
-                  </option>
-                </optgroup>
-              </template>
-            </select>
-            <button
-              class="btn btn-outline-dark order-add-btn"
-              type="button"
-              :disabled="busy || !addSelection"
-              aria-label="Thêm món"
-              title="Thêm món"
-              @click="addItem"
-            >+</button>
-          </div>
+          <button
+            type="button"
+            class="order-editor-accordion__toggle"
+            :aria-expanded="editPanelOpen ? 'true' : 'false'"
+            :title="editPanelOpen ? 'Thu gọn' : 'Mở rộng'"
+            @click="editPanelOpen = !editPanelOpen"
+          >
+            <i class="bi bi-pencil-square"></i>
+          </button>
         </div>
-        <div v-if="arrivalEditOpen" class="order-arrival-row order-arrival-row--stacked">
+      </div>
+
+      <div v-if="editPanelOpen" class="order-editor-panel">
+        <div class="order-arrival-row order-arrival-row--stacked order-editor-meta-row">
           <div class="order-arrival-field">
             <div class="order-arrival-time-shell">
               <i class="bi bi-clock order-arrival-time-icon" aria-hidden="true"></i>
@@ -123,22 +109,107 @@
               :disabled="busy"
             />
           </div>
+          <div class="order-editor-meta-action">
+            <button
+              class="btn order-add-btn order-add-launch-btn"
+              type="button"
+              :disabled="busy"
+              aria-label="Thêm món"
+              title="Thêm món"
+              @click="openAddPicker"
+            >
+              <i class="bi bi-clipboard-plus order-add-launch-icon"></i>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="menuOptions.length" class="order-add-hint">
+          Bấm nút thêm món để mở danh sách món.
+        </div>
+        <div v-else class="order-add-hint">
+          Hôm nay không còn món khả dụng để thêm vào đơn này.
         </div>
       </div>
-      <div v-else class="order-add-hint">
-        Hôm nay không còn món khả dụng để thêm vào đơn này.
-      </div>
-
-      <div v-if="hasPendingSaveChanges" class="order-editor-actions">
-        <div v-if="draftChanged || hasPendingMetaChange" class="order-editor-note">Lưu thay đổi trước khi hoàn tất hoặc hủy đơn.</div>
-        <button class="btn btn-dark" type="button" :disabled="busy" @click="emitSave">
-          {{ isSaving ? "Đang lưu..." : "Lưu" }}
-        </button>
-        <button class="btn btn-outline-dark" type="button" :disabled="busy" @click="discardDraft">
-          Bỏ thay đổi
-        </button>
-      </div>
     </div>
+
+    <div v-if="hasPendingSaveChanges" class="order-editor-actions order-editor-actions--outside">
+      <div v-if="draftChanged || hasPendingMetaChange" class="order-editor-note">Lưu thay đổi trước khi hoàn tất hoặc hủy đơn.</div>
+      <button class="btn btn-dark" type="button" :disabled="busy" @click="emitSave">
+        {{ isSaving ? "Đang lưu..." : "Lưu" }}
+      </button>
+      <button class="btn btn-outline-dark" type="button" :disabled="busy" @click="discardDraft">
+        Bỏ thay đổi
+      </button>
+    </div>
+
+    <Teleport to="body">
+      <div
+        v-if="addPickerOpen"
+        class="orders-modal-backdrop orders-modal-backdrop--fullscreen"
+        role="dialog"
+        aria-modal="true"
+        @click.self="closeAddPicker"
+      >
+        <div class="orders-modal order-picker-modal">
+          <div class="order-picker-modal__header">
+            <div class="order-picker-modal__heading">
+              <button
+                type="button"
+                class="order-picker-modal__multi-toggle"
+                :class="{ 'is-active': multiSelectMode }"
+                :aria-pressed="multiSelectMode ? 'true' : 'false'"
+                :title="multiSelectMode ? 'Tắt chọn nhiều món' : 'Bật chọn nhiều món'"
+                @click="multiSelectMode = !multiSelectMode"
+              >
+                <i class="bi" :class="multiSelectMode ? 'bi-check2-square' : 'bi-square'"></i>
+                <span>Chọn nhiều món</span>
+              </button>
+              <div class="orders-modal-title">Thêm món</div>
+              <p class="orders-modal-text">Chọn món để thêm vào đơn hiện tại.</p>
+            </div>
+            <button
+              class="orders-modal-close order-picker-modal__close"
+              type="button"
+              aria-label="Đóng"
+              @click="closeAddPicker"
+            >
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+          <div class="order-picker-modal__body">
+            <MenuIngredientFilterCard
+              :buckets="pickerBuckets"
+              :open-bucket-names="Array.from(openCats)"
+              :selected-key="selectedGroupKey"
+              @toggle-bucket="toggleCat"
+              @select-group="handleSelectGroup"
+            />
+
+            <fieldset
+              v-if="selectedGroup"
+              class="quick-order-picker__fieldset quick-order-picker__fieldset--methods"
+            >
+              <legend class="quick-order-picker__legend quick-order-picker__legend--methods">
+                Cách nấu
+              </legend>
+              <div class="quick-order-picker__methods">
+                <button
+                  v-for="item in pickerIngredientItems"
+                  :key="item.id"
+                  type="button"
+                  class="quick-order-picker__method"
+                  :disabled="busy || !canSelectItem(item)"
+                  @click="addMenuItem(item)"
+                >
+                  <span>{{ methodLabel(item, selectedGroup.label) }}</span>
+                  <span class="quick-order-picker__price">{{ formatMoneyShort(item.sellingPrice) }}</span>
+                </button>
+              </div>
+            </fieldset>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Actions -->
     <div class="order-actions">
@@ -199,8 +270,9 @@ import { computed, reactive, ref, watch } from "vue";
 import OrderCardShell from "../common/OrderCardShell.vue";
 import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
 import OrderCardItemStatuses from "../common/OrderCardItemStatuses.vue";
+import MenuIngredientFilterCard from "../common/MenuIngredientFilterCard.vue";
 import { buildOrderCardProgressSegments } from "../common/orderCardProgress";
-import { formatMoney } from "../../utils/format";
+import { formatMoney, formatMoneyShort } from "../../utils/format";
 import { toggleNoteChip } from "../../utils/noteChips";
 
 // Types
@@ -254,7 +326,20 @@ type DailyMenuOption = {
   stockLinks?: Array<{
     stockPool?: { id?: number; label?: string | null; remainingQuantity?: number } | null;
   }>;
-  menuItem: { id: number; name: string };
+  menuItem: { id: number; name: string; category?: { name: string } | null };
+};
+
+type PickerGroup = {
+  key: string;
+  label: string;
+  poolId: number | null;
+  remaining: number | null;
+  items: DailyMenuOption[];
+};
+
+type PickerCategory = {
+  name: string;
+  groups: PickerGroup[];
 };
 
 type EditableItem = {
@@ -351,8 +436,11 @@ type ArrivalMode = "scheduled" | "unknown" | "arrived";
 const initialArrivalMode: ArrivalMode = props.order.arrivalAt ? "scheduled" : "unknown";
 const initialArrivalTime = props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : "";
 const arrivalMode = ref<ArrivalMode>(initialArrivalMode);
-const arrivalEditOpen = ref(false);
-const addSelection = ref("");
+const editPanelOpen = ref(false);
+const addPickerOpen = ref(false);
+const multiSelectMode = ref(false);
+const selectedGroupKey = ref<string | null>(null);
+const openCats = ref<Set<string>>(new Set());
 const highlightedKey = ref<string | number | null>(null);
 const openItemNoteKeys = ref<Set<string>>(new Set());
 const draftKeySeed = ref(0);
@@ -401,7 +489,10 @@ watch(
   ).join("|"),
   () => {
     draft.value = null;
-    addSelection.value = "";
+    addPickerOpen.value = false;
+    multiSelectMode.value = false;
+    selectedGroupKey.value = null;
+    openCats.value = new Set();
     closeStagePicker();
     openItemNoteKeys.value = new Set();
     arrivalMetaDirty.value = false;
@@ -556,7 +647,9 @@ function toggleItemNoteChip(index: number, chip: string) {
 
 function discardDraft() {
   draft.value = null;
-  addSelection.value = "";
+  addPickerOpen.value = false;
+  selectedGroupKey.value = null;
+  openCats.value = new Set();
   closeStagePicker();
   openItemNoteKeys.value = new Set();
   guestCountDraft.value = formatGuestCountDraft(props.order.guestCount);
@@ -584,8 +677,8 @@ const guestCountChipText = computed(() => {
   return value > 0 ? `${value} khách` : "";
 });
 const infoTooltipLines = computed(() => [
-  `ID đơn: ${props.order.orderNumber}`,
-  `Giờ đặt: ${formatTime(props.order.createdAt)}`,
+  `ID đơn: ${props.order.orderNumber}`, 
+  `Giờ đặt: ${formatTime(props.order.createdAt)}`, 
 ]);
 const queueTime = computed(() => props.order.arrivalAt ? formatTime(props.order.arrivalAt) : "Chưa hẹn");
 
@@ -610,9 +703,9 @@ const progressLegend = computed(() => {
   const progress = props.order.itemProgress;
   if (!progress?.total) return [];
   return [
-    `Chờ ${progress.waiting}`,
-    `Đang làm ${progress.cooking}`,
-    `Lên món ${progress.ready}`,
+    `Chờ ${progress.waiting}`, 
+    `Đang làm ${progress.cooking}`, 
+    `Lên món ${progress.ready}`, 
   ];
 });
 
@@ -657,7 +750,62 @@ const showItemStatuses = computed(() =>
   editableItems.value.some((item) => item.status === "CANCELLED")
 );
 
-const groupedOptions = computed(() => groupByIngredient(props.menuOptions));
+const pickerCategories = computed((): PickerCategory[] => {
+  const categories = new Map<string, Map<string, Omit<PickerGroup, "remaining">>>();
+
+  for (const option of props.menuOptions) {
+    const categoryName = option.menuItem?.category?.name ?? "Khác";
+    if (!categories.has(categoryName)) {
+      categories.set(categoryName, new Map());
+    }
+
+    const pool = option.stockLinks?.[0]?.stockPool;
+    const label = pool?.label || "Khác";
+    const poolId = pool?.id ?? null;
+    const groupKey = `${categoryName}::${label}::${poolId ?? "none"}`;
+    const groups = categories.get(categoryName)!;
+
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, { key: groupKey, label, poolId, items: [] });
+    }
+
+    groups.get(groupKey)!.items.push(option);
+  }
+
+  return Array.from(categories.entries()).map(([name, groups]) => ({
+    name,
+    groups: Array.from(groups.values()).map((group) => ({
+      ...group,
+      remaining: group.poolId != null ? props.stockRemainingMap[group.poolId] ?? null : null,
+    })),
+  }));
+});
+
+const selectedGroup = computed((): PickerGroup | null => {
+  if (!selectedGroupKey.value) return null;
+
+  for (const category of pickerCategories.value) {
+    const group = category.groups.find((entry) => entry.key === selectedGroupKey.value);
+    if (group) {
+      return group;
+    }
+  }
+
+  return null;
+});
+
+const pickerIngredientItems = computed(() => selectedGroup.value?.items ?? []);
+const pickerBuckets = computed(() =>
+  pickerCategories.value.map((category) => ({
+    name: category.name,
+    groups: category.groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      badge: group.remaining,
+      items: group.items,
+    })),
+  }))
+);
 
 // Functions
 function progressPct(key: "waiting" | "cooking" | "ready") {
@@ -1079,11 +1227,19 @@ function confirmRemove() {
   removeDialog.index = -1;
 }
 
-function addItem() {
-  const selectedId = Number(addSelection.value || 0);
-  if (!selectedId) return;
-  const opt = props.menuOptions.find((o) => o.id === selectedId);
-  if (!opt) return;
+function openAddPicker() {
+  addPickerOpen.value = true;
+  multiSelectMode.value = false;
+}
+
+function closeAddPicker() {
+  addPickerOpen.value = false;
+  multiSelectMode.value = false;
+  selectedGroupKey.value = null;
+}
+
+function addMenuItem(opt: DailyMenuOption) {
+  if (!canSelectItem(opt)) return;
   const optionDailyMenuItemId = opt.dailyMenuItemId ?? null;
   const optionMenuItemId = Number(opt.menuItemId ?? opt.menuItem.id);
 
@@ -1135,7 +1291,78 @@ function addItem() {
     flashItem(newKey);
     openItemNoteEditor(newKey);
   }
-  addSelection.value = "";
+
+  if (!multiSelectMode.value) {
+    closeAddPicker();
+  }
+}
+
+watch(
+  pickerCategories,
+  (categories) => {
+    const nextOpenCats = new Set(
+      [...openCats.value].filter((name) => categories.some((category) => category.name === name))
+    );
+
+    for (const category of categories) {
+      nextOpenCats.add(category.name);
+    }
+
+    openCats.value = nextOpenCats;
+
+    if (
+      selectedGroupKey.value &&
+      !categories.some((category) =>
+        category.groups.some((group) => group.key === selectedGroupKey.value)
+      )
+    ) {
+      selectedGroupKey.value = null;
+    }
+  },
+  { immediate: true }
+);
+
+function toggleCat(name: string) {
+  const next = new Set(openCats.value);
+  if (next.has(name)) {
+    next.delete(name);
+    const category = pickerCategories.value.find((entry) => entry.name === name);
+    if (category?.groups.some((group) => group.key === selectedGroupKey.value)) {
+      selectedGroupKey.value = null;
+    }
+  } else {
+    next.add(name);
+  }
+  openCats.value = next;
+}
+
+function handleSelectGroup(key: string) {
+  selectedGroupKey.value = selectedGroupKey.value === key ? null : key;
+}
+
+function getItemRemaining(item: DailyMenuOption) {
+  const poolId = item.stockLinks?.[0]?.stockPool?.id;
+  if (poolId == null) {
+    return null;
+  }
+
+  const liveRemaining = props.stockRemainingMap[poolId];
+  if (liveRemaining != null) {
+    return liveRemaining;
+  }
+
+  return item.stockLinks?.[0]?.stockPool?.remainingQuantity ?? null;
+}
+
+function canSelectItem(item: DailyMenuOption) {
+  const remaining = getItemRemaining(item);
+  return Boolean(item.isAvailable) && remaining !== 0;
+}
+
+function methodLabel(item: DailyMenuOption, ingredientLabel: string) {
+  const name = item.menuItem?.name ?? "";
+  const stripped = name.replace(new RegExp(`^${ingredientLabel}\\s*`, "i"), "").trim();
+  return stripped || name;
 }
 
 function emitSave() {
@@ -1155,23 +1382,6 @@ function emitSave() {
   );
 }
 
-function groupByIngredient(options: DailyMenuOption[]) {
-  const groups = new Map<string, { label: string; poolId: number | null; items: DailyMenuOption[] }>();
-  for (const option of options) {
-    const pool = option.stockLinks?.[0]?.stockPool;
-    const label = pool?.label || "Khác";
-    const poolId = pool?.id ?? null;
-    const key = poolId != null ? `pool-${poolId}` : `label-${label}`;
-    if (!groups.has(key)) groups.set(key, { label, poolId, items: [] });
-    groups.get(key)!.items.push(option);
-  }
-  return Array.from(groups.values());
-}
-
-function groupLabelText(group: { label: string; poolId: number | null }) {
-  const rem = group.poolId != null ? props.stockRemainingMap[group.poolId] : undefined;
-  return rem != null ? `${group.label} — còn ${rem}` : group.label;
-}
 </script>
 
 <style scoped>
@@ -1203,8 +1413,20 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   gap: 8px;
 }
 
+.order-editor-meta-row {
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 0.6fr) auto;
+  align-items: end;
+  gap: 6px 8px;
+}
+
 .order-arrival-field {
   min-width: 0;
+}
+
+.order-editor-meta-action {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 
 .order-arrival-time-shell {
@@ -1214,10 +1436,10 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 
 .order-arrival-time-icon {
   position: absolute;
-  left: 14px;
+  left: 12px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   color: var(--muted);
   pointer-events: none;
   z-index: 1;
@@ -1260,20 +1482,264 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 .order-arrival-time-input {
   flex: 1;
   min-width: 0;
-  min-height: 46px;
-  height: 46px;
-  border-radius: 16px;
-  padding-left: 38px;
+  min-height: 34px;
+  height: 34px;
+  border-radius: 12px;
+  padding-left: 30px;
+  font-size: 0.88rem;
 }
 
 .order-guest-count-input {
   width: 100%;
-  min-height: 46px;
-  height: 46px;
-  border-radius: 16px;
+  min-height: 34px;
+  height: 34px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+}
+
+.order-editor-accordion {
+  display: grid;
+  gap: 10px;
+}
+
+.order-editor-accordion__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.order-editor-accordion__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.order-editor-accordion__toggle {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(var(--text-rgb), 0.06);
+  color: var(--muted);
+}
+
+.order-editor-accordion__toggle:hover,
+.order-editor-accordion__toggle:focus-visible {
+  background: rgba(var(--text-rgb), 0.1);
+  color: var(--text);
+  outline: none;
+}
+
+.order-editor-accordion__toggle i {
+  font-size: 0.82rem;
 }
 
 .order-editor-panel { display: grid; gap: 12px; }
+
+.order-add-launch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 33px;
+  min-width: 33px;
+  height: 33px;
+  min-height: 33px;
+  padding: 0 !important;
+  border: none;
+  border-radius: 8px;
+  line-height: 1;
+  align-self: end;
+  margin: 0;
+  background: rgba(var(--ember-rgb), 0.12);
+  color: var(--ember-strong);
+  border: 1px solid rgba(var(--ember-rgb), 0.18);
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.order-add-launch-btn:hover,
+.order-add-launch-btn:focus-visible {
+  background: rgba(var(--ember-rgb), 0.18);
+  border-color: rgba(var(--ember-rgb), 0.26);
+  transform: translateY(-1px);
+}
+
+.order-add-launch-btn i,
+.order-add-launch-icon {
+  display: block;
+  font-size: 1rem;
+}
+
+.order-editor-meta-row .order-guest-count-input.order-select {
+  min-height: 34px;
+  height: 34px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+}
+
+.order-editor-meta-row .order-add-launch-btn.order-add-btn {
+  width: 33px;
+  min-width: 33px;
+  height: 33px;
+  min-height: 33px;
+  padding: 0 !important;
+  border-radius: 8px;
+}
+
+.quick-order-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.quick-order-picker__fieldset--methods {
+  display: grid;
+  padding: 0;
+  margin: 0;
+  border: 1px solid rgba(var(--ember-rgb), 0.25);
+  border-radius: 10px;
+  background: rgba(var(--ember-rgb), 0.03);
+}
+
+.quick-order-picker__legend--methods {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  margin: 0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ember-strong);
+  cursor: default;
+  user-select: none;
+}
+
+.quick-order-picker__methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 8px 8px;
+}
+
+.quick-order-picker__method {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid rgba(var(--muted-rgb), 0.18);
+  border-radius: 10px;
+  background: rgba(var(--panel-rgb), 0.9);
+  color: var(--text);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s, transform 0.08s;
+}
+
+.quick-order-picker__price {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(var(--muted-rgb), 0.08);
+}
+
+.quick-order-picker__method:hover:not(:disabled) {
+  background: rgba(var(--ember-rgb), 0.12);
+  border-color: rgba(var(--ember-rgb), 0.4);
+  color: var(--ember-strong);
+  transform: translateY(-1px);
+}
+
+.quick-order-picker__method:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.order-picker-modal {
+  width: min(1040px, calc(100vw - 32px));
+  max-height: min(900px, calc(100dvh - 32px));
+  overflow: hidden;
+  padding: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  justify-items: stretch;
+  text-align: left;
+}
+
+.order-picker-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid rgba(var(--line-rgb), 0.9);
+  background: rgba(var(--panel-rgb), 0.98);
+}
+
+.order-picker-modal__heading {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.order-picker-modal__multi-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 5px 10px;
+  border: 1px solid rgba(var(--text-rgb), 0.12);
+  border-radius: 999px;
+  background: rgba(var(--text-rgb), 0.04);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.order-picker-modal__multi-toggle i {
+  font-size: 0.9rem;
+}
+
+.order-picker-modal__multi-toggle.is-active {
+  border-color: rgba(var(--ember-rgb), 0.25);
+  background: rgba(var(--ember-rgb), 0.1);
+  color: var(--ember-strong);
+}
+
+.order-picker-modal__body {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px 18px 18px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.order-picker-modal__close {
+  position: static;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(var(--text-rgb), 0.06);
+  color: var(--muted);
+}
+
+.order-picker-modal__close:hover,
+.order-picker-modal__close:focus-visible {
+  background: rgba(var(--text-rgb), 0.1);
+  color: var(--text);
+  outline: none;
+}
 
 .order-add-row,
 .order-editor-actions,
@@ -1353,3 +1819,7 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   .orders-modal { padding: 18px; }
 }
 </style>
+
+
+
+

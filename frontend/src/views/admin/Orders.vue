@@ -4,46 +4,47 @@
       <div class="orders-toolbar-body">
         <div class="orders-toolbar-head">
           <span class="orders-field-label">{{ statusFieldLabel }}</span>
+          <div class="orders-toolbar-head-actions">
+            <button
+              class="orders-toolbar-add-btn"
+              type="button"
+              :disabled="!manualMenu || createOrderSubmitting"
+              aria-label="Thêm đơn thủ công"
+              title="Thêm đơn thủ công"
+              @click="openCreateOrderDialog"
+            >
+              <i class="bi bi-clipboard-plus orders-toolbar-add-icon"></i>
+            </button>
 
-          <button
-            class="orders-toolbar-collapse"
-            type="button"
-            :aria-expanded="advancedFiltersOpen ? 'true' : 'false'"
-            :aria-label="advancedFiltersOpen ? 'Thu gọn bộ lọc' : 'Mở rộng bộ lọc'"
-            :title="advancedFiltersOpen ? 'Thu gọn bộ lọc' : 'Mở rộng bộ lọc'"
-            @click="advancedFiltersOpen = !advancedFiltersOpen"
-          >
-            <i
-              :class="['bi', advancedFiltersOpen ? 'bi-chevron-up' : 'bi-chevron-down', 'orders-toolbar-chevron']"
-            ></i>
-          </button>
+            <button
+              class="orders-toolbar-collapse"
+              type="button"
+              :aria-expanded="advancedFiltersOpen ? 'true' : 'false'"
+              :aria-label="advancedFiltersOpen ? 'Thu gọn bộ lọc' : 'Mở rộng bộ lọc'"
+              :title="advancedFiltersOpen ? 'Thu gọn bộ lọc' : 'Mở rộng bộ lọc'"
+              @click="advancedFiltersOpen = !advancedFiltersOpen"
+            >
+              <i
+                :class="['bi', advancedFiltersOpen ? 'bi-chevron-up' : 'bi-chevron-down', 'orders-toolbar-chevron']"
+              ></i>
+            </button>
+          </div>
         </div>
 
         <div class="orders-toolbar-main">
-          <label class="orders-field-inline">
-            <select
-              v-model="filter.status"
-              class="form-select orders-select"
+          <div class="orders-status-tabs" role="tablist" aria-label="Lọc trạng thái đơn">
+            <button
+              v-for="tab in statusTabs"
+              :key="tab.value"
+              type="button"
+              :class="['orders-status-tab', { 'is-active': filter.status === tab.value }]"
+              :aria-pressed="filter.status === tab.value ? 'true' : 'false'"
               :disabled="isLoading"
-              @change="handleImmediateFilterChange"
+              @click="filter.status = tab.value; handleImmediateFilterChange()"
             >
-              <option value="PENDING">Chờ xác nhận</option>
-              <option value="CONFIRMED">Đang xử lý</option>
-              <option value="COMPLETED">Hoàn tất</option>
-              <option value="CANCELLED">Đã hủy</option>
-            </select>
-          </label>
-
-          <button
-            class="btn btn-dark orders-toolbar-add-btn"
-            type="button"
-            :disabled="!manualMenu || createOrderSubmitting"
-            aria-label="Thêm đơn thủ công"
-            title="Thêm đơn thủ công"
-            @click="openCreateOrderDialog"
-          >
-            <i class="bi bi-plus-lg"></i>
-          </button>
+              {{ tab.label }}
+            </button>
+          </div>
 
           <div class="orders-toolbar-side">
             <div class="orders-toolbar-summary">
@@ -319,7 +320,7 @@
                       type="number"
                       min="1"
                       inputmode="numeric"
-                      placeholder="Số người"
+                      placeholder="1 người"
                     />
                   </div>
                 </div>
@@ -554,8 +555,7 @@ const canSubmitCreateOrder = computed(
   () => Boolean(
     manualMenu.value &&
     createOrderDialog.lines.length &&
-    createOrderDialog.guestName.trim() &&
-    parseGuestCount(createOrderDialog.guestCount) > 0
+    createOrderDialog.guestName.trim()
   )
 );
 
@@ -661,6 +661,12 @@ const totalAmount = computed(() =>
 );
 
 const statusFieldLabel = computed(() => `Trạng thái đơn (${formatFilterDate(filter.date)})`);
+const statusTabs = [
+  { value: "PENDING", label: "Chờ xác nhận" },
+  { value: "CONFIRMED", label: "Đang xử lý" },
+  { value: "COMPLETED", label: "Hoàn tất" },
+  { value: "CANCELLED", label: "Đã hủy" },
+];
 
 const scheduleBuckets = computed(() => {
   const buckets = new Map<
@@ -794,6 +800,10 @@ function parseGuestCount(value: string) {
   return Number.isFinite(next) && next > 0 ? next : 0;
 }
 
+function getCreateOrderGuestCount() {
+  return parseGuestCount(createOrderDialog.guestCount) || 1;
+}
+
 async function submitCreateOrder() {
   if (!manualMenu.value || !canSubmitCreateOrder.value) {
     return;
@@ -807,7 +817,7 @@ async function submitCreateOrder() {
       dailyMenuId: manualMenu.value.id,
       guestName: createOrderDialog.guestName.trim(),
       guestPhone: createOrderDialog.guestPhone.trim() || undefined,
-      guestCount: parseGuestCount(createOrderDialog.guestCount),
+      guestCount: getCreateOrderGuestCount(),
       arrivalAt: createOrderDialog.arrivalMode === "scheduled"
         ? buildArrivalAt(filter.date, createOrderDialog.arrivalTime)
         : createOrderDialog.arrivalMode === "arrived"
@@ -1191,11 +1201,57 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.orders-toolbar-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  flex: 0 0 auto;
+}
+
 .orders-toolbar-main {
   display: grid;
-  grid-template-columns: minmax(220px, 260px) 46px minmax(0, 1fr);
-  gap: 12px 16px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
+}
+
+.orders-status-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.orders-status-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.orders-status-tab {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.orders-status-tab:hover,
+.orders-status-tab:focus-visible {
+  outline: none;
+  border-color: rgba(var(--ember-rgb), 0.16);
+  background: rgba(var(--ember-rgb), 0.06);
+  color: var(--ember-strong);
+}
+
+.orders-status-tab.is-active {
+  border-color: rgba(var(--ember-rgb), 0.18);
+  background: rgba(255, 247, 241, 0.94);
+  color: var(--ember-strong);
 }
 
 .orders-toolbar-side {
@@ -1219,20 +1275,33 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
-  min-width: 46px;
-  min-height: 46px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   padding: 0;
   flex: 0 0 auto;
-  border-radius: 50%;
+  border-radius: 14px;
   line-height: 1;
   align-self: center;
   margin: 0;
+  background: rgba(var(--ember-rgb), 0.12);
+  color: var(--ember-strong);
+  border: 1px solid rgba(var(--ember-rgb), 0.18);
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
 }
 
-.orders-toolbar-add-btn i {
+.orders-toolbar-add-btn:hover,
+.orders-toolbar-add-btn:focus-visible {
+  background: rgba(var(--ember-rgb), 0.18);
+  border-color: rgba(var(--ember-rgb), 0.26);
+  transform: translateY(-1px);
+}
+
+.orders-toolbar-add-btn i,
+.orders-toolbar-add-icon {
   display: block;
+  font-size: 1rem;
 }
 
 /* ── Bell ─────────────────────────────────────────────────────── */
@@ -1918,36 +1987,43 @@ onBeforeUnmount(() => {
 }
 
 .orders-modal {
-  width: min(100%, 440px);
+  width: min(100%, 520px);
   position: relative;
   display: grid;
   gap: 16px;
   padding: 22px;
   border-radius: 24px;
-  border: 1px solid rgba(var(--line-rgb), 0.9);
-  background: rgba(var(--panel-rgb), 0.98);
-  box-shadow: 0 24px 48px rgba(var(--text-rgb), 0.24);
+  border: 1px solid rgba(var(--line-rgb), 0.98);
+  background: #fff;
+  box-shadow:
+    0 18px 40px rgba(var(--text-rgb), 0.22),
+    0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  min-width: 0;
+  justify-items: center;
+  text-align: center;
 }
 
 .orders-modal-backdrop--fullscreen {
-  place-items: stretch;
-  padding: 0;
+  place-items: center;
+  padding: 24px;
 }
 
 .orders-create-modal {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: 100vw;
-  height: 100vh;
-  height: 100dvh;
+  width: min(1180px, calc(100vw - 48px));
+  height: min(900px, calc(100vh - 48px));
+  max-width: none;
   max-height: none;
   min-height: 0;
   overflow: hidden;
   gap: 0;
   padding: 0;
-  border-radius: 0;
-  border: 0;
+  border-radius: 28px;
+  border: 1px solid rgba(var(--line-rgb), 0.98);
   box-shadow: none;
+  justify-items: stretch;
+  text-align: left;
 }
 
 .orders-create-modal-header {
@@ -1961,13 +2037,15 @@ onBeforeUnmount(() => {
   padding: max(10px, env(safe-area-inset-top)) 12px 10px;
   border-bottom: 1px solid rgba(var(--line-rgb), 0.9);
   background: rgba(var(--panel-rgb), 0.98);
+  width: 100%;
 }
 
 .orders-create-modal-body {
   display: grid;
   gap: 10px;
   min-height: 0;
-  padding: 0 12px calc(40px + env(safe-area-inset-bottom));
+  width: 100%;
+  padding: 0 20px calc(24px + env(safe-area-inset-bottom));
   overflow: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -1995,11 +2073,18 @@ onBeforeUnmount(() => {
   font-weight: 800;
   margin: 0;
   padding-right: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: var(--text);
 }
 
 .orders-modal-text {
   margin: 0;
-  color: var(--muted);
+  color: rgba(var(--text-rgb), 0.76);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .orders-modal-close {
@@ -2022,13 +2107,17 @@ onBeforeUnmount(() => {
 .orders-modal-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 10px;
+  width: 100%;
+  margin-bottom: 4px;
 }
 
 .orders-radio-list {
   display: grid;
   gap: 10px;
+  width: 100%;
+  text-align: left;
 }
 
 .orders-radio-option {
@@ -2059,6 +2148,35 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 767px) {
+  .orders-modal-backdrop--fullscreen {
+    place-items: stretch;
+    padding: 0;
+  }
+
+  .orders-create-modal {
+    align-self: stretch;
+    justify-self: stretch;
+  }
+
+  .orders-modal {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    padding: 16px;
+  }
+
+  .orders-modal-actions {
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+
+  .orders-modal-actions > * {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
   .orders-page {
     gap: 0;
     margin: -24px;
@@ -2082,23 +2200,16 @@ onBeforeUnmount(() => {
     padding: 14px 16px 16px;
   }
 
-  .orders-toolbar-main {
-    grid-template-columns: minmax(0, 1fr) 46px;
-    align-items: center;
+  .orders-toolbar-head-actions {
+    gap: 14px;
   }
 
-  .orders-toolbar-side,
-  .orders-field-inline {
-    max-width: none;
+  .orders-toolbar-main {
+    gap: 10px;
   }
 
   .orders-toolbar-side {
-    grid-column: 1 / -1;
-    justify-content: space-between;
-  }
-
-  .orders-field-inline {
-    max-width: none;
+    justify-content: flex-start;
   }
 
   .orders-toolbar-summary {
@@ -2152,6 +2263,19 @@ onBeforeUnmount(() => {
 
   .orders-modal {
     padding: 0;
+  }
+
+  .orders-modal.orders-create-modal {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .orders-create-modal-body {
+    padding: 0 12px calc(40px + env(safe-area-inset-bottom));
   }
 }
 </style>

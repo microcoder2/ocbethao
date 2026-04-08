@@ -25,6 +25,7 @@ import {
 import { prisma } from "../utils/prisma";
 import { serializeOrder, serializeOrderList } from "../utils/mappers";
 import {
+  computeAvailableQuantityFromLinks,
   dailyMenuResourceInclude,
   getEffectiveOfferForMenuItem,
   loadCatalogMenuItems,
@@ -142,24 +143,32 @@ type ResolvedOrderLine = {
   cancelledQuantity: number;
   status: OrderItemStatus;
   lineTotal: number;
-  note?: string;
+  note: string | undefined;
   stockUsage: StockUsageEntry[];
 };
 
 type StockTrackedOrderItem = {
   id?: number;
   quantity: number;
+  itemNameSnapshot?: string;
+  unitPrice?: number | Prisma.Decimal;
   status?: OrderItemStatus | string | null;
   waitingQuantity?: number | null;
   cookingQuantity?: number | null;
   readyQuantity?: number | null;
   cancelledQuantity?: number | null;
+  dailyMenuItemId?: number | null;
+  menuItemId?: number | null;
+  note?: string | null;
   dailyMenuItem?: {
     stockLinks?: Array<{
       dailyStockPoolId: number;
       consumeQuantity: Prisma.Decimal | number;
       dailyStockPool?: {
         ingredientId: number;
+        quantity?: Prisma.Decimal | number;
+        soldQuantity?: Prisma.Decimal | number;
+        isAvailable?: boolean | null;
       } | null;
     }>;
   } | null;
@@ -401,6 +410,118 @@ function buildReplacementStageData(
   };
 }
 
+function buildPersistedOrderLine(item: StockTrackedOrderItem): ResolvedOrderLine {
+  const stages = getItemStageQuantities(item);
+  const activeQuantity = getActiveQuantity(stages);
+  const quantity = Math.max(0, Math.floor(Number(item.quantity || 0)));
+  const unitPrice = Number(item.unitPrice || 0);
+
+  return {
+    menuItemId: item.menuItemId ?? null,
+    dailyMenuItemId: item.dailyMenuItemId ?? null,
+    itemNameSnapshot: String(item.itemNameSnapshot || ""),
+    unitPrice,
+    quantity,
+    waitingQuantity: stages.waitingQuantity,
+    cookingQuantity: stages.cookingQuantity,
+    readyQuantity: stages.readyQuantity,
+    cancelledQuantity: stages.cancelledQuantity,
+    status: deriveOrderItemStatus(quantity, stages),
+    lineTotal: unitPrice * quantity,
+    note: normalizeOrderItemNote(item.note) || undefined,
+    stockUsage: buildStockUsageEntriesForItem(item, activeQuantity),
+  };
+}
+
+function buildUpdatedWaitingOrderLine(
+  item: StockTrackedOrderItem,
+  nextQuantity: number
+): ResolvedOrderLine {
+  const quantity = Math.max(0, Math.floor(Number(nextQuantity || 0)));
+  const unitPrice = Number(item.unitPrice || 0);
+  const stages = buildStageData(quantity, OrderItemStatus.WAITING);
+
+  return {
+    menuItemId: item.menuItemId ?? null,
+    dailyMenuItemId: item.dailyMenuItemId ?? null,
+    itemNameSnapshot: String(item.itemNameSnapshot || ""),
+    unitPrice,
+    quantity,
+    waitingQuantity: stages.waitingQuantity,
+    cookingQuantity: stages.cookingQuantity,
+    readyQuantity: stages.readyQuantity,
+    cancelledQuantity: stages.cancelledQuantity,
+    status: stages.status,
+    lineTotal: unitPrice * quantity,
+    note: normalizeOrderItemNote(item.note) || undefined,
+    stockUsage: buildStockUsageEntriesForItem(item, quantity),
+  };
+}
+
+async function buildFinalOrderLinesFromDiff(
+  tx: Prisma.TransactionClient,
+  currentItems: StockTrackedOrderItem[],
+  incomingItems: OrderItemInput[],
+  dailyMenuId?: number | null
+) {
+  const currentBuckets = new Map<string, StockTrackedOrderItem[]>();
+  for (const item of currentItems) {
+    const key = getOrderItemKey(item.dailyMenuItemId, item.menuItemId, item.note);
+    const bucket = currentBuckets.get(key);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      currentBuckets.set(key, [item]);
+    }
+  }
+
+  const newInputs: OrderItemInput[] = [];
+  const plan: Array<
+    | { kind: "existing"; line: ResolvedOrderLine }
+    | { kind: "new"; index: number }
+  > = [];
+
+  for (const rawItem of incomingItems) {
+    const key = getOrderItemKey(
+      typeof rawItem.dailyMenuItemId === "number" ? rawItem.dailyMenuItemId : null,
+      typeof rawItem.menuItemId === "number" ? rawItem.menuItemId : null,
+      rawItem.note
+    );
+    const currentItem = currentBuckets.get(key)?.shift();
+    const nextQuantity = normalizePositiveInt(rawItem.quantity);
+
+    if (currentItem) {
+      const currentQuantity = Math.max(0, Math.floor(Number(currentItem.quantity || 0)));
+      if (currentQuantity === nextQuantity) {
+        plan.push({ kind: "existing", line: buildPersistedOrderLine(currentItem) });
+        continue;
+      }
+
+      if (!canUpdateWaitingOnlyQuantity(currentItem)) {
+        throw new Error("Khong the doi so luong mon da vao bep hoac da huy");
+      }
+
+      plan.push({
+        kind: "existing",
+        line: buildUpdatedWaitingOrderLine(currentItem, nextQuantity),
+      });
+      continue;
+    }
+
+    newInputs.push(rawItem);
+    plan.push({ kind: "new", index: newInputs.length - 1 });
+  }
+
+  const newLines = newInputs.length
+    ? await resolveOrderLines(tx, newInputs, dailyMenuId)
+    : [];
+  let newLineIndex = 0;
+
+  return plan.map((entry) =>
+    entry.kind === "existing" ? entry.line : newLines[newLineIndex++]
+  );
+}
+
 function buildItemProgress(
   items: Array<{
     quantity: number;
@@ -540,6 +661,40 @@ function aggregateStockUsage(lines: ResolvedOrderLine[]) {
   return usage;
 }
 
+function formatUnavailableMenuItemMessage(params: {
+  itemName: string;
+  menuItemId: number | null;
+  dailyMenuItemId: number | null;
+  requestedQuantity: number;
+  availableQuantity: number;
+}) {
+  return [
+    "Món trong menu ngày không còn khả dụng.",
+    `- Món: ${params.itemName}`,
+    `- menuItemId: ${params.menuItemId ?? "null"}`,
+    `- dailyMenuItemId: ${params.dailyMenuItemId ?? "null"}`,
+    `- Còn tối đa: ${params.availableQuantity}`,
+    `- Số lượng đặt: ${params.requestedQuantity}`,
+  ].join("\n");
+}
+
+function buildResolvedLineStockUsage(
+  line: Pick<ResolvedOrderLine, "stockUsage">,
+  activeQuantity: number
+) {
+  const normalizedActiveQuantity = Math.max(0, Math.floor(Number(activeQuantity || 0)));
+  if (normalizedActiveQuantity <= 0) {
+    return [] as StockUsageEntry[];
+  }
+
+  return (line.stockUsage || [])
+    .map((stock) => ({
+      ...stock,
+      quantity: Number(stock.consumeQuantity || 0) * normalizedActiveQuantity,
+    }))
+    .filter((stock) => stock.quantity > 0);
+}
+
 function buildStockUsageEntriesForItem(
   item: StockTrackedOrderItem,
   activeQuantityOverride?: number
@@ -567,7 +722,8 @@ function buildStockUsageEntriesForItem(
 
 async function ensureStockAvailability(
   tx: Prisma.TransactionClient,
-  usage: Map<number, number>
+  usage: Map<number, number>,
+  lines?: ResolvedOrderLine[]
 ) {
   const stockPoolIds = Array.from(usage.keys());
   if (stockPoolIds.length === 0) {
@@ -582,12 +738,36 @@ async function ensureStockAvailability(
   for (const [dailyStockPoolId, requiredQuantity] of usage.entries()) {
     const pool = stockPoolMap.get(dailyStockPoolId);
     if (!pool || pool.isAvailable === false) {
-      throw new Error("Nguon hang cua mon da tam dung phuc vu");
+      throw new Error("Nguồn hàng của món đã tạm dừng phục vụ");
     }
 
     const remainingQuantity = Number(pool.quantity) - Number(pool.soldQuantity);
     if (remainingQuantity < requiredQuantity) {
-      throw new Error("So luong ton kho cua mon khong con du");
+      const affectedLines =
+        lines?.filter((line) =>
+          line.stockUsage.some((stock) => stock.dailyStockPoolId === dailyStockPoolId)
+        ) ?? [];
+
+      const lineSummary = affectedLines.length
+        ? affectedLines
+            .map((line) => {
+              const stockUsage = line.stockUsage.find(
+                (stock) => stock.dailyStockPoolId === dailyStockPoolId
+              );
+              const lineRequiredQuantity = Number(stockUsage?.quantity || 0);
+              const lineConsumeQuantity = Number(stockUsage?.consumeQuantity || 0);
+              return `- Món: ${line.itemNameSnapshot} | menuItemId: ${line.menuItemId ?? "null"} | dailyMenuItemId: ${line.dailyMenuItemId ?? "null"} | số lượng đặt: ${line.quantity} | cần từ kho: ${lineRequiredQuantity} (định mức ${lineConsumeQuantity}/món)`;
+            })
+            .join("\n")
+        : "- Không xác định được món liên quan từ danh sách đơn.";
+
+      throw new Error(
+        [
+          "Tồn kho không đủ cho món trong đơn.",
+          `- Kho #${dailyStockPoolId}: còn ${remainingQuantity}, cần ${requiredQuantity}.`,
+          lineSummary,
+        ].join("\n")
+      );
     }
   }
 }
@@ -755,6 +935,9 @@ async function resolveOrderLines(
                 dailyStockPool: {
                   select: {
                     ingredientId: true,
+                    quantity: true,
+                    soldQuantity: true,
+                    isAvailable: true,
                   },
                 },
               },
@@ -795,7 +978,18 @@ async function resolveOrderLines(
     if (item.dailyMenuItemId) {
       const dailyMenuItem = dailyMenuItemMap.get(item.dailyMenuItemId);
       if (!dailyMenuItem || !dailyMenuItem.isAvailable) {
-        throw new Error("Mon trong menu ngay khong con kha dung");
+        const availableQuantity = dailyMenuItem
+          ? computeAvailableQuantityFromLinks(dailyMenuItem.stockLinks || [])
+          : 0;
+        throw new Error(
+          formatUnavailableMenuItemMessage({
+            itemName: dailyMenuItem?.menuItem?.name || `#${item.dailyMenuItemId}`,
+            menuItemId: dailyMenuItem?.menuItemId ?? item.menuItemId ?? null,
+            dailyMenuItemId: item.dailyMenuItemId,
+            requestedQuantity: quantity,
+            availableQuantity,
+          })
+        );
       }
 
       if (!dailyMenuItem.menuItem) {
@@ -837,7 +1031,18 @@ async function resolveOrderLines(
       if (dailyMenu) {
         const effectiveOffer = effectiveOfferMap.get(item.menuItemId);
         if (!effectiveOffer || !effectiveOffer.isAvailable) {
-          throw new Error("Mon trong menu ngay khong con kha dung");
+          const availableQuantity = effectiveOffer
+            ? computeAvailableQuantityFromLinks(effectiveOffer.stockLinks || [])
+            : 0;
+          throw new Error(
+            formatUnavailableMenuItemMessage({
+              itemName: effectiveOffer?.menuItem?.name || `#${item.menuItemId}`,
+              menuItemId: item.menuItemId,
+              dailyMenuItemId: effectiveOffer?.dailyMenuItemId ?? null,
+              requestedQuantity: quantity,
+              availableQuantity,
+            })
+          );
         }
 
         if (!effectiveOffer.stockLinks?.length) {
@@ -1363,7 +1568,18 @@ export class OrdersController extends Controller {
             include: {
               dailyMenuItem: {
                 include: {
-                  stockLinks: true,
+                  stockLinks: {
+                    include: {
+                      dailyStockPool: {
+                        select: {
+                          quantity: true,
+                          soldQuantity: true,
+                          isAvailable: true,
+                          ingredientId: true,
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -1500,7 +1716,24 @@ export class OrdersController extends Controller {
         where: { id },
         include: {
           items: {
-            include: { dailyMenuItem: { include: { stockLinks: true } } },
+            include: {
+              dailyMenuItem: {
+                include: {
+                  stockLinks: {
+                    include: {
+                      dailyStockPool: {
+                        select: {
+                          quantity: true,
+                          soldQuantity: true,
+                          isAvailable: true,
+                          ingredientId: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       });
@@ -1538,9 +1771,14 @@ export class OrdersController extends Controller {
         createdById: authUser.id,
       });
 
-      const lines = await resolveOrderLines(tx, body.items, current.dailyMenuId);
+      const lines = await buildFinalOrderLinesFromDiff(
+        tx,
+        current.items as StockTrackedOrderItem[],
+        body.items,
+        current.dailyMenuId
+      );
       const nextUsage = aggregateStockUsage(lines);
-      await ensureStockAvailability(tx, nextUsage);
+      await ensureStockAvailability(tx, nextUsage, lines);
 
       const subtotal = lines.reduce((sum, item) => sum + item.lineTotal, 0);
       const serviceFee = Number(current.serviceFee);
@@ -1951,7 +2189,18 @@ export class OrdersController extends Controller {
             include: {
               dailyMenuItem: {
                 include: {
-                  stockLinks: true,
+                  stockLinks: {
+                    include: {
+                      dailyStockPool: {
+                        select: {
+                          quantity: true,
+                          soldQuantity: true,
+                          isAvailable: true,
+                          ingredientId: true,
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -1972,24 +2221,19 @@ export class OrdersController extends Controller {
         orderId: current.id,
       });
 
-      const lines = await resolveOrderLines(tx, body.items || [], current.dailyMenuId);
+      const lines = await buildFinalOrderLinesFromDiff(
+        tx,
+        current.items as StockTrackedOrderItem[],
+        body.items || [],
+        current.dailyMenuId
+      );
       const nextUsage = aggregateStockUsage(lines);
-      await ensureStockAvailability(tx, nextUsage);
+      await ensureStockAvailability(tx, nextUsage, lines);
 
       const subtotal = lines.reduce((sum, item) => sum + item.lineTotal, 0);
       const serviceFee = Number(current.serviceFee);
       const discountAmount = Number(current.discountAmount);
       const totalAmount = subtotal + serviceFee - discountAmount;
-      const existingItems = new Map<string, typeof current.items>();
-      for (const item of current.items) {
-        const key = getOrderItemKey(item.dailyMenuItemId, item.menuItemId, item.note);
-        const bucket = existingItems.get(key);
-        if (bucket) {
-          bucket.push(item);
-        } else {
-          existingItems.set(key, [item]);
-        }
-      }
 
       await tx.orderItem.deleteMany({
         where: { orderId: id },
@@ -2006,14 +2250,12 @@ export class OrdersController extends Controller {
           totalAmount: money(totalAmount),
           items: {
             create: lines.map((line) => {
-              const key = getOrderItemKey(
-                line.dailyMenuItemId,
-                line.menuItemId,
-                line.note
-              );
-              const currentItem = existingItems.get(key)?.shift();
               return {
-                ...buildReplacementStageData(currentItem, line.quantity),
+                waitingQuantity: line.waitingQuantity,
+                cookingQuantity: line.cookingQuantity,
+                readyQuantity: line.readyQuantity,
+                cancelledQuantity: line.cancelledQuantity,
+                status: line.status,
                 menuItemId: line.menuItemId,
                 dailyMenuItemId: line.dailyMenuItemId,
                 itemNameSnapshot: line.itemNameSnapshot,
