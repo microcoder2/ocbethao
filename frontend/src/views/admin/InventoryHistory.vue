@@ -1,9 +1,8 @@
-<template>
+﻿<template>
   <section class="inventory-history">
     <section class="page-panel inventory-history__filters">
       <div class="inventory-history__filters-head">
         <div class="inventory-history__page-label">LỊCH SỬ TỒN KHO</div>
-
         <button
           type="button"
           class="inventory-history__filters-toggle"
@@ -19,16 +18,63 @@
       <div v-show="filtersOpen" class="inventory-history__filters-body">
 
       <div class="inventory-history__filter-grid">
-        <label class="inventory-field inventory-field--search">
+                <div class="inventory-field inventory-field--search">
           <span>Tìm kiếm</span>
-          <input
-            v-model.trim="filters.search"
-            class="form-control"
-            type="search"
-            placeholder="Nguyên liệu, mã đơn, món, người thao tác..."
-            @keydown.enter.prevent="loadMovements"
-          />
-        </label>
+          <div class="inventory-autocomplete">
+            <input
+              v-model.trim="filters.search"
+              class="form-control"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Nguyên liệu, mã đơn, món, người thao tác..."
+              aria-autocomplete="list"
+              :aria-expanded="ingredientAutocompleteOpen ? 'true' : 'false'"
+              aria-controls="inventory-history-ingredient-menu"
+              @focus="openIngredientAutocomplete"
+              @blur="closeIngredientAutocomplete"
+              @keydown.enter.prevent="loadMovements"
+              @keydown.esc="ingredientAutocompleteOpen = false"
+            />
+            <div
+              v-if="ingredientAutocompleteOpen"
+              id="inventory-history-ingredient-menu"
+              class="inventory-autocomplete__menu"
+              role="listbox"
+            >
+              <button
+                v-if="ingredientsLoading"
+                type="button"
+                class="inventory-autocomplete__item is-static"
+                disabled
+              >
+                <span class="inventory-autocomplete__name">Đang tải nguyên liệu...</span>
+              </button>
+
+              <template v-else>
+                <button
+                  v-for="ingredient in ingredientSuggestions"
+                  :key="ingredient.id"
+                  type="button"
+                  class="inventory-autocomplete__item"
+                  :class="{ 'is-inactive': !ingredient.isActive }"
+                  @mousedown.prevent="selectIngredientSuggestion(ingredient)"
+                >
+                  <span class="inventory-autocomplete__name">{{ ingredient.name }}</span>
+                  <span class="inventory-autocomplete__meta">
+                    #{{ ingredient.id }}
+                    <span v-if="ingredient.unit">· {{ ingredient.unit }}</span>
+                    <span v-if="!ingredient.isActive" class="inventory-autocomplete__badge">Ngừng dùng</span>
+                  </span>
+                </button>
+
+                <div v-if="!ingredientSuggestions.length" class="inventory-autocomplete__empty">
+                  Không có nguyên liệu phù hợp.
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
 
         <label class="inventory-field">
           <span>Loại biến động</span>
@@ -39,6 +85,21 @@
             </option>
           </select>
         </label>
+      </div>
+
+      <div v-if="selectedIngredient" class="inventory-history__selected-bar">
+        <div class="inventory-history__selected-copy">
+          <span>ĐÃ CHỌN NGUYÊN LIỆU</span>
+          <strong>{{ selectedIngredient.name }}</strong>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ember inventory-history__summary-trigger"
+          :disabled="summaryLoading"
+          @click="openIngredientSummary"
+        >
+          Xem tồn kho
+        </button>
       </div>
 
       <div class="inventory-history__range-presets">
@@ -166,12 +227,23 @@
         />
       </div>
     </section>
+
+    <InventoryHistorySummaryModal
+      :open="summaryOpen"
+      :loading="summaryLoading"
+      :error-message="summaryError"
+      :summary="summaryData"
+      :selected-ingredient-name="selectedIngredient?.name || ''"
+      :range-label="formatSummaryRangeLabel()"
+      @close="closeIngredientSummary"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { api } from "../../api";
+import InventoryHistorySummaryModal from "../../components/admin/InventoryHistorySummaryModal.vue";
 import AppPagination from "../../components/common/Pagination.vue";
 import DataTable from "../../components/common/DataTable.vue";
 
@@ -206,6 +278,46 @@ type InventoryMovementRow = {
   } | null;
 };
 
+type IngredientOption = {
+  id: number;
+  name: string;
+  slug: string;
+  unit?: string | null;
+  isActive: boolean;
+};
+
+type IngredientSummaryResponse = {
+  ingredient: {
+    id: number;
+    name: string;
+    unit: string | null;
+    isActive: boolean;
+  };
+  currentStock: {
+    quantity: number;
+    soldQuantity: number;
+    remainingQuantity: number;
+    updatedAt: string;
+  } | null;
+  openingSnapshot: {
+    day: string;
+    capturedAt: string | null;
+    totalRemainingQuantity: number | null;
+    remainingQuantity: number;
+    source: "audit-log" | "derived";
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  movementCount: number;
+  totalIncrease: number;
+  totalDecrease: number;
+  netChange: number;
+  expectedClosingQuantity: number;
+  discrepancy: number;
+};
+
 const columns = [
   { key: "ingredient", title: "Nguyên liệu" },
   { key: "movementType", title: "Loại" },
@@ -225,7 +337,6 @@ type DatePreset =
   | "custom";
 
 const movementTypeOptions = [
-  "LOSS",
   "MANUAL_ADJUST",
   "ORDER_RESERVE",
   "ORDER_RELEASE",
@@ -256,6 +367,14 @@ const total = ref(0);
 const movements = ref<InventoryMovementRow[]>([]);
 const activeRange = ref<DatePreset>("all");
 const filtersOpen = ref(true);
+const ingredients = ref<IngredientOption[]>([]);
+const ingredientsLoading = ref(false);
+const ingredientAutocompleteOpen = ref(false);
+const selectedIngredient = ref<IngredientOption | null>(null);
+const summaryOpen = ref(false);
+const summaryLoading = ref(false);
+const summaryError = ref("");
+const summaryData = ref<IngredientSummaryResponse | null>(null);
 const page = ref(1);
 const pageSize = ref(20);
 
@@ -289,6 +408,63 @@ function movementTone(value: string) {
   return "muted";
 }
 
+function normalizeIngredientText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+const ingredientSuggestions = computed(() => {
+  const query = normalizeIngredientText(filters.search || "");
+  const list = [...ingredients.value].sort((a, b) => {
+    const activeDelta = Number(b.isActive) - Number(a.isActive);
+    if (activeDelta !== 0) return activeDelta;
+    return a.name.localeCompare(b.name, "vi");
+  });
+
+  if (!query) {
+    return list;
+  }
+
+  return list.filter((ingredient) =>
+    normalizeIngredientText([ingredient.name, ingredient.slug, ingredient.unit || ""].join(" ")).includes(query)
+  );
+});
+
+function openIngredientAutocomplete() {
+  ingredientAutocompleteOpen.value = true;
+}
+
+function closeIngredientAutocomplete() {
+  ingredientAutocompleteOpen.value = false;
+}
+
+function selectIngredientSuggestion(ingredient: IngredientOption) {
+  filters.search = ingredient.name;
+  selectedIngredient.value = ingredient;
+  summaryOpen.value = false;
+  summaryData.value = null;
+  summaryError.value = "";
+  ingredientAutocompleteOpen.value = false;
+}
+
+async function loadIngredients() {
+  ingredientsLoading.value = true;
+
+  try {
+    const { data } = await api.get("/ingredients");
+    ingredients.value = Array.isArray(data) ? data : [];
+  } catch {
+    ingredients.value = [];
+  } finally {
+    ingredientsLoading.value = false;
+  }
+
+  syncSelectedIngredientFromSearch();
+}
+
 function formatDelta(value: number) {
   const amount = Number(value || 0);
   const sign = amount > 0 ? "+" : "";
@@ -296,6 +472,118 @@ function formatDelta(value: number) {
     minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+function formatShortDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString("vi-VN");
+}
+
+function formatSummaryRangeLabel() {
+  const range = summaryData.value?.range;
+  if (range?.from && range?.to) {
+    const fromLabel = formatShortDate(range.from);
+    const toLabel = formatShortDate(range.to);
+    return fromLabel === toLabel ? fromLabel : `${fromLabel} - ${toLabel}`;
+  }
+
+  if (filters.from && filters.to) {
+    const fromLabel = formatShortDate(`${filters.from}T00:00:00`);
+    const toLabel = formatShortDate(`${filters.to}T23:59:59`);
+    return fromLabel === toLabel ? fromLabel : `${fromLabel} - ${toLabel}`;
+  }
+
+  if (filters.from) {
+    return formatShortDate(`${filters.from}T00:00:00`);
+  }
+
+  if (filters.to) {
+    return formatShortDate(`${filters.to}T23:59:59`);
+  }
+
+  return "Hôm nay";
+}
+
+function syncSelectedIngredientFromSearch() {
+  const query = normalizeIngredientText(filters.search || "");
+
+  if (!query) {
+    selectedIngredient.value = null;
+    return;
+  }
+
+  const exact = ingredients.value.find((ingredient) => {
+    const normalizedName = normalizeIngredientText(ingredient.name);
+    const normalizedSlug = normalizeIngredientText(ingredient.slug);
+    return normalizedName === query || normalizedSlug === query;
+  });
+
+  if (exact) {
+    if (!selectedIngredient.value || selectedIngredient.value.id !== exact.id) {
+      summaryOpen.value = false;
+      summaryData.value = null;
+      summaryError.value = "";
+    }
+    selectedIngredient.value = exact;
+    return;
+  }
+
+  const current = selectedIngredient.value;
+  if (!current) {
+    return;
+  }
+
+  const currentName = normalizeIngredientText(current.name);
+  const currentSlug = normalizeIngredientText(current.slug);
+  if (currentName !== query && currentSlug !== query) {
+    selectedIngredient.value = null;
+    summaryOpen.value = false;
+    summaryData.value = null;
+    summaryError.value = "";
+  }
+}
+
+async function loadIngredientSummary() {
+  const ingredient = selectedIngredient.value;
+  if (!ingredient) {
+    return;
+  }
+
+  summaryLoading.value = true;
+  summaryError.value = "";
+
+  try {
+    const { data } = await api.get("/inventory-movements/summary", {
+      params: {
+        ingredientId: ingredient.id,
+        from: filters.from || undefined,
+        to: filters.to || undefined,
+      },
+    });
+    summaryData.value = data as IngredientSummaryResponse;
+  } catch (error) {
+    summaryError.value = getErrorMessage(error, "Không tải được số liệu tồn kho.");
+    summaryData.value = null;
+  } finally {
+    summaryLoading.value = false;
+  }
+}
+
+async function openIngredientSummary() {
+  if (!selectedIngredient.value) {
+    return;
+  }
+
+  ingredientAutocompleteOpen.value = false;
+  summaryOpen.value = true;
+  await loadIngredientSummary();
+}
+
+function closeIngredientSummary() {
+  summaryOpen.value = false;
 }
 
 function toDateInputValue(date: Date) {
@@ -420,6 +708,13 @@ async function loadMovements() {
 }
 
 watch(
+  () => filters.search,
+  () => {
+    syncSelectedIngredientFromSearch();
+  }
+);
+
+watch(
   () => [filters.search, filters.movementType, filters.from, filters.to],
   () => {
     page.value = 1;
@@ -433,7 +728,7 @@ watch([page, pageSize], () => {
 });
 
 onMounted(() => {
-  // Initial fetch is handled by the watcher.
+  void loadIngredients();
 });
 
 onBeforeUnmount(() => {
@@ -519,6 +814,83 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.inventory-autocomplete {
+  position: relative;
+  min-width: 0;
+}
+
+.inventory-autocomplete__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 15;
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  border-radius: 0;
+  background: rgba(var(--panel-rgb), 0.98);
+  box-shadow: var(--shadow);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.inventory-autocomplete__item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.inventory-autocomplete__item:hover,
+.inventory-autocomplete__item:focus-visible {
+  outline: none;
+  background: rgba(var(--ember-rgb), 0.08);
+  color: var(--ember-strong);
+}
+
+.inventory-autocomplete__item.is-static {
+  cursor: default;
+}
+
+.inventory-autocomplete__item.is-inactive {
+  color: var(--muted);
+}
+
+.inventory-autocomplete__name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.inventory-autocomplete__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.inventory-autocomplete__badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(var(--line-rgb), 0.14);
+  color: var(--muted);
+}
+
+.inventory-autocomplete__empty {
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .inventory-history__range-presets {
   display: flex;
   flex-wrap: wrap;
@@ -560,6 +932,42 @@ onBeforeUnmount(() => {
 
 .inventory-history__clear-range {
   grid-column: 1 / -1;
+  white-space: nowrap;
+}
+
+.inventory-history__selected-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.inventory-history__selected-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.inventory-history__selected-copy span {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.inventory-history__selected-copy strong {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.inventory-history__summary-trigger {
+  border-radius: 0;
   white-space: nowrap;
 }
 
@@ -687,9 +1095,22 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 767px) {
+  .inventory-history__filters-head {
+    align-items: center;
+  }
+
   .inventory-history__filter-grid,
   .inventory-history__date-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inventory-history__selected-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .inventory-history__summary-trigger {
+    width: 100%;
   }
 
   .inventory-history__range-presets {
@@ -705,3 +1126,5 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+

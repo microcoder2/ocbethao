@@ -1,14 +1,25 @@
 import {
+  Body,
   Controller,
   Get,
+  Post,
   Query,
+  Request,
   Route,
   Security,
   Tags,
 } from "tsoa";
 import { InventoryMovementType, Prisma } from "@prisma/client";
+import type { Request as ExRequest } from "express";
 import { prisma } from "../utils/prisma";
-import { serializeInventoryMovement } from "../utils/mappers";
+import { serializeIngredientStock, serializeInventoryMovement } from "../utils/mappers";
+import {
+  captureInventoryOpeningSnapshot,
+  getInventoryOpeningSnapshot,
+  getInventoryOpeningSnapshotItem,
+  type InventoryOpeningSnapshot,
+  type InventoryOpeningSnapshotCaptureResult,
+} from "../services/inventoryOpeningSnapshotService";
 
 function parseDate(value?: string, mode: "start" | "end" = "start") {
   if (!value) return undefined;
@@ -44,6 +55,52 @@ type LossReportIngredientRow = {
   movementCount: number;
   lossQuantity: number;
 };
+
+type IngredientSummaryStockRow = {
+  quantity: number;
+  soldQuantity: number;
+  remainingQuantity: number;
+  updatedAt: string;
+};
+
+type IngredientOpeningSnapshotRow = {
+  day: string;
+  capturedAt: string | null;
+  totalRemainingQuantity: number | null;
+  remainingQuantity: number;
+  source: "audit-log" | "derived";
+};
+
+type IngredientMovementSummaryResponse = {
+  ingredient: {
+    id: number;
+    name: string;
+    unit: string | null;
+    isActive: boolean;
+  };
+  currentStock: IngredientSummaryStockRow | null;
+  openingSnapshot: IngredientOpeningSnapshotRow | null;
+  range: {
+    from: string;
+    to: string;
+  };
+  movementCount: number;
+  totalIncrease: number;
+  totalDecrease: number;
+  netChange: number;
+  expectedClosingQuantity: number;
+  discrepancy: number;
+};
+
+type InventoryOpeningSnapshotCaptureResponse = InventoryOpeningSnapshotCaptureResult;
+
+type InventoryOpeningSnapshotLookupResponse = {
+  snapshot: InventoryOpeningSnapshot | null;
+};
+
+class CaptureOpeningSnapshotBody {
+  force?: boolean;
+}
 
 function buildLossMovementFilter(): Prisma.InventoryMovementWhereInput {
   return {
@@ -185,6 +242,18 @@ function getLocalDateKey(value: Date) {
   return local.toISOString().slice(0, 10);
 }
 
+function startOfLocalDay(date = new Date()) {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function endOfLocalDay(date = new Date()) {
+  const value = new Date(date);
+  value.setHours(23, 59, 59, 999);
+  return value;
+}
+
 function formatDateLabel(dayKey: string) {
   const [year, month, day] = dayKey.split("-");
   if (!year || !month || !day) return dayKey;
@@ -260,6 +329,142 @@ export class InventoryMovementsController extends Controller {
       pageSize: currentPageSize,
       items: items.map(serializeInventoryMovement),
     };
+  }
+
+  @Get("/summary")
+  @Security("bearerAuth", ["ADMIN", "STAFF"])
+  public async getInventoryMovementSummary(
+    @Query() ingredientId?: number,
+    @Query() from?: string,
+    @Query() to?: string
+  ): Promise<IngredientMovementSummaryResponse> {
+    const normalizedIngredientId = Number(ingredientId || 0);
+    if (!normalizedIngredientId) {
+      this.setStatus(400);
+      throw new Error("Missing ingredientId");
+    }
+
+    const summaryDay = parseDate(from, "start") ?? parseDate(to, "start") ?? new Date();
+
+    const [ingredient, stock, movements, openingSnapshot] = await Promise.all([
+      prisma.ingredient.findUnique({
+        where: { id: normalizedIngredientId },
+        select: {
+          id: true,
+          name: true,
+          unit: true,
+          isActive: true,
+        },
+      }),
+      prisma.ingredientStock.findUnique({
+        where: { ingredientId: normalizedIngredientId },
+        include: {
+          ingredient: true,
+        },
+      }),
+      (() => {
+        const fromDate = parseDate(from, "start") ?? startOfLocalDay(summaryDay);
+        const toDate = parseDate(to, "end") ?? endOfLocalDay(summaryDay);
+        return prisma.inventoryMovement.findMany({
+          where: {
+            ingredientId: normalizedIngredientId,
+            createdAt: {
+              gte: fromDate,
+              lte: toDate,
+            },
+          },
+          select: {
+            quantityDelta: true,
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        });
+      })(),
+      getInventoryOpeningSnapshot(summaryDay),
+    ]);
+
+    if (!ingredient) {
+      this.setStatus(404);
+      throw new Error("Ingredient not found");
+    }
+
+    const currentStock = stock ? serializeIngredientStock(stock) : null;
+    let totalIncrease = 0;
+    let totalDecrease = 0;
+    let netChange = 0;
+
+    for (const movement of movements) {
+      const delta = Number(movement.quantityDelta || 0);
+      netChange += delta;
+      if (delta > 0) {
+        totalIncrease += delta;
+      } else if (delta < 0) {
+        totalDecrease += Math.abs(delta);
+      }
+    }
+
+    const currentQuantity = Number(currentStock?.remainingQuantity || 0);
+    const openingItem = getInventoryOpeningSnapshotItem(openingSnapshot, normalizedIngredientId);
+    const hasAuditSnapshot = Boolean(openingItem);
+    const openingQuantity = hasAuditSnapshot
+      ? Number(openingItem?.remainingQuantity || 0)
+      : Math.max(currentQuantity - netChange, 0);
+    const expectedClosingQuantity = openingQuantity + netChange;
+    const discrepancy = currentQuantity - expectedClosingQuantity;
+
+    return {
+      ingredient,
+      currentStock: currentStock
+        ? {
+            quantity: currentStock.quantity,
+            soldQuantity: currentStock.soldQuantity,
+            remainingQuantity: currentStock.remainingQuantity,
+            updatedAt: currentStock.updatedAt.toString(),
+          }
+        : null,
+      openingSnapshot: {
+        day: getLocalDateKey(summaryDay),
+        capturedAt: openingSnapshot?.capturedAt ?? null,
+        totalRemainingQuantity: openingSnapshot?.totalRemainingQuantity ?? null,
+        remainingQuantity: openingQuantity,
+        source: hasAuditSnapshot ? "audit-log" : "derived",
+      },
+      range: {
+        from: (parseDate(from, "start") ?? startOfLocalDay(summaryDay)).toISOString(),
+        to: (parseDate(to, "end") ?? endOfLocalDay(summaryDay)).toISOString(),
+      },
+      movementCount: movements.length,
+      totalIncrease,
+      totalDecrease,
+      netChange,
+      expectedClosingQuantity,
+      discrepancy,
+    };
+  }
+
+  @Get("/opening-snapshot")
+  @Security("bearerAuth", ["ADMIN", "STAFF"])
+  public async getOpeningSnapshot(): Promise<InventoryOpeningSnapshotLookupResponse> {
+    const snapshot = await getInventoryOpeningSnapshot(new Date());
+    return { snapshot };
+  }
+
+  @Post("/opening-snapshot")
+  @Security("bearerAuth", ["ADMIN", "STAFF"])
+  public async captureOpeningSnapshot(
+    @Request() req: ExRequest,
+    @Body() body?: CaptureOpeningSnapshotBody
+  ): Promise<InventoryOpeningSnapshotCaptureResponse> {
+    const authUser = (req as any).user;
+    const result = await captureInventoryOpeningSnapshot(new Date(), {
+      userId: authUser?.id ?? null,
+      ip: req.ip ?? null,
+      userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : null,
+    }, {
+      force: Boolean(body?.force),
+    });
+
+    this.setStatus(result.created ? 201 : 200);
+    return result;
   }
 
   @Get("/loss-report")
