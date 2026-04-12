@@ -146,13 +146,23 @@ function confirmDelete() {
 
 /* ── card ── */
 .stock-card {
-  background: rgba(var(--panel-rgb), 0.7); border: 1px solid var(--line); border-radius: 20px;
-  padding: 14px; display: flex; flex-direction: column; gap: 10px; opacity: 0.55;
-  transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s; position: relative; overflow: hidden;
+  background: rgba(var(--panel-rgb), 0.96);
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  border-radius: 18px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  opacity: 0.55;
+  transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
 }
 .stock-card.is-active {
-  opacity: 1; border-color: rgba(var(--ember-rgb), 0.38);
-  box-shadow: 0 6px 24px rgba(var(--ember-rgb), 0.12); background: rgba(var(--sidebar-fg-rgb), 0.95);
+  opacity: 1;
+  border-color: rgba(var(--ember-rgb), 0.26);
+  box-shadow: 0 8px 24px rgba(var(--text-rgb), 0.08);
+  background: rgba(var(--panel-rgb), 0.99);
 }
 
 .stock-card-img-wrap {

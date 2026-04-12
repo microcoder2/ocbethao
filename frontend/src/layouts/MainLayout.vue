@@ -3,7 +3,7 @@
     <AppSidebar :open="sidebarOpen" class="layout-sidebar" />
     <div class="app-main">
       <AppHeader :show-brand="showHeaderBrand" @toggle-sidebar="toggleSidebar" />
-      <main class="app-content" :class="{ 'app-content--flush': isInventoryHistoryRoute }">
+      <main class="app-content" :class="{ 'app-content--flush': isFullBleedRoute }">
         <RouterView />
       </main>
     </div>
@@ -28,7 +28,9 @@ const sidebarOpen = computed(() =>
 const showHeaderBrand = computed(() => isMobile.value && !mobileSidebarOpen.value);
 
 const route = useRoute();
-const isInventoryHistoryRoute = computed(() => route.path === "/admin/inventory-history");
+const isFullBleedRoute = computed(() =>
+  route.path === "/admin/inventory-history" || route.path === "/admin/stock"
+);
 watch(() => route.path, () => {
   if (isMobile.value) mobileSidebarOpen.value = false;
 });

@@ -1,65 +1,64 @@
 <template>
   <section class="stock-workspace">
-    <header class="stock-workspace__header">
-      <div class="stock-workspace__copy">
-        <h1 class="stock-workspace__title">Tồn kho hiện tại</h1>
-        <p class="stock-workspace__note">
-          Quản lý trực tiếp nguyên liệu đang có và số lượng còn bán.
-        </p>
-        <p class="stock-workspace__snapshot-note">
-          Lưu số buổi sáng xong rồi chụp snapshot đầu ngày để khóa log kiểm toán.
-        </p>
-        <div class="stock-workspace__snapshot-status" :class="{ 'is-ready': snapshotStatus, 'is-empty': !snapshotStatus }">
-          <i :class="snapshotStatus ? 'bi bi-calendar-check' : 'bi bi-calendar-x'"></i>
-          <span>
-            {{
-              snapshotStatus
-                ? `Snapshot hôm nay đã chụp lúc ${formatDateTime(snapshotStatus.capturedAt)}`
-                : "Chưa chụp snapshot đầu ngày hôm nay."
-            }}
-          </span>
-          <strong v-if="snapshotStatus">
-            Tổng kho đầu ngày: {{ formatQuantity(snapshotStatus.totalRemainingQuantity) }}
-          </strong>
-        </div>
-      </div>
-      <div class="stock-workspace__actions">
-        <button
-          class="stock-workspace__snapshot btn btn-outline-dark"
-          type="button"
-          :disabled="snapshotSaving || snapshotLoading"
-          @click="handleSnapshotClick"
-        >
-          <i :class="snapshotActionIcon"></i>
-          <span>{{ snapshotActionLabel }}</span>
-        </button>
-
-        <button
-          class="stock-workspace__save btn-ember"
-          type="button"
-          :disabled="saving"
-          @click="saveStocks"
-        >
-          <i :class="saving ? 'bi bi-hourglass-split' : 'bi bi-floppy'"></i>
-          <span>{{ saving ? "Đang lưu..." : "Lưu tồn kho" }}</span>
-        </button>
-      </div>
-    </header>
-
     <div v-if="snapshotNotice" class="stock-workspace__notice" :class="`is-${snapshotNotice.kind}`">
       {{ snapshotNotice.text }}
     </div>
 
-    <div v-if="errorMessage" class="stock-workspace__error">{{ errorMessage }}</div>
+    <DailyStockPanel>
+      <template #filter-meta>
+        <div ref="headerInfoRef" class="stock-workspace__info-wrap">
+          <button
+            class="stock-workspace__info-btn"
+            type="button"
+            :aria-label="headerInfoOpen ? 'Đóng ghi chú' : 'Mở ghi chú'"
+            :title="headerInfoOpen ? 'Đóng ghi chú' : 'Mở ghi chú'"
+            @click.stop="headerInfoOpen = !headerInfoOpen"
+          >
+            <i class="bi bi-question-lg"></i>
+          </button>
+          <div v-if="headerInfoOpen" class="stock-workspace__info-popup" role="tooltip">
+            <div>Quản lý trực tiếp nguyên liệu đang có và số lượng còn bán.</div>
+            <div>Lưu số buổi sáng xong rồi chụp snapshot đầu ngày để khóa log kiểm toán.</div>
+            <div>
+              {{
+                snapshotStatus
+                  ? `Snapshot hôm nay đã chụp lúc ${formatDateTime(snapshotStatus.capturedAt)}.`
+                  : "Chưa chụp snapshot đầu ngày hôm nay."
+              }}
+            </div>
+            <div v-if="snapshotStatus">
+              Tổng kho đầu ngày: {{ formatQuantity(snapshotStatus.totalRemainingQuantity) }}
+            </div>
+          </div>
+        </div>
+      </template>
 
-    <DailyStockPanel @updated="stockDraft = $event" />
+      <template #filter-actions>
+        <button
+          class="stock-workspace__snapshot"
+          type="button"
+          :aria-label="snapshotActionLabel"
+          :title="snapshotActionLabel"
+          :disabled="snapshotSaving || snapshotLoading"
+          @click="handleSnapshotClick"
+        >
+          <span class="stock-workspace__snapshot-frame" aria-hidden="true">
+            <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--tl"></span>
+            <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--tr"></span>
+            <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--bl"></span>
+            <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--br"></span>
+            <i class="bi bi-journal-text"></i>
+          </span>
+        </button>
+      </template>
+    </DailyStockPanel>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api } from "../../api";
-import DailyStockPanel, { type PoolSummary } from "../../components/admin/DailyStockPanel.vue";
+import DailyStockPanel from "../../components/admin/DailyStockPanel.vue";
 
 type OpeningSnapshot = {
   day: string;
@@ -81,21 +80,22 @@ type SnapshotNotice = {
   text: string;
 };
 
-const stockDraft = ref<PoolSummary[]>([]);
-const saving = ref(false);
-const errorMessage = ref("");
 const snapshotLoading = ref(false);
 const snapshotSaving = ref(false);
 const snapshotStatus = ref<OpeningSnapshot | null>(null);
 const snapshotNotice = ref<SnapshotNotice | null>(null);
+const headerInfoOpen = ref(false);
+const headerInfoRef = ref<HTMLElement | null>(null);
 
 const snapshotActionLabel = computed(() =>
   snapshotStatus.value ? "Chụp lại đầu ngày" : "Chụp đầu ngày"
 );
 
-const snapshotActionIcon = computed(() =>
-  snapshotSaving.value ? "bi bi-hourglass-split" : snapshotStatus.value ? "bi bi-arrow-repeat" : "bi bi-camera"
-);
+function closeHeaderInfoOnOutside(event: MouseEvent) {
+  if (headerInfoRef.value && !headerInfoRef.value.contains(event.target as Node)) {
+    headerInfoOpen.value = false;
+  }
+}
 
 function getErrorMessage(error: any, fallback: string) {
   return error?.response?.data?.message || error?.message || fallback;
@@ -140,6 +140,18 @@ async function loadOpeningSnapshotStatus() {
   }
 }
 
+watch(headerInfoOpen, (isOpen) => {
+  if (isOpen) {
+    document.addEventListener("click", closeHeaderInfoOnOutside);
+  } else {
+    document.removeEventListener("click", closeHeaderInfoOnOutside);
+  }
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", closeHeaderInfoOnOutside);
+});
+
 async function captureOpeningSnapshot(force = false) {
   if (force && snapshotStatus.value) {
     const confirmed = window.confirm(
@@ -183,27 +195,6 @@ async function handleSnapshotClick() {
   await captureOpeningSnapshot(Boolean(snapshotStatus.value));
 }
 
-async function saveStocks() {
-  saving.value = true;
-  errorMessage.value = "";
-  try {
-    await api.put(
-      "/ingredient-stocks",
-      stockDraft.value.map((item) => ({
-        ingredientId: item.ingredientId,
-        label: item.label,
-        quantity: Number(item.quantity || 0),
-        isAvailable: item.isAvailable,
-        note: item.note,
-      }))
-    );
-  } catch (error) {
-    errorMessage.value = getErrorMessage(error, "Không lưu được tồn kho.");
-  } finally {
-    saving.value = false;
-  }
-}
-
 onMounted(() => {
   void loadOpeningSnapshotStatus();
 });
@@ -213,30 +204,64 @@ onMounted(() => {
 .stock-workspace {
   display: grid;
   gap: 16px;
+  width: 100%;
 }
 
-.stock-workspace__header {
-  display: flex;
+.stock-workspace__info-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.stock-workspace__info-btn {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(var(--ember-rgb), 0.14);
+  border-radius: 999px;
+  background: rgba(var(--ember-rgb), 0.08);
+  color: var(--ember-strong);
+  padding: 0;
+  transition: color 0.18s, background 0.18s, border-color 0.18s;
 }
 
-.stock-workspace__copy {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
+.stock-workspace__info-btn:hover,
+.stock-workspace__info-btn:focus-visible {
+  color: var(--ember-strong);
+  border-color: rgba(var(--ember-rgb), 0.24);
+  background: rgba(var(--ember-rgb), 0.14);
+  outline: none;
 }
 
-.stock-workspace__title {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 800;
+.stock-workspace__info-btn i {
+  font-size: 0.88rem;
+}
+
+.stock-workspace__info-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 240px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(30, 20, 14, 0.92);
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  z-index: 200;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.stock-workspace__info-popup div + div {
+  margin-top: 2px;
 }
 
 .stock-workspace__note {
   margin: 6px 0 0;
   color: var(--muted);
+  line-height: 1.5;
 }
 
 .stock-workspace__snapshot-note {
@@ -276,41 +301,93 @@ onMounted(() => {
   font-size: 0.9rem;
 }
 
-.stock-workspace__actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
 .stock-workspace__snapshot {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border-radius: 0;
-  padding: 10px 14px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.stock-workspace__snapshot i {
-  font-size: 0.9rem;
-}
-
-.stock-workspace__save {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
   border: none;
-  border-radius: 12px;
-  padding: 10px 16px;
-  color: #fff;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ember-strong);
+  font-size: 0.82rem;
   font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: visible;
 }
 
-.stock-workspace__save:disabled {
-  opacity: 0.6;
+.stock-workspace__snapshot-frame {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  color: currentColor;
+}
+
+.stock-workspace__snapshot-frame i {
+  position: relative;
+  z-index: 1;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.stock-workspace__snapshot-corner {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 3px solid currentColor;
+  pointer-events: none;
+  opacity: 0.98;
+}
+
+.stock-workspace__snapshot-corner--tl {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+  border-top-left-radius: 8px;
+}
+
+.stock-workspace__snapshot-corner--tr {
+  top: -1px;
+  right: -1px;
+  border-left: 0;
+  border-bottom: 0;
+  border-top-right-radius: 8px;
+}
+
+.stock-workspace__snapshot-corner--bl {
+  bottom: -1px;
+  left: -1px;
+  border-right: 0;
+  border-top: 0;
+  border-bottom-left-radius: 8px;
+}
+
+.stock-workspace__snapshot-corner--br {
+  right: -1px;
+  bottom: -1px;
+  border-left: 0;
+  border-top: 0;
+  border-bottom-right-radius: 8px;
+}
+
+.stock-workspace__snapshot:hover,
+.stock-workspace__snapshot:focus-visible {
+  background: rgba(var(--ember-rgb), 0.08);
+  color: var(--ember-strong);
+  outline: none;
+}
+
+.stock-workspace__snapshot:disabled {
+  opacity: 0.65;
+  cursor: default;
 }
 
 .stock-workspace__error {
@@ -348,22 +425,10 @@ onMounted(() => {
 }
 
 @media (max-width: 767px) {
-  .stock-workspace__header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .stock-workspace__actions {
-    width: 100%;
-    justify-content: stretch;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .stock-workspace__snapshot,
-  .stock-workspace__save {
-    width: 100%;
-    justify-content: center;
+  .stock-workspace__snapshot {
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
   }
 }
 </style>
