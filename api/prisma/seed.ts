@@ -6,6 +6,7 @@ import {
   upsertAuthIdentityForUser,
 } from "../src/services/accountIdentityService";
 import { seedCategories, seedIngredients } from "./seed-data/catalog";
+import { seedHistoricalOrders } from "./seed-data/history";
 import rawSeedMenuItems from "./seed-data/menu-items.json";
 import {
   type SeedUserKey,
@@ -17,11 +18,10 @@ function startOfDay(base = new Date()): Date {
   return new Date(base.getFullYear(), base.getMonth(), base.getDate());
 }
 
-function dateKey(day: Date): string {
-  const year = day.getFullYear();
-  const month = String(day.getMonth() + 1).padStart(2, "0");
-  const date = String(day.getDate()).padStart(2, "0");
-  return `${year}-${month}-${date}`;
+function addDays(base: Date, days: number): Date {
+  const next = new Date(base);
+  next.setDate(next.getDate() + days);
+  return next;
 }
 
 function money(value: number): Prisma.Decimal {
@@ -188,6 +188,7 @@ async function seedCatalog() {
         slug: ingredient.slug,
         description: ingredient.description,
         unit: ingredient.unit,
+        imageUrl: `/ingredient-images/${ingredient.slug}.jpg`,
         isActive: true,
       },
     });
@@ -214,7 +215,7 @@ async function seedMenuBank(
 ) {
   if (!seedMenuItems.length) return;
 
-  const today = startOfDay();
+  const priceHistoryStart = addDays(startOfDay(), -14);
 
   for (const item of seedMenuItems) {
     const resolvedCategorySlug = resolveSeedCategorySlug(item.categorySlug);
@@ -250,7 +251,7 @@ async function seedMenuBank(
           create: [
             {
               price: money(item.currentPrice),
-              effectiveFrom: today,
+              effectiveFrom: priceHistoryStart,
               note: "Giá khởi tạo từ seed ngân hàng món",
             },
           ],
@@ -260,21 +261,24 @@ async function seedMenuBank(
   }
 }
 
-async function seedTodayMenu(
-  _adminId: number,
-  ingredientsBySlug: Map<string, SeedIngredientRecord>
+async function seedCurrentIngredientStocks(
+  ingredientsBySlug: Map<string, SeedIngredientRecord>,
+  consumedTotals: Map<number, number>
 ) {
   for (const ingredientSeed of seedIngredients) {
     const ingredient = ingredientsBySlug.get(ingredientSeed.slug);
     if (!ingredient || ingredientSeed.demoStockQuantity <= 0) continue;
 
+    const consumedQuantity = Number(consumedTotals.get(ingredient.id) || 0);
+    const remainingQuantity = Number(ingredientSeed.demoStockQuantity || 0);
+
     await prisma.ingredientStock.create({
       data: {
         ingredientId: ingredient.id,
         label: ingredient.name,
-        quantity: money(ingredientSeed.demoStockQuantity),
-        soldQuantity: money(0),
-        note: `Stock seed cho ${ingredient.name}`,
+        quantity: money(consumedQuantity + remainingQuantity),
+        soldQuantity: money(consumedQuantity),
+        note: `Stock seed sau 7 ngay cho ${ingredient.name}`,
       },
     });
   }
@@ -293,8 +297,11 @@ async function main() {
   console.log("Đang tạo ngân hàng món...");
   await seedMenuBank(users.admin.id, categoriesBySlug, ingredientsBySlug);
 
-  console.log("Đang tạo menu ngày mẫu...");
-  await seedTodayMenu(users.admin.id, ingredientsBySlug);
+  console.log("Đang tạo menu...");
+  console.log("Đang tạo lịch sử 7 ngày...");
+  const consumedTotals = await seedHistoricalOrders(users);
+  console.log("Đang tạo tồn kho hiện tại...");
+  await seedCurrentIngredientStocks(ingredientsBySlug, consumedTotals);
 
   console.log("Seed hoàn tất.");
 }

@@ -87,21 +87,6 @@
         </label>
       </div>
 
-      <div v-if="selectedIngredient" class="inventory-history__selected-bar">
-        <div class="inventory-history__selected-copy">
-          <span>ĐÃ CHỌN NGUYÊN LIỆU</span>
-          <strong>{{ selectedIngredient.name }}</strong>
-        </div>
-        <button
-          type="button"
-          class="btn btn-ember inventory-history__summary-trigger"
-          :disabled="summaryLoading"
-          @click="openIngredientSummary"
-        >
-          Xem tồn kho
-        </button>
-      </div>
-
       <div class="inventory-history__range-presets">
         <button
           type="button"
@@ -143,6 +128,24 @@
             @change="markCustomRange"
           />
         </label>
+      </div>
+
+      <div v-if="errorMessage" class="alert alert-danger py-2 mb-0">
+        {{ errorMessage }}
+      </div>
+      </div>
+    </section>
+
+    <section class="page-panel inventory-history__quick-actions">
+      <div class="inventory-history__quick-actions-grid">
+        <button
+          type="button"
+          class="btn btn-ember inventory-history__summary-trigger"
+          :disabled="summaryLoading || !selectedIngredient"
+          @click="openIngredientSummary"
+        >
+          {{ selectedIngredientButtonLabel }}
+        </button>
 
         <button
           type="button"
@@ -152,11 +155,6 @@
         >
           Xóa khoảng ngày
         </button>
-      </div>
-
-      <div v-if="errorMessage" class="alert alert-danger py-2 mb-0">
-        {{ errorMessage }}
-      </div>
       </div>
     </section>
 
@@ -377,6 +375,10 @@ const summaryError = ref("");
 const summaryData = ref<IngredientSummaryResponse | null>(null);
 const page = ref(1);
 const pageSize = ref(20);
+
+const selectedIngredientButtonLabel = computed(() =>
+  selectedIngredient.value ? `Xem tồn kho (${selectedIngredient.value.name})` : "Xem tồn kho"
+);
 
 let loadTimer: number | null = null;
 
@@ -757,6 +759,7 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 14px;
   padding: 10px;
+  border: 0;
   border-radius: 0;
 }
 
@@ -930,51 +933,39 @@ onBeforeUnmount(() => {
   align-items: end;
 }
 
-.inventory-history__clear-range {
-  grid-column: 1 / -1;
-  white-space: nowrap;
-}
-
-.inventory-history__selected-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(var(--line-rgb), 0.9);
-  border-radius: 0;
-  background: rgba(255, 255, 255, 0.78);
-}
-
-.inventory-history__selected-copy {
+.inventory-history__quick-actions {
   display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.inventory-history__selected-copy span {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.inventory-history__selected-copy strong {
-  font-size: 0.86rem;
-  font-weight: 800;
-  color: var(--text);
-}
-
-.inventory-history__summary-trigger {
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
   border-radius: 0;
-  white-space: nowrap;
+  background: rgba(var(--panel-rgb), 0.88);
+}
+
+.inventory-history__quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.inventory-history__summary-trigger,
+.inventory-history__clear-range {
+  width: 100%;
+  border-radius: var(--bs-border-radius, 0.375rem);
+  min-height: 44px;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: normal;
+  text-align: center;
 }
 
 .inventory-history__results {
   display: grid;
   gap: 14px;
   padding: 10px;
+  border: 0;
   border-radius: 0;
 }
 
@@ -1104,25 +1095,12 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .inventory-history__selected-bar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .inventory-history__summary-trigger {
-    width: 100%;
-  }
-
   .inventory-history__range-presets {
     gap: 6px;
   }
 
   .inventory-history__preset {
     flex: 1 1 auto;
-  }
-
-  .inventory-history__clear-range {
-    width: 100%;
   }
 }
 </style>

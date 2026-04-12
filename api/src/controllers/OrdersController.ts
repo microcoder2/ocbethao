@@ -23,6 +23,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { prisma } from "../utils/prisma";
+import { formatOrderNumber } from "../utils/orderNumber";
 import { serializeOrder, serializeOrderList } from "../utils/mappers";
 import { loadCurrentIngredientStocks } from "../services/catalogService";
 import {
@@ -216,10 +217,7 @@ function getDateRange(date: string) {
 }
 
 function buildOrderNumber(): string {
-  const now = new Date();
-  const stamp = now.toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
-  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `OBT-${stamp}-${rand}`;
+  return formatOrderNumber(new Date());
 }
 
 function canEditOrder(status: OrderStatus): boolean {

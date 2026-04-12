@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npm run generate && ts-node-dev --respawn --transpile-only src/index.ts",
     "generate": "tsoa spec-and-routes",
-    "build": "npm run generate && tsc -p tsconfig.json",
+    "build": "npm run generate && tsc -p tsconfig.json && node scripts/copy-public.mjs",
     "start": "node dist/src/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
