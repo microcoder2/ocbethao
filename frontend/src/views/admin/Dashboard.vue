@@ -1,5 +1,9 @@
 <template>
   <div class="d-grid gap-4">
+    <section v-if="loadError" class="alert alert-warning mb-0">
+      {{ loadError }}
+    </section>
+
     <section class="stat-grid">
       <StatCard label="Doanh thu ngày" :value="formatMoney(summary?.revenue?.day || 0)" />
       <StatCard label="Doanh thu tháng" :value="formatMoney(summary?.revenue?.month || 0)" />
@@ -62,16 +66,34 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import { isAxiosError } from "axios";
 import { api } from "../../api";
 import StatCard from "../../components/common/StatCard.vue";
 import { formatDate, formatMoney } from "../../utils/format";
 
 const summary = ref<any>(null);
+const loadError = ref("");
+const router = useRouter();
 
 async function loadSummary() {
-  const { data } = await api.get("/dashboard/summary");
-  summary.value = data;
+  loadError.value = "";
+  try {
+    const { data } = await api.get("/dashboard/summary");
+    summary.value = data;
+  } catch (error) {
+    const status = isAxiosError(error) ? error.response?.status : undefined;
+    if (status === 401) {
+      await router.replace("/login");
+      return;
+    }
+
+    loadError.value = "Không tải được dữ liệu tổng quan.";
+    console.error("Failed to load dashboard summary", error);
+  }
 }
 
-onMounted(loadSummary);
+onMounted(() => {
+  void loadSummary();
+});
 </script>

@@ -8,6 +8,15 @@ function isLocalHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
+function isPrivateNetworkHost(hostname: string): boolean {
+  return (
+    isLocalHost(hostname) ||
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
+  );
+}
+
 function resolveApiBaseUrl(): string {
   if (!envApiBaseUrl) {
     return runtimeApiBaseUrl;
@@ -19,7 +28,15 @@ function resolveApiBaseUrl(): string {
 
   try {
     const envUrl = new URL(envApiBaseUrl);
-    if (isLocalHost(envUrl.hostname) && !isLocalHost(window.location.hostname)) {
+    const currentHostname = window.location.hostname;
+    const envIsPrivate = isPrivateNetworkHost(envUrl.hostname);
+    const currentIsPrivate = isPrivateNetworkHost(currentHostname);
+
+    if (envIsPrivate && currentIsPrivate && envUrl.hostname !== currentHostname) {
+      return runtimeApiBaseUrl;
+    }
+
+    if (isLocalHost(envUrl.hostname) && !isLocalHost(currentHostname)) {
       return runtimeApiBaseUrl;
     }
   } catch {
