@@ -10,6 +10,8 @@ import { OrderStatus, PaymentStatus } from "@prisma/client";
 import { prisma } from "../utils/prisma";
 import { toNumber } from "../utils/serializers";
 
+const GROCERY_EXPENSE_ACTION = "GROCERY_EXPENSE_RECORDED";
+
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -33,6 +35,36 @@ function sumRevenue(
   }, 0);
 }
 
+function readExpenseAmount(meta: unknown): number {
+  if (!meta || typeof meta !== "object") {
+    return 0;
+  }
+
+  const amount = Number((meta as { amount?: unknown }).amount || 0);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+async function sumGroceryExpenses(from: Date, to?: Date): Promise<number> {
+  const rows = await prisma.auditLog.findMany({
+    where: {
+      action: GROCERY_EXPENSE_ACTION,
+      createdAt: to
+        ? {
+            gte: from,
+            lte: to,
+          }
+        : {
+            gte: from,
+          },
+    },
+    select: {
+      meta: true,
+    },
+  });
+
+  return rows.reduce((sum, row) => sum + readExpenseAmount(row.meta), 0);
+}
+
 @Route("dashboard")
 @Tags("Dashboard")
 export class DashboardController extends Controller {
@@ -44,7 +76,7 @@ export class DashboardController extends Controller {
     const monthStart = startOfMonth(focusDate);
     const yearStart = startOfYear(focusDate);
 
-    const [ordersDay, ordersMonth, ordersYear, allOrders, recentOrders] =
+    const [ordersDay, ordersMonth, ordersYear, allOrders, recentOrders, groceryExpenseDay, groceryExpenseMonth, groceryExpenseYear] =
       await Promise.all([
         prisma.order.findMany({
           where: { createdAt: { gte: dayStart } },
@@ -79,6 +111,9 @@ export class DashboardController extends Controller {
           orderBy: { createdAt: "desc" },
           take: 5,
         }),
+        sumGroceryExpenses(dayStart),
+        sumGroceryExpenses(monthStart),
+        sumGroceryExpenses(yearStart),
       ]);
 
     const activeStatuses: OrderStatus[] = [OrderStatus.CONFIRMED];
@@ -95,12 +130,26 @@ export class DashboardController extends Controller {
       return acc;
     }, {});
 
+    const revenueDay = sumRevenue(ordersDay);
+    const revenueMonth = sumRevenue(ordersMonth);
+    const revenueYear = sumRevenue(ordersYear);
+
     return {
       focusDate,
       revenue: {
-        day: sumRevenue(ordersDay),
-        month: sumRevenue(ordersMonth),
-        year: sumRevenue(ordersYear),
+        day: revenueDay,
+        month: revenueMonth,
+        year: revenueYear,
+      },
+      expenses: {
+        day: groceryExpenseDay,
+        month: groceryExpenseMonth,
+        year: groceryExpenseYear,
+      },
+      grossProfit: {
+        day: revenueDay - groceryExpenseDay,
+        month: revenueMonth - groceryExpenseMonth,
+        year: revenueYear - groceryExpenseYear,
       },
       orders: {
         total: allOrders.length,

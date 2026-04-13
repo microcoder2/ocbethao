@@ -32,31 +32,36 @@
           </div>
         </div>
       </template>
-
       <template #filter-actions>
-        <button
-          class="stock-workspace__snapshot"
-          type="button"
-          :aria-label="snapshotActionLabel"
-          :title="snapshotActionLabel"
-          :disabled="snapshotSaving || snapshotLoading"
-          @click="handleSnapshotClick"
-        >
-          <span class="stock-workspace__snapshot-frame" aria-hidden="true">
-            <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--tl"></span>
-            <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--tr"></span>
-            <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--bl"></span>
-            <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--br"></span>
-            <i class="bi bi-journal-text"></i>
-          </span>
-        </button>
+        <div class="stock-workspace__actions">
+          <button
+            class="stock-workspace__action stock-workspace__action--snapshot"
+            type="button"
+            :disabled="snapshotSaving || snapshotLoading"
+            @click="handleSnapshotClick"
+          >
+            <span class="stock-workspace__snapshot-frame" aria-hidden="true">
+              <i class="bi bi-journal-text"></i>
+              <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--tl"></span>
+              <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--tr"></span>
+              <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--bl"></span>
+              <span class="stock-workspace__snapshot-corner stock-workspace__snapshot-corner--br"></span>
+            </span>
+            <span>{{ snapshotActionLabel }}</span>
+          </button>
+
+          <RouterLink class="stock-workspace__action stock-workspace__action--grocery" to="/admin/grocery-expense">
+            <i class="bi bi-cart-fill" aria-hidden="true"></i>
+            <span>Ghi tiền chợ</span>
+          </RouterLink>
+        </div>
       </template>
     </DailyStockPanel>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api } from "../../api";
 import DailyStockPanel from "../../components/admin/DailyStockPanel.vue";
 
@@ -87,9 +92,7 @@ const snapshotNotice = ref<SnapshotNotice | null>(null);
 const headerInfoOpen = ref(false);
 const headerInfoRef = ref<HTMLElement | null>(null);
 
-const snapshotActionLabel = computed(() =>
-  snapshotStatus.value ? "Chụp lại đầu ngày" : "Chụp đầu ngày"
-);
+const snapshotActionLabel = "Lưu nhật ký kho";
 
 function closeHeaderInfoOnOutside(event: MouseEvent) {
   if (headerInfoRef.value && !headerInfoRef.value.contains(event.target as Node)) {
@@ -424,11 +427,213 @@ onMounted(() => {
   color: var(--danger);
 }
 
+.stock-workspace__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.stock-workspace__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(var(--ember-rgb), 0.92);
+  color: #fff;
+  font-size: 0.86rem;
+  font-weight: 800;
+  white-space: nowrap;
+  text-decoration: none;
+  transition:
+    transform 0.18s,
+    background 0.18s,
+    color 0.18s,
+    box-shadow 0.18s;
+}
+
+.stock-workspace__action:hover,
+.stock-workspace__action:focus-visible {
+  color: #fff;
+  outline: none;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.1);
+}
+
+.stock-workspace__action:disabled {
+  opacity: 0.65;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+.stock-workspace__action i {
+  font-size: 0.96rem;
+  line-height: 1;
+}
+
+.stock-workspace__action--snapshot .stock-workspace__snapshot-frame i {
+  font-size: 1.05rem;
+}
+
+.stock-workspace__action--snapshot {
+  background: linear-gradient(135deg, var(--ember), var(--ember-strong));
+}
+
+.stock-workspace__action--grocery {
+  background: linear-gradient(135deg, rgba(var(--green-rgb), 0.98), rgba(var(--green-rgb), 0.82));
+}
+
+.stock-workspace__expense {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid rgba(var(--line-rgb), 0.88);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.18s, background 0.18s, color 0.18s, transform 0.18s;
+}
+
+.stock-workspace__expense:hover,
+.stock-workspace__expense:focus-visible {
+  border-color: rgba(var(--ember-rgb), 0.28);
+  background: rgba(var(--ember-rgb), 0.08);
+  color: var(--ember-strong);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.stock-workspace__expense i {
+  font-size: 0.95rem;
+}
+
+.stock-workspace__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(22, 18, 15, 0.56);
+  backdrop-filter: blur(4px);
+}
+
+.stock-workspace__modal {
+  width: min(100%, 520px);
+  max-height: min(88dvh, 760px);
+  display: grid;
+  gap: 16px;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  border-radius: 24px;
+  background: rgba(var(--panel-rgb), 0.98);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+}
+
+.stock-workspace__modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stock-workspace__modal-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.stock-workspace__modal-title {
+  margin: 4px 0 0;
+  font-size: 1.06rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.stock-workspace__modal-copy {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.stock-workspace__modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(var(--line-rgb), 0.9);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.stock-workspace__modal-close:hover,
+.stock-workspace__modal-close:focus-visible {
+  color: var(--ember-strong);
+  border-color: rgba(var(--ember-rgb), 0.28);
+  background: rgba(var(--ember-rgb), 0.08);
+  outline: none;
+}
+
+.stock-workspace__modal-body {
+  display: grid;
+  gap: 14px;
+}
+
+.stock-workspace__field {
+  display: grid;
+  gap: 6px;
+}
+
+.stock-workspace__field span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.stock-workspace__textarea {
+  resize: vertical;
+  min-height: 96px;
+}
+
+.stock-workspace__modal-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.stock-workspace__modal-preview strong {
+  color: var(--ember-strong);
+}
+
+.stock-workspace__modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 @media (max-width: 767px) {
-  .stock-workspace__snapshot {
-    width: 46px;
-    height: 46px;
-    min-width: 46px;
+  .stock-workspace__action {
+    width: 100%;
   }
 }
 </style>

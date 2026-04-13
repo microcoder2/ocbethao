@@ -29,7 +29,9 @@ const showHeaderBrand = computed(() => isMobile.value && !mobileSidebarOpen.valu
 
 const route = useRoute();
 const isFullBleedRoute = computed(() =>
-  route.path === "/admin/inventory-history" || route.path === "/admin/stock"
+  route.path === "/admin/inventory-history" ||
+  route.path === "/admin/stock" ||
+  route.path === "/admin/grocery-expense"
 );
 watch(() => route.path, () => {
   if (isMobile.value) mobileSidebarOpen.value = false;

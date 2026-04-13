@@ -3,7 +3,7 @@
     <section class="dsp-filter-panel">
       <div class="dsp-filter-head">
         <div class="dsp-filter-head-copy">
-          <div class="dsp-filter-label">KHO HÔM NAY</div>
+          <div class="dsp-filter-label"><i class="bi bi-cart-fill"></i> ĐI CHỢ HÔM NAY</div>
           <div class="dsp-filter-count-row">
             <div class="dsp-filter-count">
               <i class="bi bi-basket"></i>
@@ -64,9 +64,10 @@
               <i class="bi bi-clipboard-plus"></i>
             </button>
           </div>
-          <div class="dsp-filter-body-actions">
-            <slot name="filter-actions"></slot>
-          </div>
+        </div>
+
+        <div v-if="$slots['filter-actions']" class="dsp-filter-body-actions">
+          <slot name="filter-actions"></slot>
         </div>
       </div>
     </section>
@@ -875,6 +876,11 @@ async function createIngredient() {
   color: var(--muted);
 }
 
+.dsp-filter-label i {
+  margin-right: 4px;
+  font-size: 0.84rem;
+}
+
 :deep(.dsp-th) {
   font-size: 0.76rem;
   font-weight: 700;
@@ -972,11 +978,8 @@ async function createIngredient() {
 }
 
 .dsp-filter-body-actions {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  display: block;
+  width: 100%;
 }
 
 .dsp-content {

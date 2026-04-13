@@ -21,6 +21,8 @@ import {
   type InventoryOpeningSnapshotCaptureResult,
 } from "../services/inventoryOpeningSnapshotService";
 
+const GROCERY_EXPENSE_ACTION = "GROCERY_EXPENSE_RECORDED";
+
 function parseDate(value?: string, mode: "start" | "end" = "start") {
   if (!value) return undefined;
   const normalized = String(value).trim();
@@ -98,8 +100,40 @@ type InventoryOpeningSnapshotLookupResponse = {
   snapshot: InventoryOpeningSnapshot | null;
 };
 
+type GroceryExpenseResponse = {
+  id: number;
+  amount: number;
+  note: string | null;
+  recordedAt: string;
+  recordedDate: string;
+  breakdown: GroceryExpenseBreakdownItem[];
+};
+
+type GroceryExpenseBreakdownItem = {
+  ingredientId: number;
+  ingredientName: string | null;
+  unit: string | null;
+  remainingQuantity: number;
+  amount: number;
+};
+
 class CaptureOpeningSnapshotBody {
   force?: boolean;
+}
+
+class GroceryExpenseBreakdownBody {
+  ingredientId!: number;
+  ingredientName?: string;
+  unit?: string;
+  remainingQuantity?: number;
+  amount!: number;
+}
+
+class RecordGroceryExpenseBody {
+  amount!: number;
+  note?: string;
+  date?: string;
+  breakdown?: GroceryExpenseBreakdownBody[];
 }
 
 function buildLossMovementFilter(): Prisma.InventoryMovementWhereInput {
@@ -237,9 +271,32 @@ function toLossQuantity(value: unknown) {
   return Math.abs(Number(value || 0));
 }
 
+function normalizeCurrencyAmount(value: unknown) {
+  return Math.round(Number(value || 0));
+}
+
 function getLocalDateKey(value: Date) {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 10);
+}
+
+function parseDateInput(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return null;
+  }
+
+  const [year, month, day] = normalized.split("-").map((part) => Number(part));
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const parsed = new Date(year, month - 1, day, 12, 0, 0, 0);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function startOfLocalDay(date = new Date()) {
@@ -465,6 +522,64 @@ export class InventoryMovementsController extends Controller {
 
     this.setStatus(result.created ? 201 : 200);
     return result;
+  }
+
+  @Post("/grocery-expense")
+  @Security("bearerAuth", ["ADMIN", "STAFF"])
+  public async recordGroceryExpense(
+    @Request() req: ExRequest,
+    @Body() body: RecordGroceryExpenseBody
+  ): Promise<GroceryExpenseResponse | { message: string }> {
+    const authUser = (req as any).user;
+    const requestedDate = parseDateInput(body?.date) ?? new Date();
+    const note = String(body?.note || "").trim() || null;
+    const breakdown = Array.isArray(body?.breakdown)
+      ? body.breakdown
+          .map((item) => ({
+            ingredientId: Number(item?.ingredientId || 0),
+            ingredientName: String(item?.ingredientName || "").trim() || null,
+            unit: String(item?.unit || "").trim() || null,
+            remainingQuantity: Number(item?.remainingQuantity || 0),
+            amount: normalizeCurrencyAmount(item?.amount),
+          }))
+          .filter((item) => item.ingredientId > 0 && item.amount > 0)
+      : [];
+    const breakdownAmount = breakdown.reduce((sum, item) => sum + item.amount, 0);
+    const amount = breakdownAmount > 0 ? breakdownAmount : normalizeCurrencyAmount(body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      this.setStatus(400);
+      return { message: "Số tiền chợ phải lớn hơn 0" };
+    }
+
+    const record = await prisma.auditLog.create({
+      data: {
+        userId: authUser?.id ?? null,
+        ip: req.ip ?? null,
+        userAgent:
+          typeof req.headers["user-agent"] === "string"
+            ? req.headers["user-agent"]
+            : null,
+        action: GROCERY_EXPENSE_ACTION,
+        createdAt: requestedDate,
+        meta: {
+          amount,
+          note,
+          source: "grocery-expense-page",
+          recordedDate: getLocalDateKey(requestedDate),
+          breakdown,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    this.setStatus(201);
+    return {
+      id: record.id,
+      amount,
+      note,
+      recordedAt: record.createdAt.toISOString(),
+      recordedDate: getLocalDateKey(record.createdAt),
+      breakdown,
+    };
   }
 
   @Get("/loss-report")

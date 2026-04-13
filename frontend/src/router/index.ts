@@ -48,7 +48,12 @@ const routes: RouteRecordRaw[] = [
       {
         path: "admin/stock",
         component: () => import("../views/admin/Stock.vue"),
-        meta: { title: "Nhập kho hải sản" },
+        meta: { title: "Đi chợ hôm nay" },
+      },
+      {
+        path: "admin/grocery-expense",
+        component: () => import("../views/admin/GroceryExpense.vue"),
+        meta: { title: "Ghi tiền chợ" },
       },
       {
         path: "admin/inventory-history",

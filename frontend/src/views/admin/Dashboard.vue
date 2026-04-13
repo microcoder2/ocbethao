@@ -11,6 +11,15 @@
       <StatCard label="Đơn đang xử lý" :value="summary?.orders?.active || 0" />
     </section>
 
+    <section class="stat-grid">
+      <StatCard label="Chi phí chợ ngày" :value="formatMoney(summary?.expenses?.day || 0)" />
+      <StatCard label="Lãi gộp ngày" :value="formatMoney(summary?.grossProfit?.day || 0)" />
+      <StatCard label="Chi phí chợ tháng" :value="formatMoney(summary?.expenses?.month || 0)" />
+      <StatCard label="Lãi gộp tháng" :value="formatMoney(summary?.grossProfit?.month || 0)" />
+      <StatCard label="Chi phí chợ năm" :value="formatMoney(summary?.expenses?.year || 0)" />
+      <StatCard label="Lãi gộp năm" :value="formatMoney(summary?.grossProfit?.year || 0)" />
+    </section>
+
     <section class="row g-4">
       <div class="col-12 col-xl-6">
         <div class="page-panel h-100">

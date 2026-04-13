@@ -10,9 +10,9 @@ const MENU: Record<string, AppMenuItem[]> = {
     { label: "Quản Lý Đơn", to: "/admin/orders", icon: "bi-receipt-cutoff" },
     { label: "Ngân Hàng Món", to: "/admin/menu-items", icon: "bi-egg-fried" },
     {
-      label: "Quản Lý Nguyên Liệu",
+      label: "Đi chợ hôm nay",
       to: "/admin/stock",
-      icon: "bi-box-seam-fill",
+      icon: "bi-cart-fill",
     },
     {
       label: "Lịch Sử Tồn Kho",
