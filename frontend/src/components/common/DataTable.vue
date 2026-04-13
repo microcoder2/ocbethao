@@ -4,7 +4,7 @@
     <div class="table-responsive dt-responsive" :class="responsiveClass">
       <table class="table table-sm align-middle mb-0 dt-table" :class="tableClass">
         <thead>
-          <tr class="text-uppercase text-muted small">
+          <tr :class="headerRowClass || 'text-uppercase text-muted small'">
             <th v-if="showCheckbox" :class="headerCellClass" style="width: 36px">
               <input
                 class="form-check-input"
@@ -23,7 +23,9 @@
             <th
               v-if="$slots['row-actions']"
               :class="['text-end', headerCellClass, actionHeaderClass]"
-            ></th>
+            >
+              {{ actionHeaderText || "" }}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -100,9 +102,11 @@ const props = defineProps<{
   responsiveClass?: string;
   tableClass?: string;
   headerCellClass?: string;
+  headerRowClass?: string;
   bodyRowClass?: string;
   bodyCellClass?: string;
   actionHeaderClass?: string;
+  actionHeaderText?: string;
   actionCellClass?: string;
   emptyCellClass?: string;
 }>();

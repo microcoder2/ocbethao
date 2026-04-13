@@ -223,8 +223,15 @@ label {
   min-height: 0;
   padding: 24px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+body.is-modal-open .app-content {
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
 }
 
 .app-content.app-content--flush {

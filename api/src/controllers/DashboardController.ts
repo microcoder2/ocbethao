@@ -24,6 +24,11 @@ function startOfYear(date: Date): Date {
   return new Date(date.getFullYear(), 0, 1);
 }
 
+function getLocalDateKey(value: Date) {
+  const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
 function sumRevenue(
   orders: Array<{ totalAmount: any; paymentStatus: PaymentStatus; status: OrderStatus }>
 ) {
@@ -59,10 +64,25 @@ async function sumGroceryExpenses(from: Date, to?: Date): Promise<number> {
     },
     select: {
       meta: true,
+      createdAt: true,
     },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
 
-  return rows.reduce((sum, row) => sum + readExpenseAmount(row.meta), 0);
+  const seenDays = new Set<string>();
+  let total = 0;
+
+  for (const row of rows) {
+    const dayKey = getLocalDateKey(row.createdAt);
+    if (seenDays.has(dayKey)) {
+      continue;
+    }
+
+    seenDays.add(dayKey);
+    total += readExpenseAmount(row.meta);
+  }
+
+  return total;
 }
 
 @Route("dashboard")

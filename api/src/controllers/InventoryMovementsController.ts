@@ -109,12 +109,17 @@ type GroceryExpenseResponse = {
   breakdown: GroceryExpenseBreakdownItem[];
 };
 
+type GroceryExpenseLookupResponse = {
+  expense: GroceryExpenseResponse | null;
+};
+
 type GroceryExpenseBreakdownItem = {
   ingredientId: number;
   ingredientName: string | null;
   unit: string | null;
   remainingQuantity: number;
   amount: number;
+  note: string | null;
 };
 
 class CaptureOpeningSnapshotBody {
@@ -127,6 +132,7 @@ class GroceryExpenseBreakdownBody {
   unit?: string;
   remainingQuantity?: number;
   amount!: number;
+  note?: string;
 }
 
 class RecordGroceryExpenseBody {
@@ -315,6 +321,57 @@ function formatDateLabel(dayKey: string) {
   const [year, month, day] = dayKey.split("-");
   if (!year || !month || !day) return dayKey;
   return `${day}/${month}/${year}`;
+}
+
+function getGroceryExpenseWhere(day: Date): Prisma.AuditLogWhereInput {
+  return {
+    action: GROCERY_EXPENSE_ACTION,
+    createdAt: {
+      gte: startOfLocalDay(day),
+      lte: endOfLocalDay(day),
+    },
+  };
+}
+
+function toGroceryExpenseResponse(record: {
+  id: number;
+  createdAt: Date;
+  meta: Prisma.JsonValue | null;
+}): GroceryExpenseResponse | null {
+  if (!record.meta || typeof record.meta !== "object" || Array.isArray(record.meta)) {
+    return null;
+  }
+
+  const meta = record.meta as {
+    amount?: unknown;
+    note?: unknown;
+    breakdown?: unknown;
+  };
+
+  const breakdown = Array.isArray(meta.breakdown)
+    ? meta.breakdown
+        .map((item) => ({
+          ingredientId: Number((item as { ingredientId?: unknown })?.ingredientId || 0),
+          ingredientName:
+            String((item as { ingredientName?: unknown })?.ingredientName || "").trim() || null,
+          unit: String((item as { unit?: unknown })?.unit || "").trim() || null,
+          remainingQuantity: Number((item as { remainingQuantity?: unknown })?.remainingQuantity || 0),
+          amount: normalizeCurrencyAmount((item as { amount?: unknown })?.amount),
+          note: String((item as { note?: unknown })?.note || "").trim() || null,
+        }))
+        .filter((item) => item.ingredientId > 0 && item.amount > 0)
+    : [];
+  const breakdownAmount = breakdown.reduce((sum, item) => sum + item.amount, 0);
+  const amount = breakdownAmount > 0 ? breakdownAmount : normalizeCurrencyAmount(meta.amount);
+
+  return {
+    id: record.id,
+    amount,
+    note: String(meta.note || "").trim() || null,
+    recordedAt: record.createdAt.toISOString(),
+    recordedDate: getLocalDateKey(record.createdAt),
+    breakdown,
+  };
 }
 
 @Route("inventory-movements")
@@ -524,6 +581,27 @@ export class InventoryMovementsController extends Controller {
     return result;
   }
 
+  @Get("/grocery-expense")
+  @Security("bearerAuth", ["ADMIN", "STAFF"])
+  public async getGroceryExpense(
+    @Query() date?: string
+  ): Promise<GroceryExpenseLookupResponse> {
+    const requestedDate = parseDateInput(date) ?? new Date();
+    const record = await prisma.auditLog.findFirst({
+      where: getGroceryExpenseWhere(requestedDate),
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        createdAt: true,
+        meta: true,
+      },
+    });
+
+    return {
+      expense: record ? toGroceryExpenseResponse(record) : null,
+    };
+  }
+
   @Post("/grocery-expense")
   @Security("bearerAuth", ["ADMIN", "STAFF"])
   public async recordGroceryExpense(
@@ -541,37 +619,109 @@ export class InventoryMovementsController extends Controller {
             unit: String(item?.unit || "").trim() || null,
             remainingQuantity: Number(item?.remainingQuantity || 0),
             amount: normalizeCurrencyAmount(item?.amount),
+            note: String(item?.note || "").trim() || null,
           }))
           .filter((item) => item.ingredientId > 0 && item.amount > 0)
       : [];
     const breakdownAmount = breakdown.reduce((sum, item) => sum + item.amount, 0);
     const amount = breakdownAmount > 0 ? breakdownAmount : normalizeCurrencyAmount(body?.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      this.setStatus(400);
-      return { message: "Số tiền chợ phải lớn hơn 0" };
-    }
-
-    const record = await prisma.auditLog.create({
-      data: {
-        userId: authUser?.id ?? null,
-        ip: req.ip ?? null,
-        userAgent:
-          typeof req.headers["user-agent"] === "string"
-            ? req.headers["user-agent"]
-            : null,
-        action: GROCERY_EXPENSE_ACTION,
-        createdAt: requestedDate,
-        meta: {
-          amount,
-          note,
-          source: "grocery-expense-page",
-          recordedDate: getLocalDateKey(requestedDate),
-          breakdown,
-        } as Prisma.InputJsonValue,
+    const records = await prisma.auditLog.findMany({
+      where: getGroceryExpenseWhere(requestedDate),
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        createdAt: true,
       },
     });
 
-    this.setStatus(201);
+    if (!Number.isFinite(amount) || amount < 0) {
+      this.setStatus(400);
+      return { message: "Số tiền chợ phải lớn hơn hoặc bằng 0" };
+    }
+
+    if (amount <= 0) {
+      if (!records.length) {
+        this.setStatus(400);
+        return { message: "Số tiền chợ phải lớn hơn 0" };
+      }
+
+      await prisma.auditLog.deleteMany({
+        where: {
+          id: {
+            in: records.map((record) => record.id),
+          },
+        },
+      });
+
+      this.setStatus(200);
+      return {
+        id: records[0].id,
+        amount: 0,
+        note: null,
+        recordedAt: requestedDate.toISOString(),
+        recordedDate: getLocalDateKey(requestedDate),
+        breakdown: [],
+      };
+    }
+
+    const persistedMeta = {
+      amount,
+      note,
+      source: "grocery-expense-page",
+      recordedDate: getLocalDateKey(requestedDate),
+      breakdown,
+    } as Prisma.InputJsonValue;
+
+    const record = records.length
+      ? await prisma.auditLog.update({
+          where: {
+            id: records[0].id,
+          },
+          data: {
+            userId: authUser?.id ?? null,
+            ip: req.ip ?? null,
+            userAgent:
+              typeof req.headers["user-agent"] === "string"
+                ? req.headers["user-agent"]
+                : null,
+            action: GROCERY_EXPENSE_ACTION,
+            createdAt: requestedDate,
+            meta: persistedMeta,
+          },
+          select: {
+            id: true,
+            createdAt: true,
+          },
+        })
+      : await prisma.auditLog.create({
+          data: {
+            userId: authUser?.id ?? null,
+            ip: req.ip ?? null,
+            userAgent:
+              typeof req.headers["user-agent"] === "string"
+                ? req.headers["user-agent"]
+                : null,
+            action: GROCERY_EXPENSE_ACTION,
+            createdAt: requestedDate,
+            meta: persistedMeta,
+          },
+          select: {
+            id: true,
+            createdAt: true,
+          },
+        });
+
+    if (records.length > 1) {
+      await prisma.auditLog.deleteMany({
+        where: {
+          id: {
+            in: records.slice(1).map((record) => record.id),
+          },
+        },
+      });
+    }
+
+    this.setStatus(records.length ? 200 : 201);
     return {
       id: record.id,
       amount,
