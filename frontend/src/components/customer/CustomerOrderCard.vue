@@ -122,62 +122,23 @@
         </button>
       </div>
 
-      <Teleport to="body">
-        <div
-          v-if="addPickerOpen"
-          class="orders-modal-backdrop orders-modal-backdrop--fullscreen"
-          role="dialog"
-          aria-modal="true"
-          @click.self="closeAddPicker"
-        >
-          <div class="orders-modal order-picker-modal">
-            <div class="order-picker-modal__header">
-              <div class="order-picker-modal__heading">
-                <div class="orders-modal-title">Thêm món</div>
-              </div>
-              <button
-                class="orders-modal-close order-picker-modal__close"
-                type="button"
-                aria-label="Đóng"
-                @click="closeAddPicker"
-              >
-                <i class="bi bi-x-lg"></i>
-              </button>
-            </div>
-            <div class="order-picker-modal__body">
-              <MenuIngredientFilterCard
-                :buckets="pickerBuckets"
-                :open-bucket-names="Array.from(openCats)"
-                :selected-key="selectedGroupKey"
-                @toggle-bucket="toggleCat"
-                @select-group="handleSelectGroup"
-              />
-
-              <fieldset
-                v-if="selectedGroup"
-                class="quick-order-picker__fieldset quick-order-picker__fieldset--methods"
-              >
-                <legend class="quick-order-picker__legend quick-order-picker__legend--methods">
-                  Cách nấu
-                </legend>
-                <div class="quick-order-picker__methods">
-                  <button
-                    v-for="item in pickerIngredientItems"
-                    :key="item.id"
-                    type="button"
-                    class="quick-order-picker__method"
-                    :disabled="busy || !canSelectItem(item)"
-                    @click="addMenuItem(item)"
-                  >
-                    <span>{{ methodLabel(item, selectedGroup.label) }}</span>
-                    <span class="quick-order-picker__price">{{ formatMoneyShort(item.sellingPrice) }}</span>
-                  </button>
-                </div>
-              </fieldset>
-            </div>
-          </div>
-        </div>
-      </Teleport>
+      <OrderItemPickerModal
+        :open="addPickerOpen"
+        :busy="busy"
+        :buckets="pickerBuckets"
+        :open-bucket-names="Array.from(openCats)"
+        :selected-key="selectedGroupKey"
+        :selected-group-label="selectedGroup?.label ?? null"
+        :method-items="pickerIngredientItems"
+        :multi-select-mode="multiSelectMode"
+        :can-select-item="canSelectItem"
+        :get-method-label="methodLabel"
+        @close="closeAddPicker"
+        @toggle-bucket="toggleCat"
+        @select-group="handleSelectGroup"
+        @select-item="addMenuItem"
+        @update:multiSelectMode="multiSelectMode = $event"
+      />
 
       <div v-if="canCancelOrder" class="order-actions">
         <button
@@ -221,9 +182,9 @@ import { computed, reactive, ref, watch } from "vue";
 import OrderCardShell from "../common/OrderCardShell.vue";
 import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
 import OrderCardItemStatuses from "../common/OrderCardItemStatuses.vue";
-import MenuIngredientFilterCard from "../common/MenuIngredientFilterCard.vue";
+import OrderItemPickerModal from "../common/OrderItemPickerModal.vue";
 import { buildOrderCardProgressSegments } from "../common/orderCardProgress";
-import { formatMoney, formatMoneyShort } from "../../utils/format";
+import { formatMoney } from "../../utils/format";
 import { toggleNoteChip } from "../../utils/noteChips";
 
 type OrderItem = {
@@ -325,6 +286,7 @@ const guestCountDraft = ref<string>(formatGuestCountDraft(props.order.guestCount
 const guestCountDirty = ref(false);
 const editPanelOpen = ref(false);
 const addPickerOpen = ref(false);
+const multiSelectMode = ref(false);
 const selectedGroupKey = ref<string | null>(null);
 const openCats = ref<Set<string>>(new Set());
 const removeDialog = reactive({ visible: false, index: -1, itemName: "" });
@@ -518,10 +480,12 @@ function normalizeCategoryLabel(value: string) {
 
 function openAddPicker() {
   addPickerOpen.value = true;
+  multiSelectMode.value = false;
 }
 
 function closeAddPicker() {
   addPickerOpen.value = false;
+  multiSelectMode.value = false;
   selectedGroupKey.value = null;
 }
 
@@ -588,7 +552,9 @@ function addMenuItem(opt: MenuOption) {
     openItemNoteEditor(key);
   }
 
-  closeAddPicker();
+  if (!multiSelectMode.value) {
+    closeAddPicker();
+  }
 }
 
 function emitSave() {
@@ -1166,134 +1132,6 @@ function handleItemStatusAction(item: EditableItem, actionKey: string) {
   width: 100%;
   color: var(--muted);
   font-size: 0.85rem;
-}
-
-.order-picker-modal {
-  width: min(1040px, calc(100vw - 32px));
-  max-height: min(900px, calc(100dvh - 32px));
-  overflow: hidden;
-  padding: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  justify-items: stretch;
-  text-align: left;
-}
-
-.order-picker-modal__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 18px 18px 14px;
-  border-bottom: 1px solid rgba(var(--line-rgb), 0.9);
-  background: rgba(var(--panel-rgb), 0.98);
-}
-
-.order-picker-modal__heading {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.order-picker-modal__body {
-  display: grid;
-  gap: 10px;
-  min-height: 0;
-  padding: 14px 18px 18px;
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-
-.order-picker-modal__close {
-  position: static;
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border: none;
-  border-radius: 999px;
-  background: rgba(var(--text-rgb), 0.06);
-  color: var(--muted);
-}
-
-.order-picker-modal__close:hover,
-.order-picker-modal__close:focus-visible {
-  background: rgba(var(--text-rgb), 0.1);
-  color: var(--text);
-  outline: none;
-}
-
-.quick-order-picker {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.quick-order-picker__fieldset--methods {
-  display: grid;
-  padding: 0;
-  margin: 0;
-  border: 1px solid rgba(var(--ember-rgb), 0.25);
-  border-radius: 10px;
-  background: rgba(var(--ember-rgb), 0.03);
-}
-
-.quick-order-picker__legend--methods {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 10px;
-  margin: 0;
-  font-size: 0.76rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ember-strong);
-  cursor: default;
-  user-select: none;
-}
-
-.quick-order-picker__methods {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 8px 8px;
-}
-
-.quick-order-picker__method {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border: 1px solid rgba(var(--muted-rgb), 0.18);
-  border-radius: 10px;
-  background: rgba(var(--panel-rgb), 0.9);
-  color: var(--text);
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.12s, border-color 0.12s, transform 0.08s;
-}
-
-.quick-order-picker__price {
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: rgba(var(--muted-rgb), 0.08);
-}
-
-.quick-order-picker__method:hover:not(:disabled) {
-  background: rgba(var(--ember-rgb), 0.12);
-  border-color: rgba(var(--ember-rgb), 0.4);
-  color: var(--ember-strong);
-  transform: translateY(-1px);
-}
-
-.quick-order-picker__method:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .orders-modal-backdrop {
