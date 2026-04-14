@@ -213,7 +213,7 @@
         </DataTable>
       </div>
 
-      <div class="inventory-history__pager">
+      <div v-if="total > 0" class="inventory-history__pager">
         <AppPagination
           :page="page"
           :page-size="pageSize"

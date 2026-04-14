@@ -1,5 +1,5 @@
 <template>
-  <div class="app-pagination">
+  <div v-if="total > 0" class="app-pagination">
     <div class="app-pagination__meta">
       <div class="input-group input-group-sm app-pagination__page-size">
         <span class="input-group-text">Hiển thị</span>
@@ -26,9 +26,6 @@
         của
         <strong>{{ total }}</strong>
         mục
-      </div>
-      <div v-else class="small text-muted app-pagination__summary">
-        Không có mục nào để hiển thị.
       </div>
     </div>
 

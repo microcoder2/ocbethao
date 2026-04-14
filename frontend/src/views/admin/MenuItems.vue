@@ -130,7 +130,7 @@
         </template>
       </DataTable>
 
-      <div class="mi-pagination-wrap">
+      <div v-if="filteredItems.length > 0" class="mi-pagination-wrap">
         <AppPagination
           v-model:page="page"
           v-model:page-size="pageSize"
