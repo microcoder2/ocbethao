@@ -63,101 +63,37 @@
       </template>
     </OrderCardItemsSection>
 
-    <!-- Edit panel -->
-    <div v-if="canEdit" class="order-editor-accordion">
-      <div class="order-editor-accordion__head">
-        <div class="order-editor-accordion__copy">
-          <span class="order-field-label">Cập nhật đơn</span>
-          <button
-            type="button"
-            class="order-editor-accordion__toggle"
-            :aria-expanded="editPanelOpen ? 'true' : 'false'"
-            :title="editPanelOpen ? 'Thu gọn' : 'Mở rộng'"
-            @click="editPanelOpen = !editPanelOpen"
-          >
-            <i class="bi bi-pencil-square"></i>
-          </button>
-        </div>
-      </div>
-
-      <div v-if="editPanelOpen" class="order-editor-panel">
-        <div class="order-arrival-row order-arrival-row--stacked order-editor-meta-row">
-          <div class="order-arrival-field">
-            <div class="order-arrival-time-shell">
-              <i class="bi bi-clock order-arrival-time-icon" aria-hidden="true"></i>
-              <input
-                v-model="arrivalTimeDraft"
-                type="time"
-                class="form-control order-arrival-time-input"
-                :disabled="busy"
-                min="13:30"
-                max="20:30"
-                placeholder="Giờ hẹn"
-                @input="handleArrivalTimeInput"
-                @change="handleArrivalTimeInput"
-              />
-            </div>
-          </div>
-          <div class="order-arrival-field">
-            <input
-              v-model="guestCountDraft"
-              type="number"
-              min="1"
-              inputmode="numeric"
-              class="form-control order-select order-guest-count-input"
-              placeholder="Số người"
-              :disabled="busy"
-            />
-          </div>
-          <div class="order-editor-meta-action">
-            <button
-              class="btn order-add-btn order-add-launch-btn"
-              type="button"
-              :disabled="busy"
-              aria-label="Thêm món"
-              title="Thêm món"
-              @click="openAddPicker"
-            >
-              <i class="bi bi-clipboard-plus order-add-launch-icon"></i>
-            </button>
-          </div>
-        </div>
-
-        <div v-if="menuOptions.length" class="order-add-hint">
-          Bấm nút thêm món để mở danh sách món.
-        </div>
-        <div v-else class="order-add-hint">
-          Hôm nay không còn món khả dụng để thêm vào đơn này.
-        </div>
-      </div>
-    </div>
-
-    <div v-if="hasPendingSaveChanges" class="order-editor-actions order-editor-actions--outside">
-      <div v-if="draftChanged || hasPendingMetaChange" class="order-editor-note">Lưu thay đổi trước khi hoàn tất hoặc hủy đơn.</div>
-      <button class="btn btn-dark" type="button" :disabled="busy" @click="emitSave">
-        {{ isSaving ? "Đang lưu..." : "Lưu" }}
-      </button>
-      <button class="btn btn-outline-dark" type="button" :disabled="busy" @click="discardDraft">
-        Bỏ thay đổi
-      </button>
-    </div>
-
-    <OrderItemPickerModal
-      :open="addPickerOpen"
+    <OrderUpdateEditor
+      :visible="canEdit"
       :busy="busy"
-      :buckets="pickerBuckets"
+      :is-saving="isSaving"
+      v-model:edit-panel-open="editPanelOpen"
+      v-model:arrival-time-draft="arrivalTimeDraft"
+      v-model:guest-count-draft="guestCountDraft"
+      v-model:picker-multi-select-mode="multiSelectMode"
+      :time-min="'13:30'"
+      :time-max="'20:30'"
+      :add-button-disabled="busy"
+      :has-menu-options="menuOptions.length > 0"
+      :has-pending-save-changes="hasPendingSaveChanges"
+      :show-save-note="draftChanged || hasPendingMetaChange"
+      save-note-text="Lưu thay đổi trước khi hoàn tất hoặc hủy đơn."
+      :picker-open="addPickerOpen"
+      :picker-buckets="pickerBuckets"
       :open-bucket-names="Array.from(openCats)"
       :selected-key="selectedGroupKey"
       :selected-group-label="selectedGroup?.label ?? null"
-      :method-items="pickerIngredientItems"
-      :multi-select-mode="multiSelectMode"
-      :can-select-item="canSelectItem"
-      :get-method-label="methodLabel"
-      @close="closeAddPicker"
-      @toggle-bucket="toggleCat"
-      @select-group="handleSelectGroup"
-      @select-item="addMenuItem"
-      @update:multiSelectMode="multiSelectMode = $event"
+      :picker-method-items="pickerIngredientItems"
+      :picker-can-select-item="canSelectItem"
+      :picker-get-method-label="methodLabel"
+      @arrival-input="handleArrivalTimeInput"
+      @open-picker="openAddPicker"
+      @save="emitSave"
+      @discard="discardDraft"
+      @close-picker="closeAddPicker"
+      @toggle-picker-bucket="toggleCat"
+      @select-picker-group="handleSelectGroup"
+      @select-picker-item="addMenuItem"
     />
 
     <!-- Actions -->
@@ -219,10 +155,16 @@ import { computed, reactive, ref, watch } from "vue";
 import OrderCardShell from "../common/OrderCardShell.vue";
 import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
 import OrderCardItemStatuses from "../common/OrderCardItemStatuses.vue";
-import OrderItemPickerModal from "../common/OrderItemPickerModal.vue";
+import OrderUpdateEditor from "../common/OrderUpdateEditor.vue";
 import { buildOrderCardProgressSegments } from "../common/orderCardProgress";
+import {
+  buildOrderSaveItemsPayload,
+  formatOrderGuestCountDraft,
+  parseOrderGuestCountDraft,
+  useOrderDraftLineEditor,
+} from "../../composables/useOrderDraftLineEditor";
+import { useOrderItemPicker } from "../../composables/useOrderItemPicker";
 import { formatMoney } from "../../utils/format";
-import { toggleNoteChip } from "../../utils/noteChips";
 
 // Types
 type OrderItem = {
@@ -274,19 +216,6 @@ type CatalogOption = {
     stockPool?: { id?: number; label?: string | null; remainingQuantity?: number } | null;
   }>;
   menuItem: { id: number; name: string; category?: { name: string } | null };
-};
-
-type PickerGroup = {
-  key: string;
-  label: string;
-  poolId: number | null;
-  remaining: number | null;
-  items: CatalogOption[];
-};
-
-type PickerCategory = {
-  name: string;
-  groups: PickerGroup[];
 };
 
 type EditableItem = {
@@ -376,28 +305,16 @@ const draft = ref<EditableItem[] | null>(null);
 const arrivalTimeDraft = ref<string>(
   props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""
 );
-const guestCountDraft = ref<string>(formatGuestCountDraft(props.order.guestCount));
+const guestCountDraft = ref<string>(formatOrderGuestCountDraft(props.order.guestCount));
 
 type ArrivalMode = "scheduled" | "unknown" | "arrived";
 const initialArrivalMode: ArrivalMode = props.order.arrivalAt ? "scheduled" : "unknown";
 const initialArrivalTime = props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : "";
 const arrivalMode = ref<ArrivalMode>(initialArrivalMode);
 const editPanelOpen = ref(false);
-const addPickerOpen = ref(false);
-const multiSelectMode = ref(false);
-const selectedGroupKey = ref<string | null>(null);
-const openCats = ref<Set<string>>(new Set());
-const highlightedKey = ref<string | number | null>(null);
-const openItemNoteKeys = ref<Set<string>>(new Set());
 const draftKeySeed = ref(0);
 const arrivalMetaDirty = ref(false);
 const guestCountDirty = ref(false);
-
-function flashItem(key: string | number) {
-  highlightedKey.value = key;
-  setTimeout(() => { highlightedKey.value = null; }, 1200);
-}
-const removeDialog = reactive({ visible: false, index: -1, itemName: "" });
 const stagePicker = reactive<{
   visible: boolean;
   itemId: number | null;
@@ -440,7 +357,7 @@ watch(
     selectedGroupKey.value = null;
     openCats.value = new Set();
     closeStagePicker();
-    openItemNoteKeys.value = new Set();
+    resetLineEditorState();
     arrivalMetaDirty.value = false;
     guestCountDirty.value = false;
   }
@@ -449,7 +366,7 @@ watch(
 watch(
   () => props.order.guestCount,
   (value) => {
-    guestCountDraft.value = formatGuestCountDraft(value);
+    guestCountDraft.value = formatOrderGuestCountDraft(value);
   }
 );
 
@@ -463,7 +380,7 @@ watch([arrivalMode, guestCountDraft], () => {
   arrivalMetaDirty.value =
     arrivalMode.value !== initialArrivalMode ||
     (arrivalMode.value === "scheduled" && arrivalTimeDraft.value !== initialArrivalTime);
-  guestCountDirty.value = String(guestCountDraft.value ?? "").trim() !== formatGuestCountDraft(props.order.guestCount);
+  guestCountDirty.value = String(guestCountDraft.value ?? "").trim() !== formatOrderGuestCountDraft(props.order.guestCount);
 });
 
 watch(
@@ -477,10 +394,7 @@ watch(
 watch(
   () => (draft.value ?? cloneItems(props.order.items)).map((item) => item.key).join("|"),
   () => {
-    const validKeys = new Set((draft.value ?? cloneItems(props.order.items)).map((item) => item.key));
-    openItemNoteKeys.value = new Set(
-      Array.from(openItemNoteKeys.value).filter((key) => validKeys.has(key))
-    );
+    syncOpenItemNoteKeys(draft.value ?? cloneItems(props.order.items));
   }
 );
 
@@ -502,11 +416,6 @@ function normalizeItemNote(note?: string | null) {
   return String(note || "").trim();
 }
 
-function formatGuestCountDraft(value?: number | null) {
-  const next = Number(value || 0);
-  return next > 0 ? String(next) : "";
-}
-
 function handleArrivalTimeInput() {
   if (String(arrivalTimeDraft.value || "").trim()) {
     arrivalMode.value = "scheduled";
@@ -516,33 +425,8 @@ function handleArrivalTimeInput() {
     (arrivalMode.value === "scheduled" && arrivalTimeDraft.value !== initialArrivalTime);
 }
 
-function parseGuestCountDraft(value: string) {
-  const next = Number.parseInt(String(value || "").trim(), 10);
-  return Number.isFinite(next) && next > 0 ? next : null;
-}
-
 function canEditItemNote(item: EditableItem) {
   return canAdjustDraftItem(item) && item.status !== "CANCELLED";
-}
-
-function isItemNoteEditorOpen(key: string) {
-  return openItemNoteKeys.value.has(key);
-}
-
-function toggleItemNoteEditor(key: string) {
-  const next = new Set(openItemNoteKeys.value);
-  if (next.has(key)) {
-    next.delete(key);
-  } else {
-    next.add(key);
-  }
-  openItemNoteKeys.value = next;
-}
-
-function openItemNoteEditor(key: string) {
-  const next = new Set(openItemNoteKeys.value);
-  next.add(key);
-  openItemNoteKeys.value = next;
 }
 
 function buildDraftItemKey(seed: string | number) {
@@ -577,18 +461,108 @@ function ensureDraft() {
   if (!draft.value) draft.value = cloneItems(props.order.items);
 }
 
-function setItemNote(index: number, note: string) {
-  ensureDraft();
-  const item = draft.value?.[index];
-  if (!item) return;
-  draft.value![index] = { ...item, note };
-}
+const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
 
-function toggleItemNoteChip(index: number, chip: string) {
-  const item = editableItems.value[index];
-  if (!item) return;
-  setItemNote(index, toggleNoteChip(item.note || "", chip));
-}
+const {
+  highlightedKey,
+  removeDialog,
+  flashItem,
+  toggleItemNoteChip,
+  isItemNoteEditorOpen,
+  toggleItemNoteEditor,
+  openItemNoteEditor,
+  syncOpenItemNoteKeys,
+  resetLineEditorState,
+  changeQty,
+  confirmRemove,
+} = useOrderDraftLineEditor<EditableItem>({
+  draft,
+  editableItems,
+  ensureDraft,
+  updateQuantity: (item, nextQuantity) => ({
+    ...item,
+    quantity: nextQuantity,
+    activeQuantity: nextQuantity,
+    waitingQuantity: nextQuantity,
+    cookingQuantity: 0,
+    readyQuantity: 0,
+    cancelledQuantity: 0,
+    lineTotal: nextQuantity * item.unitPrice,
+    activeLineTotal: nextQuantity * item.unitPrice,
+    status: "WAITING",
+  }),
+});
+
+const {
+  addPickerOpen,
+  multiSelectMode,
+  selectedGroupKey,
+  openCats,
+  selectedGroup,
+  pickerIngredientItems,
+  pickerBuckets,
+  openAddPicker,
+  closeAddPicker,
+  toggleCat,
+  handleSelectGroup,
+  canSelectItem,
+  methodLabel,
+  addMenuItem,
+} = useOrderItemPicker<CatalogOption, EditableItem>({
+  menuOptions: computed(() => props.menuOptions),
+  draftItems: draft,
+  ensureDraft,
+  getItemRemaining,
+  findExistingDraftIndex: (items, option) => {
+    const optionMenuItemId = Number(option.menuItemId ?? option.menuItem.id);
+    return items.findIndex(
+      (item) =>
+        item.menuItemId === optionMenuItemId &&
+        normalizeItemNote(item.note) === "" &&
+        canAdjustDraftItem(item)
+    );
+  },
+  buildUpdatedDraftItem: (current) => {
+    const nextQuantity = current.quantity + 1;
+    return {
+      ...current,
+      quantity: nextQuantity,
+      activeQuantity: nextQuantity,
+      waitingQuantity: nextQuantity,
+      cookingQuantity: 0,
+      readyQuantity: 0,
+      cancelledQuantity: 0,
+      status: "WAITING",
+      lineTotal: nextQuantity * current.unitPrice,
+      activeLineTotal: nextQuantity * current.unitPrice,
+    };
+  },
+  buildNewDraftItem: (option) => {
+    const optionMenuItemId = Number(option.menuItemId ?? option.menuItem.id);
+    return {
+      id: null,
+      key: buildDraftItemKey(optionMenuItemId),
+      menuItemId: optionMenuItemId,
+      itemNameSnapshot: option.menuItem.name,
+      unitPrice: Number(option.sellingPrice || 0),
+      quantity: 1,
+      activeQuantity: 1,
+      waitingQuantity: 1,
+      cookingQuantity: 0,
+      readyQuantity: 0,
+      cancelledQuantity: 0,
+      status: "WAITING",
+      lineTotal: Number(option.sellingPrice || 0),
+      activeLineTotal: Number(option.sellingPrice || 0),
+      note: "",
+    };
+  },
+  getDraftItemKey: (item) => item.key,
+  onItemAdded: (key) => {
+    flashItem(key);
+    openItemNoteEditor(key);
+  },
+});
 
 function discardDraft() {
   draft.value = null;
@@ -596,8 +570,8 @@ function discardDraft() {
   selectedGroupKey.value = null;
   openCats.value = new Set();
   closeStagePicker();
-  openItemNoteKeys.value = new Set();
-  guestCountDraft.value = formatGuestCountDraft(props.order.guestCount);
+  resetLineEditorState();
+  guestCountDraft.value = formatOrderGuestCountDraft(props.order.guestCount);
   arrivalTimeDraft.value = initialArrivalTime;
   arrivalMode.value = initialArrivalMode;
   arrivalMetaDirty.value = false;
@@ -654,12 +628,10 @@ const progressLegend = computed(() => {
   ];
 });
 
-const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
-
 const draftChanged = computed(() => {
   const orig = [
     cloneItems(props.order.items).map((i) => `${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|"),
-    formatGuestCountDraft(props.order.guestCount),
+    formatOrderGuestCountDraft(props.order.guestCount),
   ].join("||");
   const curr = [
     (draft.value ?? cloneItems(props.order.items)).map((i) => `${i.menuItemId}:${i.quantity}:${i.note ?? ""}`).join("|"),
@@ -667,11 +639,11 @@ const draftChanged = computed(() => {
   ].join("||");
   return orig !== curr;
 });
-const guestCountValue = computed(() => parseGuestCountDraft(guestCountDraft.value));
+const guestCountValue = computed(() => parseOrderGuestCountDraft(guestCountDraft.value));
 const hasPendingMetaChange = computed(() =>
   arrivalMode.value !== initialArrivalMode ||
   (arrivalMode.value === "scheduled" && arrivalTimeDraft.value !== initialArrivalTime) ||
-  String(guestCountDraft.value ?? "").trim() !== formatGuestCountDraft(props.order.guestCount)
+  String(guestCountDraft.value ?? "").trim() !== formatOrderGuestCountDraft(props.order.guestCount)
 );
 const hasPendingSaveChanges = computed(() => draftChanged.value || hasPendingMetaChange.value);
 
@@ -693,76 +665,6 @@ const readyToComplete = computed(() => {
 const showItemStatuses = computed(() =>
   simplifyStatus(props.order.status) === "CONFIRMED" ||
   editableItems.value.some((item) => item.status === "CANCELLED")
-);
-
-const CATEGORY_ORDER = ["Hải mảnh", "Ốc", "Khác"];
-
-const pickerCategories = computed((): PickerCategory[] => {
-  const categories = new Map<string, Map<string, Omit<PickerGroup, "remaining">>>();
-
-  for (const option of props.menuOptions) {
-    const categoryName = option.menuItem?.category?.name ?? "Khác";
-    if (!categories.has(categoryName)) {
-      categories.set(categoryName, new Map());
-    }
-
-    const pool = option.stockLinks?.[0]?.stockPool;
-    const label = pool?.label || "Khác";
-    const poolId = pool?.id ?? null;
-    const groupKey = `${categoryName}::${label}::${poolId ?? "none"}`;
-    const groups = categories.get(categoryName)!;
-
-    if (!groups.has(groupKey)) {
-      groups.set(groupKey, { key: groupKey, label, poolId, items: [] });
-    }
-
-    groups.get(groupKey)!.items.push(option);
-  }
-
-  const groupedCategories = Array.from(categories.entries()).map(([name, groups]) => ({
-    name,
-    groups: Array.from(groups.values()).map((group) => ({
-      ...group,
-      remaining: group.poolId != null ? props.stockRemainingMap[group.poolId] ?? null : null,
-    })),
-  }));
-
-  return groupedCategories.sort((left, right) => {
-    const leftRank = CATEGORY_ORDER.indexOf(left.name);
-    const rightRank = CATEGORY_ORDER.indexOf(right.name);
-
-    if (leftRank !== rightRank) {
-      return (leftRank === -1 ? CATEGORY_ORDER.length : leftRank) - (rightRank === -1 ? CATEGORY_ORDER.length : rightRank);
-    }
-
-    return left.name.localeCompare(right.name, "vi");
-  });
-});
-
-const selectedGroup = computed((): PickerGroup | null => {
-  if (!selectedGroupKey.value) return null;
-
-  for (const category of pickerCategories.value) {
-    const group = category.groups.find((entry) => entry.key === selectedGroupKey.value);
-    if (group) {
-      return group;
-    }
-  }
-
-  return null;
-});
-
-const pickerIngredientItems = computed(() => selectedGroup.value?.items ?? []);
-const pickerBuckets = computed(() =>
-  pickerCategories.value.map((category) => ({
-    name: category.name,
-    groups: category.groups.map((group) => ({
-      key: group.key,
-      label: group.label,
-      badge: group.remaining,
-      items: group.items,
-    })),
-  }))
 );
 
 // Functions
@@ -1152,149 +1054,6 @@ function isPendingItemAction(itemId?: number | null, actionKey?: string | null) 
   );
 }
 
-function changeQty(index: number, delta: number) {
-  ensureDraft();
-  const item = draft.value![index];
-  if (!item) return;
-  const next = item.quantity + delta;
-  if (next <= 0) {
-    removeDialog.visible = true;
-    removeDialog.index = index;
-    removeDialog.itemName = item.itemNameSnapshot;
-  } else {
-    draft.value![index] = {
-      ...item,
-      quantity: next,
-      activeQuantity: next,
-      waitingQuantity: next,
-      cookingQuantity: 0,
-      readyQuantity: 0,
-      cancelledQuantity: 0,
-      lineTotal: next * item.unitPrice,
-      activeLineTotal: next * item.unitPrice,
-      status: "WAITING",
-    };
-  }
-}
-
-function confirmRemove() {
-  if (draft.value && removeDialog.index >= 0) {
-    draft.value = draft.value.filter((_, i) => i !== removeDialog.index);
-  }
-  removeDialog.visible = false;
-  removeDialog.index = -1;
-}
-
-function openAddPicker() {
-  addPickerOpen.value = true;
-  multiSelectMode.value = false;
-}
-
-function closeAddPicker() {
-  addPickerOpen.value = false;
-  multiSelectMode.value = false;
-  selectedGroupKey.value = null;
-}
-
-function addMenuItem(opt: CatalogOption) {
-  if (!canSelectItem(opt)) return;
-  const optionMenuItemId = Number(opt.menuItemId ?? opt.menuItem.id);
-
-  ensureDraft();
-  const existing = draft.value!.findIndex(
-    (i) =>
-      i.menuItemId === optionMenuItemId &&
-      normalizeItemNote(i.note) === "" &&
-      canAdjustDraftItem(i)
-  );
-  if (existing >= 0) {
-    const cur = draft.value![existing];
-    const nextQuantity = cur.quantity + 1;
-    draft.value![existing] = {
-      ...cur,
-      quantity: nextQuantity,
-      activeQuantity: nextQuantity,
-      waitingQuantity: nextQuantity,
-      cookingQuantity: 0,
-      readyQuantity: 0,
-      cancelledQuantity: 0,
-      status: "WAITING",
-      lineTotal: nextQuantity * cur.unitPrice,
-      activeLineTotal: nextQuantity * cur.unitPrice,
-    };
-    flashItem(cur.key);
-    openItemNoteEditor(cur.key);
-  } else {
-    const newKey = buildDraftItemKey(optionMenuItemId);
-    draft.value!.push({
-      id: null,
-      key: newKey,
-      menuItemId: optionMenuItemId,
-      itemNameSnapshot: opt.menuItem.name,
-      unitPrice: Number(opt.sellingPrice || 0),
-      quantity: 1,
-      activeQuantity: 1,
-      waitingQuantity: 1,
-      cookingQuantity: 0,
-      readyQuantity: 0,
-      cancelledQuantity: 0,
-      status: "WAITING",
-      lineTotal: Number(opt.sellingPrice || 0),
-      activeLineTotal: Number(opt.sellingPrice || 0),
-      note: "",
-    });
-    flashItem(newKey);
-    openItemNoteEditor(newKey);
-  }
-
-  if (!multiSelectMode.value) {
-    closeAddPicker();
-  }
-}
-
-watch(
-  pickerCategories,
-  (categories) => {
-    const nextOpenCats = new Set(
-      [...openCats.value].filter((name) => categories.some((category) => category.name === name))
-    );
-
-    for (const category of categories) {
-      nextOpenCats.add(category.name);
-    }
-
-    openCats.value = nextOpenCats;
-
-    if (
-      selectedGroupKey.value &&
-      !categories.some((category) =>
-        category.groups.some((group) => group.key === selectedGroupKey.value)
-      )
-    ) {
-      selectedGroupKey.value = null;
-    }
-  },
-  { immediate: true }
-);
-
-function toggleCat(name: string) {
-  const next = new Set(openCats.value);
-  if (next.has(name)) {
-    next.delete(name);
-    const category = pickerCategories.value.find((entry) => entry.name === name);
-    if (category?.groups.some((group) => group.key === selectedGroupKey.value)) {
-      selectedGroupKey.value = null;
-    }
-  } else {
-    next.add(name);
-  }
-  openCats.value = next;
-}
-
-function handleSelectGroup(key: string) {
-  selectedGroupKey.value = selectedGroupKey.value === key ? null : key;
-}
-
 function getItemRemaining(item: CatalogOption) {
   const poolId = item.stockLinks?.[0]?.stockPool?.id;
   if (poolId == null) {
@@ -1309,26 +1068,11 @@ function getItemRemaining(item: CatalogOption) {
   return item.stockLinks?.[0]?.stockPool?.remainingQuantity ?? null;
 }
 
-function canSelectItem(item: CatalogOption) {
-  const remaining = getItemRemaining(item);
-  return Boolean(item.isAvailable) && remaining !== 0;
-}
-
-function methodLabel(item: CatalogOption, ingredientLabel: string) {
-  const name = item.menuItem?.name ?? "";
-  const stripped = name.replace(new RegExp(`^${ingredientLabel}\\s*`, "i"), "").trim();
-  return stripped || name;
-}
-
 function emitSave() {
   if (!hasPendingSaveChanges.value) return;
   emit(
     "saveItems",
-    editableItems.value.map((i) => ({
-      menuItemId: i.menuItemId ?? undefined,
-      quantity: i.quantity,
-      note: i.note || undefined,
-    })),
+    buildOrderSaveItemsPayload(editableItems.value),
     arrivalMode.value === "scheduled" ? (arrivalTimeDraft.value || null)
       : arrivalMode.value === "arrived" ? "ARRIVED"
       : null,
@@ -1355,238 +1099,11 @@ function emitSave() {
 }
 a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: underline; }
 
-.order-arrival-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.order-arrival-row--stacked {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.order-editor-meta-row {
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 0.6fr) auto;
-  align-items: end;
-  gap: 6px 8px;
-}
-
-.order-arrival-field {
-  min-width: 0;
-}
-
-.order-editor-meta-action {
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-}
-
-.order-arrival-time-shell {
-  position: relative;
-  min-width: 0;
-}
-
-.order-arrival-time-icon {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.82rem;
-  color: var(--muted);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.order-arrival-segment {
-  display: flex;
-  border: 1px solid rgba(var(--text-rgb), 0.14);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.order-arrival-seg {
-  flex: 1;
-  padding: 5px 6px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.order-arrival-seg + .order-arrival-seg {
-  border-left: 1px solid rgba(var(--text-rgb), 0.14);
-}
-
-.order-arrival-seg.is-active {
-  background: var(--ember-strong, #c9582c);
-  color: #fff;
-  font-weight: 700;
-}
-
-.order-arrival-seg:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.order-arrival-time-input {
-  flex: 1;
-  min-width: 0;
-  min-height: 34px;
-  height: 34px;
-  border-radius: 12px;
-  padding-left: 30px;
-  font-size: 0.88rem;
-}
-
-.order-guest-count-input {
-  width: 100%;
-  min-height: 34px;
-  height: 34px;
-  border-radius: 12px;
-  font-size: 0.88rem;
-}
-
-.order-editor-accordion {
-  display: grid;
-  gap: 10px;
-}
-
-.order-editor-accordion__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.order-editor-accordion__copy {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.order-editor-accordion__toggle {
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 999px;
-  background: rgba(var(--text-rgb), 0.06);
-  color: var(--muted);
-}
-
-.order-editor-accordion__toggle:hover,
-.order-editor-accordion__toggle:focus-visible {
-  background: rgba(var(--text-rgb), 0.1);
-  color: var(--text);
-  outline: none;
-}
-
-.order-editor-accordion__toggle i {
-  font-size: 0.82rem;
-}
-
-.order-editor-panel { display: grid; gap: 12px; }
-
-.order-add-launch-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 33px;
-  min-width: 33px;
-  height: 33px;
-  min-height: 33px;
-  padding: 0 !important;
-  border: none;
-  border-radius: 8px;
-  line-height: 1;
-  align-self: end;
-  margin: 0;
-  background: rgba(var(--ember-rgb), 0.12);
-  color: var(--ember-strong);
-  border: 1px solid rgba(var(--ember-rgb), 0.18);
-  transition: background 0.15s, border-color 0.15s, transform 0.15s;
-}
-
-.order-add-launch-btn:hover,
-.order-add-launch-btn:focus-visible {
-  background: rgba(var(--ember-rgb), 0.18);
-  border-color: rgba(var(--ember-rgb), 0.26);
-  transform: translateY(-1px);
-}
-
-.order-add-launch-btn i,
-.order-add-launch-icon {
-  display: block;
-  font-size: 1rem;
-}
-
-.order-editor-meta-row .order-guest-count-input.order-select {
-  min-height: 34px;
-  height: 34px;
-  border-radius: 12px;
-  font-size: 0.88rem;
-}
-
-.order-editor-meta-row .order-add-launch-btn.order-add-btn {
-  width: 33px;
-  min-width: 33px;
-  height: 33px;
-  min-height: 33px;
-  padding: 0 !important;
-  border-radius: 8px;
-}
-
-.order-add-row,
-.order-editor-actions,
 .order-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
-
-.order-add-row { display: grid; gap: 10px; }
-
-.order-add-field { display: grid; gap: 8px; min-width: 0; }
-
-.order-field-label {
-  font-size: 0.76rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.order-add-control {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.order-select {
-  min-height: 46px;
-  border-radius: 16px;
-}
-
-.order-add-hint { color: var(--muted); font-size: 0.85rem; }
-
-.order-add-btn {
-  width: 46px;
-  min-width: 46px;
-  height: 46px;
-  padding: 0;
-  border-radius: 16px;
-  font-size: 1.2rem;
-  line-height: 1;
-}
-
-.order-editor-note { width: 100%; color: var(--muted); font-size: 0.85rem; }
 
 /* Internal remove-item modal */
 .orders-modal-backdrop {

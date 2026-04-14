@@ -42,102 +42,38 @@
         </template>
       </OrderCardItemsSection>
 
-      <div v-if="canEdit" class="order-editor-accordion">
-        <div class="order-editor-accordion__head">
-          <div class="order-editor-accordion__copy">
-            <span class="order-field-label">Cập nhật đơn</span>
-            <button
-              type="button"
-              class="order-editor-accordion__toggle"
-              :aria-expanded="editPanelOpen ? 'true' : 'false'"
-              :title="editPanelOpen ? 'Thu gọn' : 'Mở rộng'"
-              @click="editPanelOpen = !editPanelOpen"
-            >
-              <i class="bi bi-pencil-square"></i>
-            </button>
-          </div>
-        </div>
 
-        <div v-if="editPanelOpen" class="order-editor-panel">
-          <div class="order-arrival-row order-arrival-row--stacked order-editor-meta-row">
-            <div class="order-arrival-field">
-              <span class="order-field-label">Giờ hẹn</span>
-              <div class="order-arrival-time-shell">
-                <i class="bi bi-clock order-arrival-time-icon" aria-hidden="true"></i>
-                <input
-                  v-model="arrivalTimeDraft"
-                  type="time"
-                  class="form-control order-arrival-time-input"
-                  :disabled="busy"
-                  placeholder="Giờ hẹn"
-                  min="10:00"
-                  max="23:00"
-                  @input="handleArrivalTimeInput"
-                  @change="handleArrivalTimeInput"
-                />
-              </div>
-            </div>
-            <div class="order-arrival-field">
-              <span class="order-field-label">Số người</span>
-              <input
-                v-model="guestCountDraft"
-                type="number"
-                min="1"
-                inputmode="numeric"
-                class="form-control order-select order-guest-count-input"
-                placeholder="Số người"
-                :disabled="busy"
-              />
-            </div>
-            <div class="order-editor-meta-action">
-              <button
-                class="btn order-add-btn order-add-launch-btn"
-                type="button"
-                :disabled="busy || !menuOptions.length"
-                aria-label="Thêm món"
-                title="Thêm món"
-                @click="openAddPicker"
-              >
-                <i class="bi bi-clipboard-plus order-add-launch-icon"></i>
-              </button>
-            </div>
-          </div>
-
-          <div v-if="menuOptions.length" class="order-add-hint">
-            Bấm nút thêm món để mở danh sách món.
-          </div>
-          <div v-else class="order-add-hint">
-            Hôm nay không còn món khả dụng để thêm vào đơn này.
-          </div>
-        </div>
-      </div>
-
-      <div v-if="hasPendingSaveChanges" class="order-editor-actions order-editor-actions--outside">
-        <div v-if="draftChanged || arrivalChanged" class="order-editor-note">Lưu thay đổi món hoặc giờ hẹn trước khi tiếp tục.</div>
-        <button class="btn btn-dark" type="button" :disabled="busy" @click="emitSave">
-          {{ isSaving ? "Đang lưu..." : "Lưu" }}
-        </button>
-        <button class="btn btn-outline-dark" type="button" :disabled="busy" @click="discardDraft">
-          Bỏ thay đổi
-        </button>
-      </div>
-
-      <OrderItemPickerModal
-        :open="addPickerOpen"
+      <OrderUpdateEditor
+        :visible="canEdit"
         :busy="busy"
-        :buckets="pickerBuckets"
+        :is-saving="isSaving"
+        v-model:edit-panel-open="editPanelOpen"
+        v-model:arrival-time-draft="arrivalTimeDraft"
+        v-model:guest-count-draft="guestCountDraft"
+        v-model:picker-multi-select-mode="multiSelectMode"
+        :time-min="'10:00'"
+        :time-max="'23:00'"
+        :add-button-disabled="busy || !menuOptions.length"
+        :has-menu-options="menuOptions.length > 0"
+        :has-pending-save-changes="hasPendingSaveChanges"
+        :show-save-note="draftChanged || arrivalChanged"
+        save-note-text="Lưu thay đổi món hoặc giờ hẹn trước khi tiếp tục."
+        :picker-open="addPickerOpen"
+        :picker-buckets="pickerBuckets"
         :open-bucket-names="Array.from(openCats)"
         :selected-key="selectedGroupKey"
         :selected-group-label="selectedGroup?.label ?? null"
-        :method-items="pickerIngredientItems"
-        :multi-select-mode="multiSelectMode"
-        :can-select-item="canSelectItem"
-        :get-method-label="methodLabel"
-        @close="closeAddPicker"
-        @toggle-bucket="toggleCat"
-        @select-group="handleSelectGroup"
-        @select-item="addMenuItem"
-        @update:multiSelectMode="multiSelectMode = $event"
+        :picker-method-items="pickerIngredientItems"
+        :picker-can-select-item="canSelectItem"
+        :picker-get-method-label="methodLabel"
+        @arrival-input="handleArrivalTimeInput"
+        @open-picker="openAddPicker"
+        @save="emitSave"
+        @discard="discardDraft"
+        @close-picker="closeAddPicker"
+        @toggle-picker-bucket="toggleCat"
+        @select-picker-group="handleSelectGroup"
+        @select-picker-item="addMenuItem"
       />
 
       <div v-if="canCancelOrder" class="order-actions">
@@ -178,14 +114,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import OrderCardShell from "../common/OrderCardShell.vue";
 import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
 import OrderCardItemStatuses from "../common/OrderCardItemStatuses.vue";
-import OrderItemPickerModal from "../common/OrderItemPickerModal.vue";
+import OrderUpdateEditor from "../common/OrderUpdateEditor.vue";
 import { buildOrderCardProgressSegments } from "../common/orderCardProgress";
+import {
+  buildOrderSaveItemsPayload,
+  formatOrderGuestCountDraft,
+  parseOrderGuestCountDraft,
+  useOrderDraftLineEditor,
+} from "../../composables/useOrderDraftLineEditor";
+import { useOrderItemPicker } from "../../composables/useOrderItemPicker";
 import { formatMoney } from "../../utils/format";
-import { toggleNoteChip } from "../../utils/noteChips";
 
 type OrderItem = {
   id: number;
@@ -235,19 +177,6 @@ type MenuOption = {
   };
 };
 
-type PickerGroup = {
-  key: string;
-  label: string;
-  poolId: number | null;
-  remaining: number | null;
-  items: MenuOption[];
-};
-
-type PickerCategory = {
-  name: string;
-  groups: PickerGroup[];
-};
-
 type EditableItem = {
   id?: number | null;
   key: string;
@@ -279,18 +208,11 @@ const emit = defineEmits<{
 }>();
 
 const collapsed = ref(["COMPLETED", "CANCELLED"].includes(props.order.status));
-const highlightedKey = ref<string | null>(null);
 const draft = ref<EditableItem[] | null>(null);
 const arrivalTimeDraft = ref(props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : "");
-const guestCountDraft = ref<string>(formatGuestCountDraft(props.order.guestCount));
+const guestCountDraft = ref<string>(formatOrderGuestCountDraft(props.order.guestCount));
 const guestCountDirty = ref(false);
 const editPanelOpen = ref(false);
-const addPickerOpen = ref(false);
-const multiSelectMode = ref(false);
-const selectedGroupKey = ref<string | null>(null);
-const openCats = ref<Set<string>>(new Set());
-const removeDialog = reactive({ visible: false, index: -1, itemName: "" });
-const openItemNoteKeys = ref<Set<string>>(new Set());
 
 watch(
   () =>
@@ -302,31 +224,28 @@ watch(
     editPanelOpen.value = false;
     closeAddPicker();
     arrivalTimeDraft.value = props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : "";
-    guestCountDraft.value = formatGuestCountDraft(props.order.guestCount);
+    guestCountDraft.value = formatOrderGuestCountDraft(props.order.guestCount);
     guestCountDirty.value = false;
-    openItemNoteKeys.value = new Set();
+    resetLineEditorState();
   }
 );
 
 watch(
   () => props.order.guestCount,
   (value) => {
-    guestCountDraft.value = formatGuestCountDraft(value);
+    guestCountDraft.value = formatOrderGuestCountDraft(value);
     guestCountDirty.value = false;
   }
 );
 
 watch(guestCountDraft, () => {
-  guestCountDirty.value = String(guestCountDraft.value ?? "").trim() !== formatGuestCountDraft(props.order.guestCount);
+  guestCountDirty.value = String(guestCountDraft.value ?? "").trim() !== formatOrderGuestCountDraft(props.order.guestCount);
 });
 
 watch(
   () => (draft.value ?? cloneItems(props.order.items)).map((item) => item.key).join("|"),
   () => {
-    const validKeys = new Set((draft.value ?? cloneItems(props.order.items)).map((item) => item.key));
-    openItemNoteKeys.value = new Set(
-      Array.from(openItemNoteKeys.value).filter((key) => validKeys.has(key))
-    );
+    syncOpenItemNoteKeys(draft.value ?? cloneItems(props.order.items));
   }
 );
 
@@ -352,16 +271,6 @@ function handleArrivalTimeInput() {
   // aligned with the admin card without extra mode state.
 }
 
-function formatGuestCountDraft(value?: number | null) {
-  const next = Number(value || 0);
-  return next > 0 ? String(next) : "";
-}
-
-function parseGuestCountDraft(value: string) {
-  const next = Number.parseInt(String(value || "").trim(), 10);
-  return Number.isFinite(next) && next > 0 ? next : null;
-}
-
 function cloneItems(items: OrderItem[] = []): EditableItem[] {
   return items.map((item, index) => ({
     id: item.id,
@@ -382,112 +291,90 @@ function ensureDraft() {
   }
 }
 
-function setItemNote(index: number, note: string) {
-  ensureDraft();
-  const item = draft.value?.[index];
-  if (!item) return;
-  draft.value![index] = {
+const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
+
+const {
+  highlightedKey,
+  removeDialog,
+  flashItem,
+  toggleItemNoteChip,
+  isItemNoteEditorOpen,
+  toggleItemNoteEditor,
+  openItemNoteEditor,
+  syncOpenItemNoteKeys,
+  resetLineEditorState,
+  changeQty,
+  confirmRemove,
+} = useOrderDraftLineEditor<EditableItem>({
+  draft,
+  editableItems,
+  ensureDraft,
+  updateQuantity: (item, nextQuantity) => ({
     ...item,
-    note,
-  };
-}
+    quantity: nextQuantity,
+    lineTotal: nextQuantity * item.unitPrice,
+  }),
+});
 
-function toggleItemNoteChip(index: number, chip: string) {
-  const item = editableItems.value[index];
-  if (!item) return;
-  setItemNote(index, toggleNoteChip(item.note || "", chip));
-}
-
-function isItemNoteEditorOpen(key: string) {
-  return openItemNoteKeys.value.has(key);
-}
-
-function toggleItemNoteEditor(key: string) {
-  const next = new Set(openItemNoteKeys.value);
-  if (next.has(key)) {
-    next.delete(key);
-  } else {
-    next.add(key);
-  }
-  openItemNoteKeys.value = next;
-}
-
-function openItemNoteEditor(key: string) {
-  const next = new Set(openItemNoteKeys.value);
-  next.add(key);
-  openItemNoteKeys.value = next;
-}
+const {
+  addPickerOpen,
+  multiSelectMode,
+  selectedGroupKey,
+  openCats,
+  selectedGroup,
+  pickerIngredientItems,
+  pickerBuckets,
+  openAddPicker,
+  closeAddPicker,
+  toggleCat,
+  handleSelectGroup,
+  canSelectItem,
+  methodLabel,
+  addMenuItem,
+} = useOrderItemPicker<MenuOption, EditableItem>({
+  menuOptions: computed(() => props.menuOptions),
+  draftItems: draft,
+  ensureDraft,
+  getItemRemaining,
+  findExistingDraftIndex: (items, option) => {
+    const optionMenuItemId = Number(option.menuItemId ?? option.menuItem.id);
+    return items.findIndex((item) => item.menuItemId === optionMenuItemId);
+  },
+  buildUpdatedDraftItem: (current) => ({
+    ...current,
+    quantity: current.quantity + 1,
+    lineTotal: (current.quantity + 1) * current.unitPrice,
+  }),
+  buildNewDraftItem: (option) => {
+    const optionMenuItemId = Number(option.menuItemId ?? option.menuItem.id);
+    return {
+      id: null,
+      key: `new-${optionMenuItemId}`,
+      menuItemId: optionMenuItemId,
+      itemNameSnapshot: option.menuItem.name,
+      unitPrice: Number(option.sellingPrice || 0),
+      quantity: 1,
+      status: "WAITING",
+      lineTotal: Number(option.sellingPrice || 0),
+      note: "",
+    };
+  },
+  getDraftItemKey: (item) => item.key,
+  onItemAdded: (key) => {
+    flashItem(key);
+    openItemNoteEditor(key);
+  },
+});
 
 function discardDraft() {
   draft.value = null;
   closeAddPicker();
   arrivalTimeDraft.value = initialArrivalTime.value;
-  guestCountDraft.value = formatGuestCountDraft(props.order.guestCount);
+  guestCountDraft.value = formatOrderGuestCountDraft(props.order.guestCount);
   guestCountDirty.value = false;
-  openItemNoteKeys.value = new Set();
+  resetLineEditorState();
 }
 
-function flashItem(key: string) {
-  highlightedKey.value = key;
-  window.setTimeout(() => {
-    if (highlightedKey.value === key) {
-      highlightedKey.value = null;
-    }
-  }, 1200);
-}
-
-function changeQty(index: number, delta: number) {
-  ensureDraft();
-  const item = draft.value?.[index];
-  if (!item) return;
-  const next = item.quantity + delta;
-  if (next <= 0) {
-    removeDialog.visible = true;
-    removeDialog.index = index;
-    removeDialog.itemName = item.itemNameSnapshot;
-    return;
-  }
-  draft.value![index] = {
-    ...item,
-    quantity: next,
-    lineTotal: next * item.unitPrice,
-  };
-}
-
-function confirmRemove() {
-  if (draft.value && removeDialog.index >= 0) {
-    draft.value = draft.value.filter((_, index) => index !== removeDialog.index);
-  }
-  removeDialog.visible = false;
-  removeDialog.index = -1;
-}
-
-function normalizeText(value: string) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeCategoryLabel(value: string) {
-  const normalized = normalizeText(value);
-  if (normalized.includes("hai manh")) return "Hai mảnh";
-  if (normalized.includes("oc")) return "Ốc";
-  return String(value || "").trim() || "Khác";
-}
-
-function openAddPicker() {
-  addPickerOpen.value = true;
-  multiSelectMode.value = false;
-}
-
-function closeAddPicker() {
-  addPickerOpen.value = false;
-  multiSelectMode.value = false;
-  selectedGroupKey.value = null;
-}
 
 function getItemRemaining(item: MenuOption) {
   const pool = item.stockLinks?.[0]?.stockPool;
@@ -500,71 +387,14 @@ function getItemRemaining(item: MenuOption) {
   return null;
 }
 
-function canSelectItem(item: MenuOption) {
-  const remaining = getItemRemaining(item);
-  return Boolean(item.isAvailable) && remaining !== 0;
-}
 
-function methodLabel(item: MenuOption, ingredientLabel: string) {
-  const name = String(item.menuItem?.name || "").trim();
-  const label = String(ingredientLabel || "").trim();
-  if (!name) return label;
 
-  const normalizedName = normalizeText(name);
-  const normalizedLabel = normalizeText(label);
-  if (normalizedName.startsWith(normalizedLabel)) {
-    const stripped = name.slice(label.length).trim().replace(/^[-·–—\s]+/, "");
-    return stripped || name;
-  }
 
-  return name;
-}
-
-function addMenuItem(opt: MenuOption) {
-  if (!canSelectItem(opt)) return;
-  const optionMenuItemId = Number(opt.menuItemId ?? opt.menuItem.id);
-
-  ensureDraft();
-  const existingIndex = draft.value!.findIndex((item) => item.menuItemId === optionMenuItemId);
-  if (existingIndex >= 0) {
-    const current = draft.value![existingIndex];
-    draft.value![existingIndex] = {
-      ...current,
-      quantity: current.quantity + 1,
-      lineTotal: (current.quantity + 1) * current.unitPrice,
-    };
-    flashItem(current.key);
-    openItemNoteEditor(current.key);
-  } else {
-    const key = `new-${optionMenuItemId}`;
-    draft.value!.push({
-      id: null,
-      key,
-      menuItemId: optionMenuItemId,
-      itemNameSnapshot: opt.menuItem.name,
-      unitPrice: Number(opt.sellingPrice || 0),
-      quantity: 1,
-      status: "WAITING",
-      lineTotal: Number(opt.sellingPrice || 0),
-      note: "",
-    });
-    flashItem(key);
-    openItemNoteEditor(key);
-  }
-
-  if (!multiSelectMode.value) {
-    closeAddPicker();
-  }
-}
 
 function emitSave() {
   emit(
     "saveItems",
-    editableItems.value.map((item) => ({
-      menuItemId: item.menuItemId ?? undefined,
-      quantity: item.quantity,
-      note: item.note || undefined,
-    })),
+    buildOrderSaveItemsPayload(editableItems.value),
     arrivalChanged.value ? arrivalTimeDraft.value : undefined,
     guestCountDirty.value ? guestCountValue.value : undefined
   );
@@ -596,9 +426,8 @@ const infoTooltipLines = computed(() => [
   `Giờ đặt: ${formatTime(props.order.createdAt)}`,
 ]);
 const queueTime = computed(() => formatTime(props.order.arrivalAt));
-const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
 const initialArrivalTime = computed(() => (props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""));
-const guestCountValue = computed(() => parseGuestCountDraft(guestCountDraft.value));
+const guestCountValue = computed(() => parseOrderGuestCountDraft(guestCountDraft.value));
 const hasProgress = computed(() => Boolean(props.order.itemProgress?.total));
 const showProgressBar = computed(() => hasProgress.value && simpleStatus.value === "CONFIRMED");
 const showItemStatuses = computed(() => simpleStatus.value === "CONFIRMED");
@@ -652,118 +481,6 @@ const displayTotal = computed(() => {
   return editableItems.value.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
 });
 
-const CATEGORY_ORDER = ["Hai mảnh", "Ốc", "Khác"];
-
-const pickerCategories = computed((): PickerCategory[] => {
-  const categories = new Map<string, Map<string, Omit<PickerGroup, "remaining">>>();
-
-  for (const option of props.menuOptions) {
-    const categoryName = normalizeCategoryLabel(option.menuItem?.category?.name ?? "Khác");
-    if (!categories.has(categoryName)) {
-      categories.set(categoryName, new Map());
-    }
-
-    const pool = option.stockLinks?.[0]?.stockPool;
-    const label = String(pool?.label || "Khác").trim() || "Khác";
-    const poolId = pool?.id ?? null;
-    const groupKey = `${categoryName}::${label}::${poolId ?? "none"}`;
-    const groups = categories.get(categoryName)!;
-
-    if (!groups.has(groupKey)) {
-      groups.set(groupKey, { key: groupKey, label, poolId, items: [] });
-    }
-
-    groups.get(groupKey)!.items.push(option);
-  }
-
-  const groupedCategories = Array.from(categories.entries()).map(([name, groups]) => ({
-    name,
-    groups: Array.from(groups.values()).map((group) => ({
-      ...group,
-      remaining: group.items.length > 0 ? getItemRemaining(group.items[0]) : null,
-    })),
-  }));
-
-  return groupedCategories.sort((left, right) => {
-    const leftRank = CATEGORY_ORDER.indexOf(left.name);
-    const rightRank = CATEGORY_ORDER.indexOf(right.name);
-
-    if (leftRank !== rightRank) {
-      return (leftRank === -1 ? CATEGORY_ORDER.length : leftRank) - (rightRank === -1 ? CATEGORY_ORDER.length : rightRank);
-    }
-
-    return left.name.localeCompare(right.name, "vi");
-  });
-});
-
-const selectedGroup = computed((): PickerGroup | null => {
-  if (!selectedGroupKey.value) return null;
-
-  for (const category of pickerCategories.value) {
-    const group = category.groups.find((entry) => entry.key === selectedGroupKey.value);
-    if (group) {
-      return group;
-    }
-  }
-
-  return null;
-});
-
-const pickerIngredientItems = computed(() => selectedGroup.value?.items ?? []);
-const pickerBuckets = computed(() =>
-  pickerCategories.value.map((category) => ({
-    name: category.name,
-    groups: category.groups.map((group) => ({
-      key: group.key,
-      label: group.label,
-      badge: group.remaining,
-      items: group.items,
-    })),
-  }))
-);
-
-watch(
-  pickerCategories,
-  (categories) => {
-    const nextOpenCats = new Set(
-      [...openCats.value].filter((name) => categories.some((category) => category.name === name))
-    );
-
-    for (const category of categories) {
-      nextOpenCats.add(category.name);
-    }
-
-    openCats.value = nextOpenCats;
-
-    if (
-      selectedGroupKey.value &&
-      !categories.some((category) =>
-        category.groups.some((group) => group.key === selectedGroupKey.value)
-      )
-    ) {
-      selectedGroupKey.value = null;
-    }
-  },
-  { immediate: true }
-);
-
-function toggleCat(name: string) {
-  const next = new Set(openCats.value);
-  if (next.has(name)) {
-    next.delete(name);
-    const category = pickerCategories.value.find((entry) => entry.name === name);
-    if (category?.groups.some((group) => group.key === selectedGroupKey.value)) {
-      selectedGroupKey.value = null;
-    }
-  } else {
-    next.add(name);
-  }
-  openCats.value = next;
-}
-
-function handleSelectGroup(key: string) {
-  selectedGroupKey.value = selectedGroupKey.value === key ? null : key;
-}
 
 function canCancelWaitingItem(item: EditableItem) {
   return (
@@ -842,109 +559,10 @@ function handleItemStatusAction(item: EditableItem, actionKey: string) {
   font-weight: 800;
   color: var(--text);
 }
-.order-editor-panel { display: grid; gap: 12px; }
-.order-arrival-row { display: grid; gap: 10px; }
-.order-add-row,
-.order-editor-actions,
 .order-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-}
-
-.order-add-row { display: grid; gap: 10px; }
-.order-add-field { display: grid; gap: 8px; min-width: 0; }
-
-.order-field-label {
-  font-size: 0.76rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.order-add-control {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.order-add-control.is-time-only {
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-.order-add-empty {
-  min-height: 46px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  border-radius: 16px;
-  border: 1px dashed rgba(var(--text-rgb), 0.16);
-  background: rgba(var(--text-rgb), 0.03);
-  color: var(--muted);
-  font-size: 0.84rem;
-}
-
-.order-arrival-control {
-  position: relative;
-}
-
-.order-arrival-control i {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--muted);
-  font-size: 0.9rem;
-  pointer-events: none;
-}
-
-.order-select {
-  min-height: 46px;
-  border-radius: 16px;
-}
-
-.order-arrival-time-input {
-  min-height: 46px;
-  padding-left: 40px;
-  border-radius: 16px;
-}
-
-@media (pointer: coarse) {
-  .order-arrival-time-input {
-    appearance: none;
-    -webkit-appearance: none;
-  }
-
-  .order-arrival-time-input::-webkit-calendar-picker-indicator {
-    opacity: 0;
-  }
-}
-
-.order-add-hint {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.order-add-btn {
-  width: 46px;
-  min-width: 46px;
-  height: 46px;
-  padding: 0;
-  border-radius: 16px;
-  font-size: 1.2rem;
-  line-height: 1;
-}
-
-.order-time-toggle {
-  font-size: 1rem;
-}
-
-.order-editor-note {
-  width: 100%;
-  color: var(--muted);
-  font-size: 0.85rem;
 }
 
 .order-error {
@@ -954,184 +572,6 @@ function handleItemStatusAction(item: EditableItem, actionKey: string) {
   gap: 6px;
   color: var(--danger);
   font-size: 0.82rem;
-}
-
-.order-editor-accordion {
-  display: grid;
-  gap: 10px;
-}
-
-.order-editor-accordion__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.order-editor-accordion__copy {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.order-editor-accordion__toggle {
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 999px;
-  background: rgba(var(--text-rgb), 0.06);
-  color: var(--muted);
-}
-
-.order-editor-accordion__toggle:hover,
-.order-editor-accordion__toggle:focus-visible {
-  background: rgba(var(--text-rgb), 0.1);
-  color: var(--text);
-  outline: none;
-}
-
-.order-editor-accordion__toggle i {
-  font-size: 0.82rem;
-}
-
-.order-editor-panel {
-  display: grid;
-  gap: 12px;
-}
-
-.order-arrival-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.order-arrival-row--stacked {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.order-editor-meta-row {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 0.58fr) auto;
-  align-items: end;
-  gap: 6px 8px;
-}
-
-.order-arrival-field {
-  min-width: 0;
-}
-
-.order-editor-meta-action {
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-}
-
-.order-arrival-time-shell {
-  position: relative;
-  min-width: 0;
-}
-
-.order-arrival-time-icon {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.82rem;
-  color: var(--muted);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.order-arrival-time-input {
-  min-height: 34px;
-  height: 34px;
-  padding-left: 30px;
-  border-radius: 12px;
-  font-size: 0.88rem;
-}
-
-.order-editor-meta-row .order-guest-count-input.order-select {
-  min-height: 34px;
-  height: 34px;
-  border-radius: 12px;
-  font-size: 0.88rem;
-}
-
-@media (pointer: coarse) {
-  .order-arrival-time-input {
-    appearance: none;
-    -webkit-appearance: none;
-  }
-
-  .order-arrival-time-input::-webkit-calendar-picker-indicator {
-    opacity: 0;
-  }
-}
-
-.order-add-hint {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.order-add-launch-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 33px;
-  min-width: 33px;
-  height: 33px;
-  min-height: 33px;
-  padding: 0 !important;
-  border: none;
-  border-radius: 8px;
-  line-height: 1;
-  align-self: end;
-  margin: 0;
-  background: rgba(var(--ember-rgb), 0.12);
-  color: var(--ember-strong);
-  border: 1px solid rgba(var(--ember-rgb), 0.18);
-  transition: background 0.15s, border-color 0.15s, transform 0.15s;
-}
-
-.order-add-launch-btn:hover,
-.order-add-launch-btn:focus-visible {
-  background: rgba(var(--ember-rgb), 0.18);
-  border-color: rgba(var(--ember-rgb), 0.26);
-  transform: translateY(-1px);
-}
-
-.order-add-launch-btn i,
-.order-add-launch-icon {
-  display: block;
-  font-size: 1rem;
-}
-
-.order-editor-meta-row .order-add-launch-btn.order-add-btn {
-  width: 33px;
-  min-width: 33px;
-  height: 33px;
-  min-height: 33px;
-  padding: 0 !important;
-  border-radius: 8px;
-}
-
-.order-editor-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.order-editor-actions--outside {
-  margin-top: 2px;
-}
-
-.order-editor-note {
-  width: 100%;
-  color: var(--muted);
-  font-size: 0.85rem;
 }
 
 .orders-modal-backdrop {
