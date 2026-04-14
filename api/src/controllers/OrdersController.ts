@@ -1737,103 +1737,128 @@ export class OrdersController extends Controller {
     @Request() req: ExRequest,
     @Body() body: CreateOrderBody
   ) {
-    const authUser = (req as any).user;
-    const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
+    try {
+      const authUser = (req as any).user;
+      const arrivalAt = parseOptionalDateTime(body.arrivalAt, "Gio hen");
 
-    const source =
-      authUser.role === "CUSTOMER"
-        ? OrderSource.CUSTOMER_APP
-        : authUser.role === "STAFF"
-          ? OrderSource.STAFF_POS
-          : OrderSource.ADMIN_POS;
+      const source =
+        authUser.role === "CUSTOMER"
+          ? OrderSource.CUSTOMER_APP
+          : authUser.role === "STAFF"
+            ? OrderSource.STAFF_POS
+            : OrderSource.ADMIN_POS;
 
-    const currentUser =
-      authUser.role === "CUSTOMER"
-        ? await prisma.user.findUnique({ where: { id: authUser.id } })
-        : null;
+      const currentUser =
+        authUser.role === "CUSTOMER"
+          ? await prisma.user.findUnique({ where: { id: authUser.id } })
+          : null;
 
-    const { orderId, poolIds: createdPoolIds } = await prisma.$transaction(async (tx) => {
-      const lines = await resolveOrderLines(tx, body.items || []);
-      const stockUsage = aggregateStockUsage(lines);
-      await ensureStockAvailability(tx, stockUsage);
+      const { orderId, poolIds: createdPoolIds } = await prisma.$transaction(async (tx) => {
+        const lines = await resolveOrderLines(tx, body.items || []);
+        const stockUsage = aggregateStockUsage(lines);
+        await ensureStockAvailability(tx, stockUsage);
 
-      const subtotal = lines.reduce((sum, item) => sum + item.lineTotal, 0);
-      const serviceFee = body.serviceFee ?? 0;
-      const discountAmount = body.discountAmount ?? 0;
-      const totalAmount = subtotal + serviceFee - discountAmount;
+        const subtotal = lines.reduce((sum, item) => sum + item.lineTotal, 0);
+        const serviceFee = body.serviceFee ?? 0;
+        const discountAmount = body.discountAmount ?? 0;
+        const totalAmount = subtotal + serviceFee - discountAmount;
 
-      const order = await tx.order.create({
-        data: {
-          orderNumber: buildOrderNumber(),
-          source,
-          status: authUser.role === "CUSTOMER" ? OrderStatus.PENDING : OrderStatus.CONFIRMED,
-          paymentStatus: body.paymentStatus ?? PaymentStatus.UNPAID,
-          paymentMethod: body.paymentMethod,
-          tableLabel: body.tableLabel,
-          guestCount: body.guestCount,
-          guestName:
-            body.guestName ||
-            (authUser.role === "CUSTOMER" ? currentUser?.fullName : undefined),
-          guestPhone:
-            body.guestPhone ||
-            (authUser.role === "CUSTOMER" ? currentUser?.phone ?? undefined : undefined),
-          note: body.note,
-          internalNote: body.internalNote,
-          arrivalAt,
-          subtotal: money(subtotal),
-          serviceFee: money(serviceFee),
-          discountAmount: money(discountAmount),
-          totalAmount: money(totalAmount),
-          createdById: authUser.id,
-          assignedStaffId: body.assignedStaffId,
-          customerId: authUser.role === "CUSTOMER" ? authUser.id : body.customerId,
-          items: {
-            create: lines.map((line) => ({
-              menuItemId: line.menuItemId,
-              itemNameSnapshot: line.itemNameSnapshot,
-              unitPrice: money(line.unitPrice),
-              quantity: line.quantity,
-              waitingQuantity: line.waitingQuantity,
-              cookingQuantity: line.cookingQuantity,
-              readyQuantity: line.readyQuantity,
-              cancelledQuantity: line.cancelledQuantity,
-              status: line.status,
-              lineTotal: money(line.lineTotal),
-              note: line.note,
-            })),
-          },
-        },
-        include: {
-          items: {
-            select: {
-              id: true,
-              menuItemId: true,
-              note: true,
+        const order = await tx.order.create({
+          data: {
+            orderNumber: buildOrderNumber(),
+            source,
+            status: authUser.role === "CUSTOMER" ? OrderStatus.PENDING : OrderStatus.CONFIRMED,
+            paymentStatus: body.paymentStatus ?? PaymentStatus.UNPAID,
+            paymentMethod: body.paymentMethod,
+            tableLabel: body.tableLabel,
+            guestCount: body.guestCount,
+            guestName:
+              body.guestName ||
+              (authUser.role === "CUSTOMER" ? currentUser?.fullName : undefined),
+            guestPhone:
+              body.guestPhone ||
+              (authUser.role === "CUSTOMER" ? currentUser?.phone ?? undefined : undefined),
+            note: body.note,
+            internalNote: body.internalNote,
+            arrivalAt,
+            subtotal: money(subtotal),
+            serviceFee: money(serviceFee),
+            discountAmount: money(discountAmount),
+            totalAmount: money(totalAmount),
+            createdById: authUser.id,
+            assignedStaffId: body.assignedStaffId,
+            customerId: authUser.role === "CUSTOMER" ? authUser.id : body.customerId,
+            items: {
+              create: lines.map((line) => ({
+                menuItemId: line.menuItemId,
+                itemNameSnapshot: line.itemNameSnapshot,
+                unitPrice: money(line.unitPrice),
+                quantity: line.quantity,
+                waitingQuantity: line.waitingQuantity,
+                cookingQuantity: line.cookingQuantity,
+                readyQuantity: line.readyQuantity,
+                cancelledQuantity: line.cancelledQuantity,
+                status: line.status,
+                lineTotal: money(line.lineTotal),
+                note: line.note,
+              })),
             },
           },
-        },
+          include: {
+            items: {
+              select: {
+                id: true,
+                menuItemId: true,
+                note: true,
+              },
+            },
+          },
+        });
+
+        const reserveMovementIds = await applyStockUsage(tx, stockUsage, 1, {
+          movementType: InventoryMovementType.ORDER_RESERVE,
+          orderId: order.id,
+          createdById: authUser.id,
+        });
+
+        await syncOrderItemConsumptions(
+          tx,
+          pairOrderItemsWithResolvedLines(order.items, lines),
+          reserveMovementIds
+        );
+        return { orderId: order.id, poolIds: Array.from(stockUsage.keys()) };
       });
 
-      const reserveMovementIds = await applyStockUsage(tx, stockUsage, 1, {
-        movementType: InventoryMovementType.ORDER_RESERVE,
-        orderId: order.id,
-        createdById: authUser.id,
-      });
+      const order = await getOrderDetail(orderId);
+      const serialized = serializeOrder(order);
+      void broadcastStockUpdate(createdPoolIds);
+      broadcastNewOrder(serialized);
+      this.setStatus(201);
+      return serialized;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Khong the tao don.";
+      const normalized = message.toLowerCase();
+      const isBusinessError =
+        normalized.includes("tồn kho không đủ") ||
+        normalized.includes("nguồn hàng của món đã tạm dừng phục vụ") ||
+        normalized.includes("mon mau khong con kha dung") ||
+        normalized.includes("each order item must include menuitemid") ||
+        normalized.includes("so luong mon phai lon hon 0") ||
+        normalized.includes("khong tim thay nguon hang cua mon");
 
-      await syncOrderItemConsumptions(
-        tx,
-        pairOrderItemsWithResolvedLines(order.items, lines),
-        reserveMovementIds
-      );
-      return { orderId: order.id, poolIds: Array.from(stockUsage.keys()) };
-    });
+      if (isBusinessError) {
+        this.setStatus(400);
+        return { message };
+      }
 
-    const order = await getOrderDetail(orderId);
-    const serialized = serializeOrder(order);
-    void broadcastStockUpdate(createdPoolIds);
-    broadcastNewOrder(serialized);
-    this.setStatus(201);
-    return serialized;
+      const prismaCode = (error as { code?: string })?.code;
+      if (prismaCode === "P2003") {
+        this.setStatus(400);
+        return { message: "Dữ liệu đơn hàng không hợp lệ." };
+      }
+
+      throw error;
+    }
   }
 
   @Put("{id}/status")

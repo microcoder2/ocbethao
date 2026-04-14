@@ -271,6 +271,7 @@
               :note="createOrderDialog.note"
               :menu-options="manualMenuOptions"
               :stock-remaining-map="stockRemainingMap"
+              :category-order="CREATE_ORDER_CATEGORY_ORDER"
               :disabled="createOrderSubmitting || !manualMenu"
               :submit-disabled="createOrderSubmitting || !canSubmitCreateOrder"
               :submitting="createOrderSubmitting"
@@ -542,6 +543,7 @@ const manualMenu = computed(() => menuCatalog.value.length > 0);
 const manualMenuOptions = computed(() =>
   menuCatalog.value.filter((item) => item.isAvailable && item.menuItem)
 );
+const CREATE_ORDER_CATEGORY_ORDER = ["Hải mảnh", "Ốc", "Khác"];
 const canSubmitCreateOrder = computed(
   () => Boolean(
     manualMenu.value &&

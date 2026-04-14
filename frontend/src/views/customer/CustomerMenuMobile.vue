@@ -193,8 +193,8 @@
             :lines="cartDraftLines"
             :arrival-time="arrivalTime"
             :note="note"
-            :disabled="cart.length === 0 || submitting || !menu?.id"
-            :submit-disabled="cart.length === 0 || submitting || !menu?.id"
+            :disabled="cart.length === 0 || submitting || !menu"
+            :submit-disabled="cart.length === 0 || submitting || !menu"
             :submitting="submitting"
             submit-label="Gửi đơn"
             submitting-label="Đang gửi..."
@@ -540,7 +540,7 @@ function buildArrivalAt(serviceDate?: string, time?: string) {
 }
 
 async function submitOrder() {
-  if (!menu.value?.id || cart.value.length === 0) return;
+  if (!menu.value || cart.value.length === 0) return;
   const authUser = getUser();
   if (!authUser || String(authUser.role || "").toUpperCase() !== "CUSTOMER") {
     feedback.value = {

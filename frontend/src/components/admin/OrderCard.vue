@@ -153,19 +153,20 @@
         <div class="orders-modal order-picker-modal">
           <div class="order-picker-modal__header">
             <div class="order-picker-modal__heading">
-              <button
-                type="button"
-                class="order-picker-modal__multi-toggle"
-                :class="{ 'is-active': multiSelectMode }"
-                :aria-pressed="multiSelectMode ? 'true' : 'false'"
-                :title="multiSelectMode ? 'Tắt chọn nhiều món' : 'Bật chọn nhiều món'"
-                @click="multiSelectMode = !multiSelectMode"
-              >
-                <i class="bi" :class="multiSelectMode ? 'bi-check2-square' : 'bi-square'"></i>
-                <span>Chọn nhiều món</span>
-              </button>
               <div class="orders-modal-title">Thêm món</div>
-              <p class="orders-modal-text">Chọn món để thêm vào đơn hiện tại.</p>
+              <div class="order-picker-modal__toggle-row">
+                <button
+                  type="button"
+                  class="order-picker-modal__multi-toggle"
+                  :class="{ 'is-active': multiSelectMode }"
+                  :aria-pressed="multiSelectMode ? 'true' : 'false'"
+                  :title="multiSelectMode ? 'Tắt chọn nhiều món' : 'Bật chọn nhiều món'"
+                  @click="multiSelectMode = !multiSelectMode"
+                >
+                  <i class="bi" :class="multiSelectMode ? 'bi-check2-square' : 'bi-square'"></i>
+                  <span>Chọn nhiều món</span>
+                </button>
+              </div>
             </div>
             <button
               class="orders-modal-close order-picker-modal__close"
@@ -746,6 +747,8 @@ const showItemStatuses = computed(() =>
   editableItems.value.some((item) => item.status === "CANCELLED")
 );
 
+const CATEGORY_ORDER = ["Hải mảnh", "Ốc", "Khác"];
+
 const pickerCategories = computed((): PickerCategory[] => {
   const categories = new Map<string, Map<string, Omit<PickerGroup, "remaining">>>();
 
@@ -768,13 +771,24 @@ const pickerCategories = computed((): PickerCategory[] => {
     groups.get(groupKey)!.items.push(option);
   }
 
-  return Array.from(categories.entries()).map(([name, groups]) => ({
+  const groupedCategories = Array.from(categories.entries()).map(([name, groups]) => ({
     name,
     groups: Array.from(groups.values()).map((group) => ({
       ...group,
       remaining: group.poolId != null ? props.stockRemainingMap[group.poolId] ?? null : null,
     })),
   }));
+
+  return groupedCategories.sort((left, right) => {
+    const leftRank = CATEGORY_ORDER.indexOf(left.name);
+    const rightRank = CATEGORY_ORDER.indexOf(right.name);
+
+    if (leftRank !== rightRank) {
+      return (leftRank === -1 ? CATEGORY_ORDER.length : leftRank) - (rightRank === -1 ? CATEGORY_ORDER.length : rightRank);
+    }
+
+    return left.name.localeCompare(right.name, "vi");
+  });
 });
 
 const selectedGroup = computed((): PickerGroup | null => {
@@ -1677,8 +1691,14 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
 
 .order-picker-modal__heading {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
+}
+
+.order-picker-modal__toggle-row {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 2px;
 }
 
 .order-picker-modal__multi-toggle {

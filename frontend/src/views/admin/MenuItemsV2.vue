@@ -308,6 +308,10 @@ function resolveMethod(item: MenuItem) {
   return match || { id: "khac", name: "Khác" };
 }
 
+function stripVietnameseMarks(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 const filteredItems = computed(() => {
   const keyword = search.value.trim().toLowerCase();
   if (!keyword) return items.value;
@@ -333,10 +337,13 @@ const enrichedItems = computed<EnrichedItem[]>(() =>
 );
 
 function normalizeBucketName(name: string) {
-  if (name.toLowerCase().includes("hai")) return "Hai mảnh";
-  if (name.toLowerCase().includes("ốc") || name.toLowerCase().includes("oc")) return "Ốc";
+  const normalized = stripVietnameseMarks(name).toLowerCase();
+  if (normalized.includes("hai manh")) return "Hai mảnh";
+  if (normalized.includes("oc")) return "Ốc";
   return "Khác";
 }
+
+const BUCKET_ORDER = ["Hai mảnh", "Ốc", "Khác"];
 
 const ingredientGroups = computed<IngredientGroup[]>(() => {
   const map = new Map<string, IngredientGroup>();
@@ -376,10 +383,21 @@ const ingredientBuckets = computed(() => {
     if (!buckets.has(bucket)) buckets.set(bucket, []);
     buckets.get(bucket)!.push(group);
   }
-  return Array.from(buckets.entries()).map(([name, groups]) => ({
-    name,
-    groups: groups.sort((a, b) => a.label.localeCompare(b.label, "vi")),
-  }));
+  return Array.from(buckets.entries())
+    .map(([name, groups]) => ({
+      name,
+      groups: groups.sort((a, b) => a.label.localeCompare(b.label, "vi")),
+    }))
+    .sort((left, right) => {
+      const leftRank = BUCKET_ORDER.indexOf(left.name);
+      const rightRank = BUCKET_ORDER.indexOf(right.name);
+
+      if (leftRank !== rightRank) {
+        return (leftRank === -1 ? BUCKET_ORDER.length : leftRank) - (rightRank === -1 ? BUCKET_ORDER.length : rightRank);
+      }
+
+      return left.name.localeCompare(right.name, "vi");
+    });
 });
 
 const displayGroups = computed<DisplayGroup[]>(() => {

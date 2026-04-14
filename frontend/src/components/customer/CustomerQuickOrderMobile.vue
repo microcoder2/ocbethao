@@ -49,7 +49,9 @@
       :banner-text="menu?.bannerText || ''"
       :meta-chips="metaChips"
       :stock-remaining-map="stockRemainingMap"
-      :disabled="submitting || !menu?.id"
+      :category-order="ORDER_QUICK_CATEGORY_ORDER"
+      :hide-sold-out-items="true"
+      :disabled="submitting || !menu"
       :submit-disabled="submitting || !canSubmit"
       :submitting="submitting"
       :accordion="true"
@@ -130,6 +132,7 @@ const arrivalTime = ref("");
 const arrivalMode = ref<"scheduled" | "unknown" | "arrived">("unknown");
 const cart = ref<CartLine[]>(loadCustomerCart());
 const stockRemainingMap = reactive<Record<number, number>>({});
+const ORDER_QUICK_CATEGORY_ORDER = ["Hải mảnh", "Ốc", "Khác"];
 
 const menuOptions = computed(() =>
   (menu.value?.items ?? []).filter((item) => item.isAvailable && item.menuItem)
@@ -138,6 +141,7 @@ const menuOptions = computed(() =>
 const cartDraftLines = computed(() =>
   cart.value.map((line) => ({
     key: line.key,
+    menuItemId: line.menuItemId,
     name: line.name,
     price: line.price,
     quantity: line.quantity,
@@ -145,7 +149,7 @@ const cartDraftLines = computed(() =>
   }))
 );
 
-const canSubmit = computed(() => Boolean(menu.value?.id && cart.value.length > 0));
+const canSubmit = computed(() => Boolean(menu.value && cart.value.length > 0));
 
 const serviceDateLabel = computed(() => formatServiceDate(menu.value?.serviceDate));
 
@@ -290,7 +294,7 @@ function buildArrivalAt(serviceDate?: string, time?: string) {
 }
 
 async function submitOrder() {
-  if (!menu.value?.id || !cart.value.length) return;
+  if (!menu.value || !cart.value.length) return;
   const authUser = getUser();
   if (!authUser || String(authUser.role || "").toUpperCase() !== "CUSTOMER") {
     feedback.value = {
@@ -329,10 +333,14 @@ async function submitOrder() {
       text: "Đơn của bạn đã được gửi tới bếp. Bạn có thể theo dõi trạng thái trong mục Đơn của tôi.",
     };
     await loadMenu();
-  } catch {
+  } catch (error) {
+    const message =
+      (error as AxiosError)?.response?.data?.message ||
+      "Không thể gửi đơn lúc này. Vui lòng kiểm tra kết nối và thử lại.";
+    window.alert(message);
     feedback.value = {
       type: "error",
-      text: "Không thể gửi đơn lúc này. Vui lòng kiểm tra kết nối và thử lại.",
+      text: message,
     };
   } finally {
     submitting.value = false;
@@ -408,6 +416,10 @@ onBeforeUnmount(() => {
 .quick-order-mobile__feedback {
   grid-template-columns: auto 1fr;
   align-items: start;
+}
+
+.quick-order-mobile__feedback span {
+  white-space: pre-line;
 }
 
 .quick-order-mobile__feedback.is-success {

@@ -46,7 +46,7 @@
         :is-cancelling="cancellingId === order.id"
         :cancelling-item-id="cancellingItemOrderId === order.id ? cancellingItemId : null"
         :error-message="orderError[order.id] || ''"
-        @save-items="(items, arrivalTime) => saveEdit(order, items, arrivalTime)"
+        @save-items="(items, arrivalTime, guestCount) => saveEdit(order, items, arrivalTime, guestCount)"
         @request-cancel="openCancelConfirm(order)"
         @request-cancel-item="(itemId) => openCancelItemConfirm(order, itemId)"
       />
@@ -157,6 +157,7 @@ type OrderRecord = {
   status: string;
   paymentStatus: string;
   totalAmount: number;
+  guestCount?: number | null;
   arrivalAt?: string | null;
   createdAt: string;
   items?: OrderItem[];
@@ -291,7 +292,7 @@ function buildArrivalAtForOrder(order: OrderRecord, time?: string) {
   return `${source}T${time}`;
 }
 
-async function saveEdit(order: OrderRecord, items: SavePayload[], arrivalTime?: string) {
+async function saveEdit(order: OrderRecord, items: SavePayload[], arrivalTime?: string, guestCount?: number | null) {
   if (!items.length) {
     orderError[order.id] = "Đơn cần ít nhất 1 món.";
     return;
@@ -302,7 +303,11 @@ async function saveEdit(order: OrderRecord, items: SavePayload[], arrivalTime?: 
 
   try {
     const arrivalAt = buildArrivalAtForOrder(order, arrivalTime);
-    const payload = arrivalAt ? { items, arrivalAt } : { items };
+    const payload = {
+      items,
+      ...(arrivalAt ? { arrivalAt } : {}),
+      ...(guestCount !== undefined ? { guestCount } : {}),
+    };
     const { data } = await api.put(`/orders/my/${order.id}`, payload);
     replaceOrder(order.id, data);
   } catch (error) {

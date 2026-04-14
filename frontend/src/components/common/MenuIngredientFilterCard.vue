@@ -81,7 +81,7 @@ function resolveBadge(group: Group): number | null {
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 6px 10px;
+  padding: 4px 10px 3px;
   margin: 0;
   border: 0;
   background: rgba(var(--line-rgb), 0.12);
@@ -109,7 +109,8 @@ function resolveBadge(group: Group): number | null {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 0 8px 8px;
+  margin-top: 5px;
+  padding: 0 8px 6px;
 }
 
 .mi2f-ingredient {

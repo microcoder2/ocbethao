@@ -19,7 +19,7 @@
       :submitting-label="submittingLabel"
       :empty-title="emptyTitle"
       :empty-description="emptyDescription"
-      @change-qty="$emit('change-qty', $event)"
+      @change-qty="handleChangeQty"
       @update-line-note="$emit('update-line-note', $event)"
       @remove-line="$emit('remove-line', $event)"
       @update:arrival-time="$emit('update:arrival-time', $event)"
@@ -45,7 +45,7 @@
           {{ bannerText }}
         </div>
 
-        <div v-if="menuOptions.length" class="quick-order-picker">
+        <div v-if="visibleMenuOptions.length" class="quick-order-picker">
           <MenuIngredientFilterCard
             :buckets="pickerBuckets"
             :open-bucket-names="Array.from(openCats)"
@@ -68,7 +68,7 @@
                 type="button"
                 class="quick-order-picker__method"
                 :disabled="disabled || submitting || !canSelectItem(item)"
-                @click="$emit('select-item', item)"
+                @click="handleSelectItem(item)"
               >
                 <span>{{ methodLabel(item, selectedGroup.label) }}</span>
                 <span class="quick-order-picker__price">{{ formatMoneyShort(item.sellingPrice) }}</span>
@@ -97,6 +97,7 @@ type DraftLine = {
   price: number;
   quantity: number;
   note?: string | null;
+  menuItemId?: number | null;
 };
 
 type QuickOrderMenuOption = {
@@ -109,6 +110,7 @@ type QuickOrderMenuOption = {
     category?: { name: string } | null;
   } | null;
   stockLinks?: Array<{
+    consumeQuantity?: number | null;
     stockPool?: {
       id?: number;
       label?: string | null;
@@ -155,6 +157,8 @@ const props = withDefaults(
     emptyTitle?: string;
     emptyDescription?: string;
     emptyMenuHint?: string;
+    categoryOrder?: string[];
+    hideSoldOutItems?: boolean;
     sticky?: boolean;
     showHeader?: boolean;
     showSummary?: boolean;
@@ -177,6 +181,8 @@ const props = withDefaults(
     emptyTitle: "Chưa có món",
     emptyDescription: "Thêm món để bắt đầu tạo đơn.",
     emptyMenuHint: "",
+    categoryOrder: () => [],
+    hideSoldOutItems: false,
     sticky: false,
     showHeader: false,
     showSummary: false,
@@ -187,7 +193,7 @@ const props = withDefaults(
   }
 );
 
-defineEmits<{
+const emit = defineEmits<{
   "change-qty": [payload: { key: string | number; delta: number }];
   "remove-line": [key: string | number];
   "update:arrival-time": [value: string];
@@ -201,13 +207,144 @@ defineEmits<{
 const selectedGroupKey = ref<string | null>(null);
 const openCats = ref<Set<string>>(new Set());
 
+function stripVietnameseMarks(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function getMenuItemId(option: QuickOrderMenuOption) {
+  return Number(option.menuItemId ?? option.menuItem?.id ?? 0);
+}
+
+function getLineMenuItemId(line: DraftLine) {
+  return Number(line.menuItemId ?? 0);
+}
+
+function getItemStockUsage(item: QuickOrderMenuOption) {
+  return (item.stockLinks || [])
+    .map((link) => {
+      const pool = link.stockPool;
+      return {
+        poolId: Number(pool?.id ?? 0),
+        consumeQuantity: Number(link.consumeQuantity ?? 0),
+        remainingQuantity:
+          pool?.remainingQuantity != null ? Number(pool.remainingQuantity) : null,
+      };
+    })
+    .filter((entry) => entry.poolId > 0 && entry.consumeQuantity > 0);
+}
+
+const menuOptionByMenuItemId = computed(() => {
+  const map = new Map<number, QuickOrderMenuOption>();
+
+  for (const option of props.menuOptions) {
+    const menuItemId = getMenuItemId(option);
+    if (menuItemId > 0 && !map.has(menuItemId)) {
+      map.set(menuItemId, option);
+    }
+  }
+
+  return map;
+});
+
+const cartStockUsageByPool = computed(() => {
+  const usage = new Map<number, number>();
+
+  for (const line of props.lines) {
+    const menuItemId = getLineMenuItemId(line);
+    if (menuItemId <= 0) {
+      continue;
+    }
+
+    const item = menuOptionByMenuItemId.value.get(menuItemId);
+    if (!item) {
+      continue;
+    }
+
+    const quantity = Math.max(0, Math.floor(Number(line.quantity || 0)));
+    if (!quantity) {
+      continue;
+    }
+
+    for (const stock of getItemStockUsage(item)) {
+      usage.set(
+        stock.poolId,
+        (usage.get(stock.poolId) || 0) + stock.consumeQuantity * quantity
+      );
+    }
+  }
+
+  return usage;
+});
+
+function getPoolRemaining(poolId: number | null, fallbackRemaining?: number | null) {
+  if (poolId == null) {
+    return null;
+  }
+
+  const baseRemaining =
+    props.stockRemainingMap[poolId] ??
+    (fallbackRemaining != null ? Number(fallbackRemaining) : null);
+
+  if (baseRemaining == null) {
+    return null;
+  }
+
+  return Math.max(baseRemaining - (cartStockUsageByPool.value.get(poolId) || 0), 0);
+}
+
+function getItemAvailableQuantity(item: QuickOrderMenuOption) {
+  const usage = getItemStockUsage(item);
+  if (!usage.length) {
+    return null;
+  }
+
+  let capacity: number | null = null;
+
+  for (const stock of usage) {
+    const remaining = getPoolRemaining(stock.poolId, stock.remainingQuantity);
+    if (remaining == null) {
+      continue;
+    }
+
+    const nextCapacity = Math.floor(remaining / stock.consumeQuantity);
+    capacity = capacity == null ? nextCapacity : Math.min(capacity, nextCapacity);
+
+    if (capacity <= 0) {
+      return 0;
+    }
+  }
+
+  return capacity;
+}
+
+function getCategoryRank(name: string) {
+  const normalized = stripVietnameseMarks(name).toLowerCase();
+  const order = props.categoryOrder || [];
+
+  for (let index = 0; index < order.length; index += 1) {
+    if (stripVietnameseMarks(order[index]).toLowerCase() === normalized) {
+      return index;
+    }
+  }
+
+  return order.length;
+}
+
+const visibleMenuOptions = computed(() => {
+  if (!props.hideSoldOutItems) {
+    return props.menuOptions;
+  }
+
+  return props.menuOptions.filter((item) => canSelectItem(item));
+});
+
 const pickerCategories = computed((): PickerCategory[] => {
   const categories = new Map<
     string,
     Map<string, Omit<PickerGroup, "remaining">>
   >();
 
-  for (const option of props.menuOptions) {
+  for (const option of visibleMenuOptions.value) {
     const categoryName = option.menuItem?.category?.name ?? "Khác";
     if (!categories.has(categoryName)) {
       categories.set(categoryName, new Map());
@@ -226,13 +363,28 @@ const pickerCategories = computed((): PickerCategory[] => {
     groups.get(groupKey)!.items.push(option);
   }
 
-  return Array.from(categories.entries()).map(([name, groups]) => ({
+  const groupedCategories = Array.from(categories.entries()).map(([name, groups]) => ({
     name,
     groups: Array.from(groups.values()).map((group) => ({
       ...group,
-      remaining: group.poolId != null ? props.stockRemainingMap[group.poolId] ?? null : null,
+      remaining: group.poolId != null ? getPoolRemaining(group.poolId, null) : null,
     })),
   }));
+
+  if (!props.categoryOrder || props.categoryOrder.length === 0) {
+    return groupedCategories;
+  }
+
+  return groupedCategories.sort((left, right) => {
+    const leftRank = getCategoryRank(left.name);
+    const rightRank = getCategoryRank(right.name);
+
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+
+    return left.name.localeCompare(right.name, "vi");
+  });
 });
 
 const selectedGroup = computed((): PickerGroup | null => {
@@ -295,23 +447,37 @@ watch(
   { immediate: true }
 );
 
-function getItemRemaining(item: QuickOrderMenuOption) {
-  const poolId = item.stockLinks?.[0]?.stockPool?.id;
-  if (poolId == null) {
-    return null;
-  }
-
-  const liveRemaining = props.stockRemainingMap[poolId];
-  if (liveRemaining != null) {
-    return liveRemaining;
-  }
-
-  return item.stockLinks?.[0]?.stockPool?.remainingQuantity ?? null;
+function canSelectItem(item: QuickOrderMenuOption) {
+  const availableQuantity = getItemAvailableQuantity(item);
+  return Boolean(item.isAvailable) && (availableQuantity == null || availableQuantity > 0);
 }
 
-function canSelectItem(item: QuickOrderMenuOption) {
-  const remaining = getItemRemaining(item);
-  return Boolean(item.isAvailable) && remaining !== 0;
+function handleChangeQty(payload: { key: string | number; delta: number }) {
+  if (payload.delta > 0) {
+    const line = props.lines.find((entry) => String(entry.key) === String(payload.key));
+    if (line) {
+      const menuItemId = getLineMenuItemId(line);
+      const item = menuItemId > 0 ? menuOptionByMenuItemId.value.get(menuItemId) : null;
+      const additionalCapacity = item ? getItemAvailableQuantity(item) : null;
+
+      if (
+        additionalCapacity != null &&
+        payload.delta > additionalCapacity
+      ) {
+        return;
+      }
+    }
+  }
+
+  emit("change-qty", payload);
+}
+
+function handleSelectItem(item: QuickOrderMenuOption) {
+  if (!canSelectItem(item)) {
+    return;
+  }
+
+  emit("select-item", item);
 }
 
 function toggleCat(name: string) {
