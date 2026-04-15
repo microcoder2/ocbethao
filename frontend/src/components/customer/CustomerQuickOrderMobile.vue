@@ -37,37 +37,55 @@
       <RouterLink to="/customer/orders" class="btn btn-outline-dark">Xem đơn của tôi</RouterLink>
     </div>
 
-    <QuickOrderComposer
-      v-else
-      class="quick-order-mobile__composer"
-      title="Chọn món & gửi bếp"
-      :lines="cartDraftLines"
-      :arrival-time="arrivalTime"
-      :arrival-mode="arrivalMode"
-      :note="note"
-      :menu-options="menuOptions"
-      :banner-text="menu?.bannerText || ''"
-      :meta-chips="metaChips"
-      :stock-remaining-map="stockRemainingMap"
-      :category-order="ORDER_QUICK_CATEGORY_ORDER"
-      :hide-sold-out-items="true"
-      :disabled="submitting || !menu"
-      :submit-disabled="submitting || !canSubmit"
-      :submitting="submitting"
-      :accordion="true"
-      :auto-open-categories="false"
-      submitting-label="Đang gửi..."
-      empty-title="Chưa có món trong đơn"
-      empty-description="Chọn nhóm nguyên liệu và cách nấu bên dưới để thêm món vào đơn."
-      @change-qty="handleCartLineChange"
-      @update-line-note="updateCartLineNote"
-      @remove-line="removeLine"
-      @update:arrival-time="arrivalTime = $event"
-      @update:arrival-mode="arrivalMode = $event"
-      @update:note="note = $event"
-      @select-item="addItemDirect"
-      @submit="submitOrder"
-    />
+    <template v-else>
+      <div class="quick-order-mobile__guest-field">
+        <label class="quick-order-mobile__guest-label" for="quick-order-mobile-guest-count">
+          <i class="bi bi-people"></i>
+          <span>Số người</span>
+        </label>
+        <input
+          id="quick-order-mobile-guest-count"
+          v-model.trim="guestCount"
+          class="form-control quick-order-mobile__guest-input"
+          type="number"
+          min="1"
+          inputmode="numeric"
+          placeholder="1 người"
+          autocomplete="off"
+        />
+      </div>
+
+      <QuickOrderComposer
+        class="quick-order-mobile__composer"
+        title="Chọn món & gửi bếp"
+        :lines="cartDraftLines"
+        :arrival-time="arrivalTime"
+        :arrival-mode="arrivalMode"
+        :note="note"
+        :menu-options="menuOptions"
+        :banner-text="menu?.bannerText || ''"
+        :meta-chips="metaChips"
+        :stock-remaining-map="stockRemainingMap"
+        :category-order="ORDER_QUICK_CATEGORY_ORDER"
+        :hide-sold-out-items="true"
+        :disabled="submitting || !menu"
+        :submit-disabled="submitting || !canSubmit"
+        :submitting="submitting"
+        :accordion="true"
+        :auto-open-categories="false"
+        submitting-label="Đang gửi..."
+        empty-title="Chưa có món trong đơn"
+        empty-description="Chọn nhóm nguyên liệu và cách nấu bên dưới để thêm món vào đơn."
+        @change-qty="handleCartLineChange"
+        @update-line-note="updateCartLineNote"
+        @remove-line="removeLine"
+        @update:arrival-time="arrivalTime = $event"
+        @update:arrival-mode="arrivalMode = $event"
+        @update:note="note = $event"
+        @select-item="addItemDirect"
+        @submit="submitOrder"
+      />
+    </template>
   </div>
 </template>
 
@@ -77,7 +95,14 @@ import { AxiosError } from "axios";
 import { api } from "../../api";
 import { socket } from "../../socket";
 import QuickOrderComposer from "../common/QuickOrderComposer.vue";
-import { clearCustomerCart, loadCustomerCart, saveCustomerCart } from "../../utils/customerCart";
+import {
+  clearCustomerCart,
+  clearCustomerGuestCountDraft,
+  loadCustomerCart,
+  loadCustomerGuestCountDraft,
+  saveCustomerCart,
+  saveCustomerGuestCountDraft,
+} from "../../utils/customerCart";
 import { getUser } from "../../utils/auth";
 
 type FeedbackState = {
@@ -130,6 +155,7 @@ const submitting = ref(false);
 const note = ref("");
 const arrivalTime = ref("");
 const arrivalMode = ref<"scheduled" | "unknown" | "arrived">("unknown");
+const guestCount = ref(loadCustomerGuestCountDraft());
 const cart = ref<CartLine[]>(loadCustomerCart());
 const stockRemainingMap = reactive<Record<number, number>>({});
 const ORDER_QUICK_CATEGORY_ORDER = ["Hải mảnh", "Ốc", "Khác"];
@@ -172,10 +198,16 @@ watch(
       note.value = "";
       arrivalTime.value = "";
       arrivalMode.value = "unknown";
+      guestCount.value = "";
+      clearCustomerGuestCountDraft();
     }
   },
   { deep: true, immediate: true }
 );
+
+watch(guestCount, (value) => {
+  saveCustomerGuestCountDraft(value);
+});
 
 function normalizeLineNote(value?: string | null) {
   return String(value || "").trim();
@@ -293,6 +325,11 @@ function buildArrivalAt(serviceDate?: string, time?: string) {
   return `${serviceDate.slice(0, 10)}T${time}`;
 }
 
+function parseGuestCountDraft(value: string) {
+  const next = Number.parseInt(String(value || "").trim(), 10);
+  return Number.isFinite(next) && next > 0 ? next : null;
+}
+
 async function submitOrder() {
   if (!menu.value || !cart.value.length) return;
   const authUser = getUser();
@@ -318,6 +355,7 @@ async function submitOrder() {
 
     await api.post("/orders", {
       arrivalAt,
+      guestCount: parseGuestCountDraft(guestCount.value) ?? 1,
       note: normalizeLineNote(note.value) || undefined,
       items: cart.value.map((line) => ({
         menuItemId: line.menuItemId,
@@ -328,6 +366,8 @@ async function submitOrder() {
 
     cart.value = [];
     clearCustomerCart();
+    guestCount.value = "";
+    clearCustomerGuestCountDraft();
     feedback.value = {
       type: "success",
       text: "Đơn của bạn đã được gửi tới bếp. Bạn có thể theo dõi trạng thái trong mục Đơn của tôi.",
@@ -449,5 +489,50 @@ onBeforeUnmount(() => {
 .quick-order-mobile__composer {
   min-width: 0;
   margin-top: -12px;
+}
+
+.quick-order-mobile__guest-field {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px 12px;
+  margin-top: 0;
+  border-radius: 18px;
+  border: 1px solid rgba(var(--line-rgb), 0.68);
+  background:
+    linear-gradient(180deg, rgba(var(--panel-rgb), 0.98), rgba(var(--panel-rgb), 0.92));
+  box-shadow: 0 12px 28px rgba(var(--panel-alt-rgb), 0.08);
+}
+
+.quick-order-mobile__guest-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.quick-order-mobile__guest-label i {
+  font-size: 0.95rem;
+  color: var(--ember-strong);
+}
+
+.quick-order-mobile__guest-input {
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--text-rgb), 0.1);
+  background: rgba(var(--panel-rgb), 0.99);
+  color: var(--text);
+  font-size: 0.94rem;
+  font-weight: 700;
+  padding: 0 14px;
+  box-shadow: inset 0 1px 0 rgba(var(--panel-rgb), 0.9);
+}
+
+.quick-order-mobile__guest-input::placeholder {
+  color: var(--muted);
+  font-weight: 600;
 }
 </style>
