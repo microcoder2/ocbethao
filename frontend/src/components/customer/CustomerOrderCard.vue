@@ -118,15 +118,15 @@ import { computed, ref, watch } from "vue";
 import OrderCardShell from "../common/OrderCardShell.vue";
 import OrderCardItemsSection from "../common/OrderCardItemsSection.vue";
 import OrderCardItemStatuses from "../common/OrderCardItemStatuses.vue";
+import type { OrderCardStatusActionView } from "../common/OrderCardItemStatuses.vue";
 import OrderUpdateEditor from "../common/OrderUpdateEditor.vue";
 import { buildOrderCardProgressSegments } from "../common/orderCardProgress";
 import {
   buildOrderSaveItemsPayload,
   formatOrderGuestCountDraft,
   parseOrderGuestCountDraft,
-  useOrderDraftLineEditor,
-} from "../../composables/useOrderDraftLineEditor";
-import { useOrderItemPicker } from "../../composables/useOrderItemPicker";
+  useOrderEditor,
+} from "../../composables/useOrderEditor";
 import { formatMoney } from "../../utils/format";
 
 type OrderItem = {
@@ -294,29 +294,6 @@ function ensureDraft() {
 const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
 
 const {
-  highlightedKey,
-  removeDialog,
-  flashItem,
-  toggleItemNoteChip,
-  isItemNoteEditorOpen,
-  toggleItemNoteEditor,
-  openItemNoteEditor,
-  syncOpenItemNoteKeys,
-  resetLineEditorState,
-  changeQty,
-  confirmRemove,
-} = useOrderDraftLineEditor<EditableItem>({
-  draft,
-  editableItems,
-  ensureDraft,
-  updateQuantity: (item, nextQuantity) => ({
-    ...item,
-    quantity: nextQuantity,
-    lineTotal: nextQuantity * item.unitPrice,
-  }),
-});
-
-const {
   addPickerOpen,
   multiSelectMode,
   selectedGroupKey,
@@ -331,9 +308,21 @@ const {
   canSelectItem,
   methodLabel,
   addMenuItem,
-} = useOrderItemPicker<MenuOption, EditableItem>({
+  highlightedKey,
+  removeDialog,
+  flashItem,
+  toggleItemNoteChip,
+  isItemNoteEditorOpen,
+  toggleItemNoteEditor,
+  openItemNoteEditor,
+  syncOpenItemNoteKeys,
+  resetLineEditorState,
+  changeQty,
+  confirmRemove,
+} = useOrderEditor<MenuOption, EditableItem>({
   menuOptions: computed(() => props.menuOptions),
-  draftItems: draft,
+  draft,
+  editableItems,
   ensureDraft,
   getItemRemaining,
   findExistingDraftIndex: (items, option) => {
@@ -364,6 +353,11 @@ const {
     flashItem(key);
     openItemNoteEditor(key);
   },
+  updateQuantity: (item, nextQuantity) => ({
+    ...item,
+    quantity: nextQuantity,
+    lineTotal: nextQuantity * item.unitPrice,
+  }),
 });
 
 function discardDraft() {
@@ -525,7 +519,7 @@ function getItemStatusChips(item: EditableItem) {
   }];
 }
 
-function getItemStatusActions(item: EditableItem) {
+function getItemStatusActions(item: EditableItem): OrderCardStatusActionView[] {
   if (!canCancelWaitingItem(item)) {
     return [];
   }

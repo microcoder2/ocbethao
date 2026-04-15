@@ -1,4 +1,37 @@
-import { computed, ref, watch, type ComputedRef, type Ref } from "vue";
+import { computed, reactive, ref, watch, type ComputedRef, type Ref } from "vue";
+import { toggleNoteChip } from "../utils/noteChips";
+
+export type OrderDraftLineItem = {
+  key: string;
+  itemNameSnapshot: string;
+  quantity: number;
+  menuItemId?: number | null;
+  note?: string | null;
+};
+
+type SavePayload = {
+  menuItemId?: number;
+  quantity: number;
+  note?: string;
+};
+
+export function formatOrderGuestCountDraft(value?: number | null) {
+  const next = Number(value || 0);
+  return next > 0 ? String(next) : "";
+}
+
+export function parseOrderGuestCountDraft(value: string) {
+  const next = Number.parseInt(String(value || "").trim(), 10);
+  return Number.isFinite(next) && next > 0 ? next : null;
+}
+
+export function buildOrderSaveItemsPayload<TItem extends OrderDraftLineItem>(items: TItem[]): SavePayload[] {
+  return items.map((item) => ({
+    menuItemId: item.menuItemId ?? undefined,
+    quantity: item.quantity,
+    note: item.note || undefined,
+  }));
+}
 
 type PickerStockPool = {
   id?: number | null;
@@ -37,9 +70,10 @@ export type OrderItemPickerCategory<TOption extends OrderItemPickerOption> = {
   groups: Array<OrderItemPickerGroup<TOption>>;
 };
 
-type UseOrderItemPickerOptions<TOption extends OrderItemPickerOption, TDraftItem> = {
+type UseOrderEditorOptions<TOption extends OrderItemPickerOption, TDraftItem extends OrderDraftLineItem> = {
   menuOptions: Ref<TOption[]> | ComputedRef<TOption[]>;
-  draftItems: Ref<TDraftItem[] | null>;
+  draft: Ref<TDraftItem[] | null>;
+  editableItems: ComputedRef<TDraftItem[]>;
   ensureDraft: () => void;
   findExistingDraftIndex: (items: TDraftItem[], option: TOption) => number;
   buildUpdatedDraftItem: (current: TDraftItem, option: TOption) => TDraftItem;
@@ -49,6 +83,7 @@ type UseOrderItemPickerOptions<TOption extends OrderItemPickerOption, TDraftItem
   getItemRemaining?: (item: TOption) => number | null;
   normalizeCategoryLabel?: (value: string) => string;
   categoryOrder?: string[];
+  updateQuantity: (item: TDraftItem, nextQuantity: number) => TDraftItem;
 };
 
 const DEFAULT_CATEGORY_ORDER = ["Hai mảnh", "Ốc", "Khác"];
@@ -95,9 +130,16 @@ function defaultMethodLabel<TOption extends OrderItemPickerOption>(item: TOption
   return name;
 }
 
-export function useOrderItemPicker<TOption extends OrderItemPickerOption, TDraftItem>(
-  options: UseOrderItemPickerOptions<TOption, TDraftItem>
+export function useOrderEditor<TOption extends OrderItemPickerOption, TDraftItem extends OrderDraftLineItem>(
+  options: UseOrderEditorOptions<TOption, TDraftItem>
 ) {
+  const highlightedKey = ref<string | null>(null);
+  const openItemNoteKeys = ref<Set<string>>(new Set());
+  const removeDialog = reactive({
+    visible: false,
+    index: -1,
+    itemName: "",
+  });
   const addPickerOpen = ref(false);
   const multiSelectMode = ref(false);
   const selectedGroupKey = ref<string | null>(null);
@@ -175,30 +217,91 @@ export function useOrderItemPicker<TOption extends OrderItemPickerOption, TDraft
     }))
   );
 
-  watch(
-    pickerCategories,
-    (categories) => {
-      const nextOpenCats = new Set(
-        [...openCats.value].filter((name) => categories.some((category) => category.name === name))
-      );
-
-      for (const category of categories) {
-        nextOpenCats.add(category.name);
+  function flashItem(key: string) {
+    highlightedKey.value = key;
+    window.setTimeout(() => {
+      if (highlightedKey.value === key) {
+        highlightedKey.value = null;
       }
+    }, 1200);
+  }
 
-      openCats.value = nextOpenCats;
+  function setItemNote(index: number, note: string) {
+    options.ensureDraft();
+    const item = options.draft.value?.[index];
+    if (!item) return;
+    options.draft.value![index] = {
+      ...item,
+      note,
+    };
+  }
 
-      if (
-        selectedGroupKey.value &&
-        !categories.some((category) =>
-          category.groups.some((group) => group.key === selectedGroupKey.value)
-        )
-      ) {
-        selectedGroupKey.value = null;
-      }
-    },
-    { immediate: true }
-  );
+  function toggleItemNoteChip(index: number, chip: string) {
+    const item = options.editableItems.value[index];
+    if (!item) return;
+    setItemNote(index, toggleNoteChip(item.note || "", chip));
+  }
+
+  function isItemNoteEditorOpen(key: string) {
+    return openItemNoteKeys.value.has(key);
+  }
+
+  function toggleItemNoteEditor(key: string) {
+    const next = new Set(openItemNoteKeys.value);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    openItemNoteKeys.value = next;
+  }
+
+  function openItemNoteEditor(key: string) {
+    const next = new Set(openItemNoteKeys.value);
+    next.add(key);
+    openItemNoteKeys.value = next;
+  }
+
+  function syncOpenItemNoteKeys(items: TDraftItem[]) {
+    const validKeys = new Set(items.map((item) => item.key));
+    openItemNoteKeys.value = new Set(
+      Array.from(openItemNoteKeys.value).filter((key) => validKeys.has(key))
+    );
+  }
+
+  function resetLineEditorState() {
+    highlightedKey.value = null;
+    openItemNoteKeys.value = new Set();
+    removeDialog.visible = false;
+    removeDialog.index = -1;
+    removeDialog.itemName = "";
+  }
+
+  function changeQty(index: number, delta: number) {
+    options.ensureDraft();
+    const item = options.draft.value?.[index];
+    if (!item) return;
+
+    const nextQuantity = item.quantity + delta;
+    if (nextQuantity <= 0) {
+      removeDialog.visible = true;
+      removeDialog.index = index;
+      removeDialog.itemName = item.itemNameSnapshot;
+      return;
+    }
+
+    options.draft.value![index] = options.updateQuantity(item, nextQuantity);
+  }
+
+  function confirmRemove() {
+    if (options.draft.value && removeDialog.index >= 0) {
+      options.draft.value = options.draft.value.filter((_, index) => index !== removeDialog.index);
+    }
+
+    removeDialog.visible = false;
+    removeDialog.index = -1;
+    removeDialog.itemName = "";
+  }
 
   function openAddPicker() {
     addPickerOpen.value = true;
@@ -242,7 +345,7 @@ export function useOrderItemPicker<TOption extends OrderItemPickerOption, TDraft
     if (!canSelectItem(option)) return;
 
     options.ensureDraft();
-    const items = options.draftItems.value;
+    const items = options.draft.value;
     if (!items) return;
 
     const existingIndex = options.findExistingDraftIndex(items, option);
@@ -261,6 +364,31 @@ export function useOrderItemPicker<TOption extends OrderItemPickerOption, TDraft
     }
   }
 
+  watch(
+    pickerCategories,
+    (categories) => {
+      const nextOpenCats = new Set(
+        [...openCats.value].filter((name) => categories.some((category) => category.name === name))
+      );
+
+      for (const category of categories) {
+        nextOpenCats.add(category.name);
+      }
+
+      openCats.value = nextOpenCats;
+
+      if (
+        selectedGroupKey.value &&
+        !categories.some((category) =>
+          category.groups.some((group) => group.key === selectedGroupKey.value)
+        )
+      ) {
+        selectedGroupKey.value = null;
+      }
+    },
+    { immediate: true }
+  );
+
   return {
     addPickerOpen,
     multiSelectMode,
@@ -277,5 +405,16 @@ export function useOrderItemPicker<TOption extends OrderItemPickerOption, TDraft
     canSelectItem,
     methodLabel,
     addMenuItem,
+    highlightedKey,
+    removeDialog,
+    flashItem,
+    toggleItemNoteChip,
+    isItemNoteEditorOpen,
+    toggleItemNoteEditor,
+    openItemNoteEditor,
+    syncOpenItemNoteKeys,
+    resetLineEditorState,
+    changeQty,
+    confirmRemove,
   };
 }

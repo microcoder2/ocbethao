@@ -161,9 +161,8 @@ import {
   buildOrderSaveItemsPayload,
   formatOrderGuestCountDraft,
   parseOrderGuestCountDraft,
-  useOrderDraftLineEditor,
-} from "../../composables/useOrderDraftLineEditor";
-import { useOrderItemPicker } from "../../composables/useOrderItemPicker";
+  useOrderEditor,
+} from "../../composables/useOrderEditor";
 import { formatMoney } from "../../utils/format";
 
 // Types
@@ -464,36 +463,6 @@ function ensureDraft() {
 const editableItems = computed(() => draft.value ?? cloneItems(props.order.items));
 
 const {
-  highlightedKey,
-  removeDialog,
-  flashItem,
-  toggleItemNoteChip,
-  isItemNoteEditorOpen,
-  toggleItemNoteEditor,
-  openItemNoteEditor,
-  syncOpenItemNoteKeys,
-  resetLineEditorState,
-  changeQty,
-  confirmRemove,
-} = useOrderDraftLineEditor<EditableItem>({
-  draft,
-  editableItems,
-  ensureDraft,
-  updateQuantity: (item, nextQuantity) => ({
-    ...item,
-    quantity: nextQuantity,
-    activeQuantity: nextQuantity,
-    waitingQuantity: nextQuantity,
-    cookingQuantity: 0,
-    readyQuantity: 0,
-    cancelledQuantity: 0,
-    lineTotal: nextQuantity * item.unitPrice,
-    activeLineTotal: nextQuantity * item.unitPrice,
-    status: "WAITING",
-  }),
-});
-
-const {
   addPickerOpen,
   multiSelectMode,
   selectedGroupKey,
@@ -508,9 +477,21 @@ const {
   canSelectItem,
   methodLabel,
   addMenuItem,
-} = useOrderItemPicker<CatalogOption, EditableItem>({
+  highlightedKey,
+  removeDialog,
+  flashItem,
+  toggleItemNoteChip,
+  isItemNoteEditorOpen,
+  toggleItemNoteEditor,
+  openItemNoteEditor,
+  syncOpenItemNoteKeys,
+  resetLineEditorState,
+  changeQty,
+  confirmRemove,
+} = useOrderEditor<CatalogOption, EditableItem>({
   menuOptions: computed(() => props.menuOptions),
-  draftItems: draft,
+  draft,
+  editableItems,
   ensureDraft,
   getItemRemaining,
   findExistingDraftIndex: (items, option) => {
@@ -562,6 +543,18 @@ const {
     flashItem(key);
     openItemNoteEditor(key);
   },
+  updateQuantity: (item, nextQuantity) => ({
+    ...item,
+    quantity: nextQuantity,
+    activeQuantity: nextQuantity,
+    waitingQuantity: nextQuantity,
+    cookingQuantity: 0,
+    readyQuantity: 0,
+    cancelledQuantity: 0,
+    lineTotal: nextQuantity * item.unitPrice,
+    activeLineTotal: nextQuantity * item.unitPrice,
+    status: "WAITING",
+  }),
 });
 
 function discardDraft() {
@@ -819,7 +812,9 @@ function handleItemStatusAction(item: EditableItem, actionKey: string) {
     return;
   }
 
-  openStageControlByKey(item, actionKey);
+  if (actionKey === "WAITING" || actionKey === "COOKING" || actionKey === "READY") {
+    openStageControlByKey(item, actionKey);
+  }
 }
 
 function isWaitingOnlyItem(item: EditableItem) {

@@ -130,7 +130,7 @@ type OrderCardItem = {
   quantity: number;
   status: string;
   note?: string | null;
-  lineTotal?: number;
+  lineTotal: number;
 };
 
 type ProgressSegment = {
