@@ -140,6 +140,7 @@
           v-for="order in orders"
           :key="order.id"
           :order="order"
+          :collapsed="expandedOrderId !== order.id"
           :menu-options="getAddableOptions(order)"
           :stock-remaining-map="stockRemainingMap"
           :busy="isBusy(order)"
@@ -147,6 +148,7 @@
           :flash-cancelled-item-id="cancelledItemFlashMap[order.id] ?? null"
           :pending-item-status-id="updatingItemStatusOrderId === order.id ? updatingItemStatusId : null"
           :pending-item-status-value="updatingItemStatusOrderId === order.id ? updatingItemStatusValue : null"
+          @update:collapsed="handleOrderCollapsedChange(order.id, $event)"
           @confirm="changeOrderStatus(order, 'CONFIRMED')"
           @open-complete="openCompleteDialog(order)"
           @open-cancel="openCancelDialog(order)"
@@ -510,11 +512,16 @@ const updatingItemStatusValue = ref<string | null>(null);
 const savingOrderId = ref<number | null>(null);
 const errorMessage = ref("");
 const scheduleStripRef = ref<HTMLElement | null>(null);
+const expandedOrderId = ref<number | null>(null);
 const cancelledItemFlashMap = reactive<Record<number, number | null>>({});
 const cancelledItemFlashTimers = new Map<number, number>();
 
 function scrollSchedule(dir: -1 | 1) {
   scheduleStripRef.value?.scrollBy({ left: dir * 180, behavior: "smooth" });
+}
+
+function handleOrderCollapsedChange(orderId: number, nextCollapsed: boolean) {
+  expandedOrderId.value = nextCollapsed ? (expandedOrderId.value === orderId ? null : expandedOrderId.value) : orderId;
 }
 
 function flashCancelledItem(orderId: number, itemId: number) {

@@ -13,6 +13,7 @@
     :show-delete="canDelete"
     :delete-disabled="busy"
     :delete-title="`Xóa đơn ${order.orderNumber}`"
+    :destroy-on-collapse="true"
     @delete="$emit('deleteOrder')"
   >
     <template #head-main>
@@ -286,6 +287,7 @@ const props = defineProps<{
   order: OrderRecord;
   menuOptions: CatalogOption[];
   stockRemainingMap: Record<number, number>;
+  collapsed?: boolean;
   busy: boolean;
   isSaving: boolean;
   flashCancelledItemId?: number | null;
@@ -298,6 +300,7 @@ const emit = defineEmits<{
   openComplete: [];
   openCancel: [];
   deleteOrder: [];
+  "update:collapsed": [value: boolean];
   saveItems: [items: SavePayload[], arrivalTime: string | null, guestCount?: number | null];
   moveItemStage: [payload: MoveItemStagePayload];
 }>();
@@ -313,7 +316,7 @@ const paymentMethodLabels: Record<string, string> = {
 
 
 // Internal state
-const collapsed = ref(true);
+const internalCollapsed = ref(true);
 const draft = ref<EditableItem[] | null>(null);
 const arrivalTimeDraft = ref<string>(
   props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""
@@ -347,6 +350,16 @@ const stagePicker = reactive<{
   max: 1,
   label: "",
   hint: "",
+});
+
+const collapsed = computed({
+  get: () => (typeof props.collapsed === "boolean" ? props.collapsed : internalCollapsed.value),
+  set: (value: boolean) => {
+    if (typeof props.collapsed !== "boolean") {
+      internalCollapsed.value = value;
+    }
+    emit("update:collapsed", value);
+  },
 });
 
 // Reset draft when server items change (after save or status update)
