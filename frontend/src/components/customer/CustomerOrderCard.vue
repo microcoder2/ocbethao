@@ -42,8 +42,21 @@
         </template>
       </OrderCardItemsSection>
 
+      <button
+        v-if="canEdit && !shouldRenderEditor"
+        type="button"
+        class="order-editor-launch"
+        :disabled="busy"
+        title="Mở cập nhật đơn"
+        aria-label="Mở cập nhật đơn"
+        @click="openOrderEditor"
+      >
+        <span class="order-editor-launch__label">Cập nhật đơn</span>
+        <i class="bi bi-pencil-square"></i>
+      </button>
 
       <OrderUpdateEditor
+        v-if="shouldRenderEditor"
         :visible="canEdit"
         :busy="busy"
         :is-saving="isSaving"
@@ -213,6 +226,7 @@ const arrivalTimeDraft = ref(props.order.arrivalAt ? props.order.arrivalAt.slice
 const guestCountDraft = ref<string>(formatOrderGuestCountDraft(props.order.guestCount));
 const guestCountDirty = ref(false);
 const editPanelOpen = ref(false);
+const editorMounted = ref(false);
 
 watch(
   () =>
@@ -269,6 +283,15 @@ function formatTime(value?: string | null) {
 function handleArrivalTimeInput() {
   // The draft is read directly from arrivalTimeDraft; this keeps the template
   // aligned with the admin card without extra mode state.
+}
+
+function openOrderEditor() {
+  if (props.busy || !canEdit.value) {
+    return;
+  }
+
+  editorMounted.value = true;
+  editPanelOpen.value = true;
 }
 
 function cloneItems(items: OrderItem[] = []): EditableItem[] {
@@ -474,6 +497,19 @@ const displayTotal = computed(() => {
   if (!draftChanged.value) return Number(props.order.totalAmount || 0);
   return editableItems.value.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
 });
+const shouldRenderEditor = computed(
+  () =>
+    canEdit.value &&
+    (editorMounted.value || editPanelOpen.value || addPickerOpen.value || hasPendingSaveChanges.value)
+);
+
+watch(
+  [editPanelOpen, addPickerOpen, hasPendingSaveChanges, canEdit],
+  ([panelOpen, pickerOpen, pendingChanges, editable]) => {
+    editorMounted.value = Boolean(editable && (panelOpen || pickerOpen || pendingChanges));
+  },
+  { immediate: true }
+);
 
 
 function canCancelWaitingItem(item: EditableItem) {
@@ -557,6 +593,30 @@ function handleItemStatusAction(item: EditableItem, actionKey: string) {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.order-editor-launch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.order-editor-launch:hover,
+.order-editor-launch:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.order-editor-launch__label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .order-error {

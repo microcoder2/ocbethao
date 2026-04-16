@@ -83,6 +83,7 @@
   </div>
 
   <OrderItemPickerModal
+    v-if="pickerOpen"
     :open="pickerOpen"
     :busy="busy"
     :buckets="pickerBuckets"

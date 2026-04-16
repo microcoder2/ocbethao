@@ -63,7 +63,21 @@
       </template>
     </OrderCardItemsSection>
 
+    <button
+      v-if="canEdit && !shouldRenderEditor"
+      type="button"
+      class="order-editor-launch"
+      :disabled="busy"
+      title="Mở cập nhật đơn"
+      aria-label="Mở cập nhật đơn"
+      @click="openOrderEditor"
+    >
+      <span class="order-editor-launch__label">Cập nhật đơn</span>
+      <i class="bi bi-pencil-square"></i>
+    </button>
+
     <OrderUpdateEditor
+      v-if="shouldRenderEditor"
       :visible="canEdit"
       :busy="busy"
       :is-saving="isSaving"
@@ -305,6 +319,7 @@ const arrivalTimeDraft = ref<string>(
   props.order.arrivalAt ? props.order.arrivalAt.slice(11, 16) : ""
 );
 const guestCountDraft = ref<string>(formatOrderGuestCountDraft(props.order.guestCount));
+const editorMounted = ref(false);
 
 type ArrivalMode = "scheduled" | "unknown" | "arrived";
 const initialArrivalMode: ArrivalMode = props.order.arrivalAt ? "scheduled" : "unknown";
@@ -413,6 +428,15 @@ function formatTime(value: string) {
 
 function normalizeItemNote(note?: string | null) {
   return String(note || "").trim();
+}
+
+function openOrderEditor() {
+  if (props.busy || !canEdit.value) {
+    return;
+  }
+
+  editorMounted.value = true;
+  editPanelOpen.value = true;
 }
 
 function handleArrivalTimeInput() {
@@ -658,6 +682,19 @@ const readyToComplete = computed(() => {
 const showItemStatuses = computed(() =>
   simplifyStatus(props.order.status) === "CONFIRMED" ||
   editableItems.value.some((item) => item.status === "CANCELLED")
+);
+const shouldRenderEditor = computed(
+  () =>
+    canEdit.value &&
+    (editorMounted.value || editPanelOpen.value || addPickerOpen.value || hasPendingSaveChanges.value)
+);
+
+watch(
+  [editPanelOpen, addPickerOpen, hasPendingSaveChanges, canEdit],
+  ([panelOpen, pickerOpen, pendingChanges, editable]) => {
+    editorMounted.value = Boolean(editable && (panelOpen || pickerOpen || pendingChanges));
+  },
+  { immediate: true }
 );
 
 // Functions
@@ -1098,6 +1135,30 @@ a.order-customer-phone:hover { color: var(--ember-strong); text-decoration: unde
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.order-editor-launch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.order-editor-launch:hover,
+.order-editor-launch:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.order-editor-launch__label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 /* Internal remove-item modal */
